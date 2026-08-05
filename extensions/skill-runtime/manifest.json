@@ -1,0 +1,9 @@
+{
+  "name": "skill-runtime",
+  "version": "0.1.0",
+  "category": "skills",
+  "description": "Skill execution runtime: run, cancel, status, list, logs",
+  "binary": "skill-runtime",
+  "build": "go build -ldflags=\"-s -w\" -o skill-runtime .",
+  "tools": ["skill_run", "skill_cancel", "skill_status", "skill_list", "skill_logs"]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "tool-polymarket",
+  "version": "0.1.0",
+  "category": "tools",
+  "description": "Query Polymarket prediction market data via the Polymarket API.",
+  "binary": "tool-polymarket",
+  "build": "go build -ldflags=\"-s -w\" -o tool-polymarket .",
+  "tools": ["polymarket_markets"]
+}

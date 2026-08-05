@@ -1,0 +1,9 @@
+{
+  "name": "tool-gitbooks",
+  "version": "0.1.0",
+  "category": "tools",
+  "description": "Search GitBooks documentation via the GitBook API.",
+  "binary": "tool-gitbooks",
+  "build": "go build -ldflags=\"-s -w\" -o tool-gitbooks .",
+  "tools": ["gitbooks_search"]
+}

@@ -1,0 +1,28 @@
+build/bin
+node_modules
+frontend/dist
+
+# Compiled extension binaries (match common binary names from manifest.json)
+extensions/audio/audio
+extensions/browser-cdp/browser-cdp
+extensions/channel-*/channel-*
+extensions/codegraph/codegraph
+extensions/composio/composio
+extensions/desktop-auto/desktop-auto
+extensions/integrations/integrations
+extensions/learning-ext/learning-ext
+extensions/local-inference/local-inference
+extensions/lsp/lsp
+extensions/morning-briefing/morning-briefing
+extensions/presentation/presentation
+extensions/runtime-tools/runtime-tools
+extensions/screen-intel/screen-intel
+extensions/search-engines/search-engines
+extensions/skill-registry/skill-registry
+extensions/skill-runtime/skill-runtime
+extensions/task-source-*/task-source-*
+extensions/tool-*/tool-*
+extensions/model-council/model-council
+
+# Local tooling state
+.codewhale/

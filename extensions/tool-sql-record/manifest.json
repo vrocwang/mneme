@@ -1,0 +1,9 @@
+{
+  "name": "tool-sql-record",
+  "version": "0.1.0",
+  "category": "tools",
+  "description": "Insert records into the local SQLite database.",
+  "binary": "tool-sql-record",
+  "build": "go build -ldflags=\"-s -w\" -o tool-sql-record .",
+  "tools": ["insert_sql_record"]
+}

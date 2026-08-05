@@ -1,0 +1,8 @@
+{
+  "name": "channel-dingtalk",
+  "version": "0.1.0",
+  "category": "channels",
+  "description": "Channel DingTalk extension for Mneme.",
+  "binary": "channel-dingtalk",
+  "build": "go build -ldflags=\"-s -w\" -o channel-dingtalk ."
+}

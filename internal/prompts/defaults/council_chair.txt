@@ -1,0 +1,12 @@
+You are chairing a council of AI models. Below are their independent responses to a question.
+
+## Original Question
+{question}
+
+## Council Opinions
+{opinions}
+
+## Instructions
+Synthesize the above opinions into a single, coherent final answer. When opinions agree, state the consensus clearly. When they disagree, note the disagreement and give your best judgment. Be concise but thorough. Do not mention "the council" or refer to this process — just give the answer directly.
+
+Final answer:

@@ -1,0 +1,125 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Theme tokens (dark = default) ──────────────────────────────────── */
+:root {
+  --default-contextmenu: show;  /* enable right-click menu everywhere in production */
+  --color-surface: 15 25 35;
+  --color-surface-elevated: 21 30 43;
+  --color-surface-overlay: 27 38 53;
+  --color-surface-border: 36 48 68;
+  --color-surface-muted: 45 58 79;
+  --color-text: 255 255 255;
+
+  --shadow-elevated: 0 4px 24px rgba(0, 0, 0, 0.4), 0 1px 4px rgba(0, 0, 0, 0.2);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shimmer-gradient: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.03) 50%, transparent 100%);
+}
+
+/* ── Light theme ────────────────────────────────────────────────────── */
+html.light {
+  --color-surface: 248 250 252;
+  --color-surface-elevated: 255 255 255;
+  --color-surface-overlay: 241 245 249;
+  --color-surface-border: 226 232 240;
+  --color-surface-muted: 203 213 225;
+  --color-text: 15 23 42;
+
+  --shadow-elevated: 0 4px 24px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shimmer-gradient: linear-gradient(90deg, transparent 0%, rgba(0,0,0,0.03) 50%, transparent 100%);
+}
+
+/* ── Base ───────────────────────────────────────────────────────────── */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html, body, #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  body {
+    @apply bg-surface text-white font-sans antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-surface-muted rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-surface-border;
+  }
+
+  ::selection {
+    @apply bg-ocean-500/30 text-white;
+  }
+}
+
+/* ── Components ─────────────────────────────────────────────────────── */
+@layer components {
+  .glass-surface {
+    @apply bg-surface-elevated/80 backdrop-blur-xl border border-surface-border/50;
+  }
+  .glass-elevated {
+    @apply bg-surface-overlay/90 backdrop-blur-2xl border border-surface-border/50;
+    box-shadow: var(--shadow-elevated);
+  }
+  .btn-primary {
+    @apply bg-ocean-500 hover:bg-ocean-600 active:bg-ocean-700 text-white font-medium px-4 py-2.5 rounded-lg transition-all duration-200 shadow-inner-glow disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-ghost {
+    @apply hover:bg-surface-muted/40 active:bg-surface-muted/60 text-white/70 hover:text-white font-medium px-3 py-2 rounded-lg transition-all duration-200 disabled:opacity-30;
+  }
+  .btn-danger {
+    @apply bg-coral-500/20 hover:bg-coral-500/30 text-coral-400 font-medium px-4 py-2.5 rounded-lg transition-all duration-200;
+  }
+  .btn-success {
+    @apply bg-sage-500/20 hover:bg-sage-500/30 text-sage-400 font-medium px-4 py-2.5 rounded-lg transition-all duration-200;
+  }
+  .input-field {
+    @apply bg-surface-elevated border border-surface-border focus:border-ocean-500 rounded-lg px-3.5 py-2.5 text-white placeholder:text-white/30 outline-none transition-all duration-200 w-full;
+  }
+  .card {
+    @apply bg-surface-elevated border border-surface-border/50 rounded-xl p-5;
+    box-shadow: var(--shadow-card);
+  }
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+}
+
+/* ── Utilities ──────────────────────────────────────────────────────── */
+@layer utilities {
+  .text-gradient-ocean {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-ocean-300 to-ocean-500;
+  }
+  .shimmer-bg {
+    background: var(--shimmer-gradient);
+    background-size: 200% 100%;
+    animation: shimmer 2s linear infinite;
+  }
+  /* Safe text overflow for Chinese/CJK content — wraps anywhere when needed. */
+  .text-wrap-safe {
+    overflow-wrap: anywhere;
+    word-break: keep-all;
+  }
+  .text-truncate-safe {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

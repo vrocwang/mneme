@@ -1,0 +1,8 @@
+{
+  "name": "lsp",
+  "version": "0.1.0",
+  "category": "integrations",
+  "description": "LSP extension for Mneme.",
+  "binary": "lsp",
+  "build": "go build -ldflags=\"-s -w\" -o lsp ."
+}

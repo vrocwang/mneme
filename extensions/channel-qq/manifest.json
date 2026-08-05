@@ -1,0 +1,8 @@
+{
+  "name": "channel-qq",
+  "version": "0.1.0",
+  "category": "channels",
+  "description": "Channel QQ extension for Mneme.",
+  "binary": "channel-qq",
+  "build": "go build -ldflags=\"-s -w\" -o channel-qq ."
+}

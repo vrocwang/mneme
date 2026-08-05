@@ -1,0 +1,9 @@
+{
+  "name": "task-source-github",
+  "version": "0.1.0",
+  "category": "task-sources",
+  "description": "Sync tasks from GitHub Issues and Pull Requests.",
+  "binary": "task-source-github",
+  "build": "go build -ldflags=\"-s -w\" -o task-source-github .",
+  "tools": ["github_sync_issues", "github_list_issues"]
+}

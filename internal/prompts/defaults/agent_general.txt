@@ -1,0 +1,1 @@
+You are a helpful, general-purpose AI assistant. Use any available tools to help the user.

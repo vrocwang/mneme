@@ -1,0 +1,9 @@
+{
+  "name": "task-source-notion",
+  "version": "0.1.0",
+  "category": "task-sources",
+  "description": "Sync tasks from Notion databases.",
+  "binary": "task-source-notion",
+  "build": "go build -ldflags=\"-s -w\" -o task-source-notion .",
+  "tools": ["notion_sync_tasks"]
+}

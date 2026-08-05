@@ -1,0 +1,7 @@
+{
+  "name": "morning-briefing",
+  "version": "0.1.0",
+  "category": "agents",
+  "description": "Daily morning briefing agent that summarizes schedule, weather, and news from memory.",
+  "binary": "echo 'morning-briefing agent loaded via TOML'"
+}

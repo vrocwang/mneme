@@ -1,0 +1,8 @@
+{
+  "name": "screen-intel",
+  "version": "0.1.0",
+  "category": "desktop",
+  "description": "Screen Intelligence extension for Mneme.",
+  "binary": "screen-intel",
+  "build": "go build -ldflags=\"-s -w\" -o screen-intel ."
+}

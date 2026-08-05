@@ -1,0 +1,9 @@
+{
+  "name": "local-inference",
+  "version": "0.1.0",
+  "category": "inference",
+  "description": "Local inference service management (Ollama, LM Studio). Provides lifecycle tools: start, stop, health check, model pull, and model listing.",
+  "binary": "local-inference",
+  "build": "go build -ldflags=\"-s -w\" -o local-inference .",
+  "tools": ["inference_start", "inference_stop", "inference_health_check", "inference_pull_model", "inference_list_models"]
+}

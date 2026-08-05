@@ -1,0 +1,29 @@
+# Morning Briefing Agent — reference agent pack
+id = "morning_briefing"
+name = "Morning Briefing"
+description = "Generates a daily briefing summarizing recent activity, memory updates, and pending tasks"
+tier = "worker"
+
+# Run in background mode — no user interaction needed
+background = true
+
+# Trigger memory retrieval before generating briefing
+trigger_memory_agent = "always"
+
+# Restricted to read-only tools
+tool_allowlist = [
+  "memory_search",
+  "memory_hybrid_search",
+  "read_file",
+  "list_dir",
+  "todo_list",
+]
+
+max_iterations = 8
+timeout_secs = 120
+
+# Subagent policy
+[subagent_policy]
+max_depth = 1
+allow_parallel = false
+require_approval = false

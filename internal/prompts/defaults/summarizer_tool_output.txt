@@ -1,0 +1,1 @@
+Summarize the following tool output in 3-5 bullet points. Preserve key facts, numbers, filenames, and decisions. Omit boilerplate.

@@ -1,0 +1,8 @@
+{
+  "name": "channel-lark",
+  "version": "0.1.0",
+  "category": "channels",
+  "description": "Channel Lark (Feishu) extension for Mneme.",
+  "binary": "channel-lark",
+  "build": "go build -ldflags=\"-s -w\" -o channel-lark ."
+}

@@ -1,0 +1,9 @@
+{
+  "name": "tool-update",
+  "version": "0.1.0",
+  "category": "tools",
+  "description": "Check current version against latest release and apply updates.",
+  "binary": "tool-update",
+  "build": "go build -ldflags=\"-s -w\" -o tool-update .",
+  "tools": ["update_check", "update_apply"]
+}

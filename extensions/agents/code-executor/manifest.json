@@ -1,0 +1,9 @@
+{
+  "name": "code-executor",
+  "version": "0.1.0",
+  "category": "agents",
+  "description": "Code execution agent that runs code in sandboxed environments.",
+  "binary": "python3 agent.py",
+  "author": "mneme",
+  "license": "MIT"
+}

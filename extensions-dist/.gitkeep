@@ -1,0 +1,10 @@
+# Extension Distribution Directory
+
+This directory holds compiled extension binaries embedded into the main
+binary via `//go:embed all:extensions-dist` in main.go.
+
+Run `go generate` (or `go run cmd/build-extensions/main.go`) to populate
+this directory with built extensions from `extensions/`.
+
+The .gitkeep file ensures the directory exists in git so the embed
+directive does not fail on a fresh clone.

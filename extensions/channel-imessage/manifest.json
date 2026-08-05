@@ -1,0 +1,8 @@
+{
+  "name": "channel-imessage",
+  "version": "0.1.0",
+  "category": "channels",
+  "description": "Channel iMessage extension for Mneme.",
+  "binary": "channel-imessage",
+  "build": "go build -ldflags=\"-s -w\" -o channel-imessage ."
+}

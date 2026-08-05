@@ -1,0 +1,9 @@
+{
+  "name": "tool-installer",
+  "version": "0.1.0",
+  "category": "tools",
+  "description": "Detect OS and install system packages via apt, brew, pip, npm, or go.",
+  "binary": "tool-installer",
+  "build": "go build -ldflags=\"-s -w\" -o tool-installer .",
+  "tools": ["install_tool"]
+}

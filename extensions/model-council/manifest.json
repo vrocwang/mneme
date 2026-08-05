@@ -1,0 +1,8 @@
+{
+  "name": "model-council",
+  "version": "0.1.0",
+  "category": "agents",
+  "description": "Multi-model deliberation: query multiple LLMs and aggregate their responses.",
+  "binary": "model-council",
+  "build": "go build -ldflags=\"-s -w\" -o model-council ."
+}

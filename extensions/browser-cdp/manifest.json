@@ -1,0 +1,8 @@
+{
+  "name": "browser-cdp",
+  "version": "0.1.0",
+  "category": "integrations",
+  "description": "Browser CDP extension for Mneme.",
+  "binary": "browser-cdp",
+  "build": "go build -ldflags=\"-s -w\" -o browser-cdp ."
+}

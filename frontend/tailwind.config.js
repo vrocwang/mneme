@@ -1,0 +1,126 @@
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        ocean: {
+          50: '#EEF4FC',
+          100: '#D6E4F8',
+          200: '#ADC9F2',
+          300: '#85AFEB',
+          400: '#5C94E5',
+          500: '#4A83DD',
+          600: '#3268C4',
+          700: '#27509A',
+          800: '#1C3970',
+          900: '#112246',
+          950: '#0B152E',
+        },
+        sage: {
+          50: '#F4F7F2',
+          100: '#E5EDE0',
+          200: '#CDDCC4',
+          300: '#AEC89F',
+          400: '#8FB47A',
+          500: '#7A9E65',
+          600: '#60804F',
+          700: '#4A633E',
+          800: '#34462C',
+          900: '#1E291A',
+        },
+        amber: {
+          50: '#FFFCF5',
+          100: '#FFF7E0',
+          200: '#FFEDB8',
+          300: '#FFE08A',
+          400: '#FFD35C',
+          500: '#F5C242',
+          600: '#D4A520',
+          700: '#A68114',
+          800: '#785D0A',
+          900: '#4A3904',
+        },
+        coral: {
+          50: '#FFF5F5',
+          100: '#FFE5E5',
+          200: '#FFC4C4',
+          300: '#FF9494',
+          400: '#FF6B6B',
+          500: '#E85555',
+          600: '#C44040',
+          700: '#9A3030',
+          800: '#702020',
+          900: '#461010',
+        },
+        surface: {
+          DEFAULT: 'rgb(var(--color-surface) / <alpha-value>)',
+          elevated: 'rgb(var(--color-surface-elevated) / <alpha-value>)',
+          overlay: 'rgb(var(--color-surface-overlay) / <alpha-value>)',
+          border: 'rgb(var(--color-surface-border) / <alpha-value>)',
+          muted: 'rgb(var(--color-surface-muted) / <alpha-value>)',
+        },
+        // Semantic "white" that adapts: pure white in dark mode, near-black in light mode.
+        // All text-white/XX, bg-white, border-white classes automatically theme-switch.
+        white: 'rgb(var(--color-text) / <alpha-value>)',
+      },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+        display: ['Inter', 'system-ui', 'sans-serif'],
+      },
+      borderRadius: {
+        sm: '4px',
+        DEFAULT: '8px',
+        md: '10px',
+        lg: '14px',
+        xl: '20px',
+        '2xl': '28px',
+      },
+      spacing: {
+        '18': '4.5rem',
+        '68': '17rem',
+        '72': '18rem',
+        '84': '21rem',
+      },
+      boxShadow: {
+        'elevated': '0 4px 24px rgba(0, 0, 0, 0.4), 0 1px 4px rgba(0, 0, 0, 0.2)',
+        'overlay': '0 12px 48px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.3)',
+        'glow-ocean': '0 0 20px rgba(74, 131, 221, 0.15)',
+        'glow-amber': '0 0 20px rgba(245, 194, 66, 0.15)',
+        'inner-glow': 'inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+      },
+      animation: {
+        'fade-in': 'fadeIn 0.3s ease-out',
+        'slide-up': 'slideUp 0.3s ease-out',
+        'slide-in-left': 'slideInLeft 0.3s ease-out',
+        'pulse-soft': 'pulseSoft 2s ease-in-out infinite',
+        'shimmer': 'shimmer 2s linear infinite',
+      },
+      keyframes: {
+        fadeIn: {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+        slideUp: {
+          '0%': { opacity: '0', transform: 'translateY(12px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        slideInLeft: {
+          '0%': { opacity: '0', transform: 'translateX(-16px)' },
+          '100%': { opacity: '1', transform: 'translateX(0)' },
+        },
+        pulseSoft: {
+          '0%, 100%': { opacity: '1' },
+          '50%': { opacity: '0.6' },
+        },
+        shimmer: {
+          '0%': { backgroundPosition: '-200% 0' },
+          '100%': { backgroundPosition: '200% 0' },
+        },
+      },
+    },
+  },
+  plugins: [],
+};

@@ -1,0 +1,8 @@
+{
+  "name": "runtime-tools",
+  "version": "0.1.0",
+  "category": "integrations",
+  "description": "Runtime Tools extension for Mneme.",
+  "binary": "runtime-tools",
+  "build": "go build -ldflags=\"-s -w\" -o runtime-tools ."
+}

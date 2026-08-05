@@ -1,0 +1,9 @@
+{
+  "name": "media-generation",
+  "version": "0.1.0",
+  "category": "tools",
+  "description": "Media generation tools. Provides image generation via OpenAI DALL-E or Stable Diffusion compatible APIs.",
+  "binary": "python3 agent.py",
+  "author": "mneme",
+  "license": "MIT"
+}

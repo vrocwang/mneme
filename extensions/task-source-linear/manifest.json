@@ -1,0 +1,9 @@
+{
+  "name": "task-source-linear",
+  "version": "0.1.0",
+  "category": "task-sources",
+  "description": "Sync tasks from Linear issues.",
+  "binary": "task-source-linear",
+  "build": "go build -ldflags=\"-s -w\" -o task-source-linear .",
+  "tools": ["linear_sync_issues"]
+}

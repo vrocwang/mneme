@@ -1,0 +1,9 @@
+{
+  "name": "tool-proxy-config",
+  "version": "0.1.0",
+  "category": "tools",
+  "description": "View and set HTTP/HTTPS proxy configuration.",
+  "binary": "tool-proxy-config",
+  "build": "go build -ldflags=\"-s -w\" -o tool-proxy-config .",
+  "tools": ["proxy_config"]
+}

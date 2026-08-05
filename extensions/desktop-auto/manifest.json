@@ -1,0 +1,8 @@
+{
+  "name": "desktop-auto",
+  "version": "0.1.0",
+  "category": "desktop",
+  "description": "Desktop Auto extension for Mneme.",
+  "binary": "desktop-auto",
+  "build": "go build -ldflags=\"-s -w\" -o desktop-auto ."
+}

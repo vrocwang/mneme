@@ -1,0 +1,9 @@
+{
+  "name": "thread-goals",
+  "version": "0.1.0",
+  "category": "tools",
+  "description": "Thread goal tracking tools. Allows setting, retrieving, and managing conversation goals per thread.",
+  "binary": "python3 agent.py",
+  "author": "mneme",
+  "license": "MIT"
+}

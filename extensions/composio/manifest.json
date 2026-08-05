@@ -1,0 +1,9 @@
+{
+  "name": "composio",
+  "version": "0.1.0",
+  "category": "integrations",
+  "description": "Composio OAuth SaaS integrations. Provides tools for listing toolkits and executing actions on connected services (Gmail, Slack, GitHub, etc.).",
+  "binary": "composio",
+  "build": "go build -ldflags=\"-s -w\" -o composio .",
+  "tools": ["composio_list_toolkits", "composio_execute_action"]
+}

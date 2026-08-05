@@ -1,0 +1,4 @@
+Your memory has thin coverage in {count} areas:
+{gaps}
+
+Consider sharing more context about these topics to improve assistance.

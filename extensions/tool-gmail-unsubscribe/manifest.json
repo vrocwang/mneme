@@ -1,0 +1,9 @@
+{
+  "name": "tool-gmail-unsubscribe",
+  "version": "0.1.0",
+  "category": "tools",
+  "description": "Find and unsubscribe from mailing lists in Gmail via the Gmail API.",
+  "binary": "tool-gmail-unsubscribe",
+  "build": "go build -ldflags=\"-s -w\" -o tool-gmail-unsubscribe .",
+  "tools": ["gmail_unsubscribe"]
+}

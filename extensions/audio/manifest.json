@@ -1,0 +1,8 @@
+{
+  "name": "audio",
+  "version": "0.1.0",
+  "category": "integrations",
+  "description": "Audio extension for Mneme.",
+  "binary": "audio",
+  "build": "go build -ldflags=\"-s -w\" -o audio ."
+}
