@@ -20,14 +20,40 @@ import (
 // The registry is set during app startup; methods return empty results before that.
 type CapabilityRPC struct {
 	reg                 *CapabilityRegistry
+	mcpPersister        MCPServerPersister
 	legacyExtensionsDir string
 	skillsDir           string
+}
+
+// MCPServerPersister persists MCP server installations across restarts.
+// Implemented by mcp/store.Store (which imports capability), so the cycle is
+// broken by defining the interface and DTO here rather than importing the store.
+type MCPServerPersister interface {
+	PersistMCPServer(srv *PersistedMCPServer) error
+	RemoveMCPServer(serverID string) error
+}
+
+// PersistedMCPServer is the capability-package view of an installed MCP server,
+// decoupled from mcp/store.InstalledServer to avoid an import cycle.
+type PersistedMCPServer struct {
+	ServerID      string
+	QualifiedName string
+	DisplayName   string
+	Command       string
+	Args          []string
+	Transport     string
+	DeploymentURL string
+	Enabled       bool
 }
 
 // NewCapabilityRPC creates a Wails RPC handler. reg may be nil until startup.
 func NewCapabilityRPC(reg *CapabilityRegistry) *CapabilityRPC {
 	return &CapabilityRPC{reg: reg}
 }
+
+// SetMCPPersister wires the persistence backend used to survive restarts.
+// When nil (e.g. no database), Add/Remove operate in-memory only.
+func (r *CapabilityRPC) SetMCPPersister(p MCPServerPersister) { r.mcpPersister = p }
 
 // SetLegacyExtensionsDir sets the extensions directory path for InstallLegacyExtension.
 func (r *CapabilityRPC) SetLegacyExtensionsDir(dir string) { r.legacyExtensionsDir = dir }
@@ -209,9 +235,10 @@ func (r *CapabilityRPC) AddMCPServer(name, transport, command, url string, args 
 	if !r.ok() {
 		return nil
 	}
-	entry, err := json.Marshal(ServerEntry{
+	entryObj := ServerEntry{
 		Name: name, Transport: transport, Command: command, Args: args, URL: url, Enabled: true,
-	})
+	}
+	entry, err := json.Marshal(entryObj)
 	if err != nil {
 		return fmt.Errorf("marshal server entry: %w", err)
 	}
@@ -222,9 +249,23 @@ func (r *CapabilityRPC) AddMCPServer(name, transport, command, url string, args 
 	if err := r.reg.AddSet(set); err != nil {
 		return err
 	}
-	return r.reg.ConnectMCPServer("mcp:"+name, ServerEntry{
-		Name: name, Transport: transport, Command: command, Args: args, URL: url, Enabled: true,
-	})
+	if err := r.reg.ConnectMCPServer("mcp:"+name, entryObj); err != nil {
+		// Rollback the just-added set so a retry with corrected config is not
+		// blocked by a stale "already registered" entry.
+		_ = r.reg.RemoveSet("mcp:" + name)
+		return fmt.Errorf("connect failed: %w", err)
+	}
+	// Persist so ReconnectPersistedServers re-connects it after restart.
+	if r.mcpPersister != nil {
+		if perr := r.mcpPersister.PersistMCPServer(&PersistedMCPServer{
+			ServerID: "mcp:" + name, QualifiedName: name, DisplayName: name,
+			Command: command, Args: args, Transport: transport,
+			DeploymentURL: url, Enabled: true,
+		}); perr != nil {
+			// Non-fatal: the server works for this session but won't reconnect.
+		}
+	}
+	return nil
 }
 
 func (r *CapabilityRPC) RemoveMCPServer(name string) error {
@@ -232,7 +273,18 @@ func (r *CapabilityRPC) RemoveMCPServer(name string) error {
 		return nil
 	}
 	r.reg.DisconnectMCPServer("mcp:" + name)
-	return r.reg.RemoveSet("mcp:" + name)
+	err := r.reg.RemoveSet("mcp:" + name)
+	if r.mcpPersister != nil {
+		// Always clean up persisted state, even if the in-memory set was
+		// already absent (e.g. after a restart that failed to reconnect).
+		if perr := r.mcpPersister.RemoveMCPServer("mcp:" + name); perr != nil {
+			return perr
+		}
+		// Suppress a "set not found" error: removing a server that exists
+		// only in the DB is not a failure.
+		return nil
+	}
+	return err
 }
 
 func (r *CapabilityRPC) ConnectMCPServer(name string) error {

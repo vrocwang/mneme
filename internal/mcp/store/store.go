@@ -380,3 +380,26 @@ func boolToInt(b bool) int64 {
 	}
 	return 0
 }
+
+// PersistMCPServer adapts capability.PersistedMCPServer to InstalledServer,
+// satisfying capability.MCPServerPersister. It is idempotent: any prior row
+// for the same server ID is replaced first, so re-adding a server is safe.
+func (s *Store) PersistMCPServer(srv *capability.PersistedMCPServer) error {
+	_, _ = s.DeleteServer(srv.ServerID) // clear prior row (idempotent upsert)
+	return s.InsertServer(&InstalledServer{
+		ServerID:      srv.ServerID,
+		QualifiedName: srv.QualifiedName,
+		DisplayName:   srv.DisplayName,
+		Command:       srv.Command,
+		Args:          srv.Args,
+		Transport:     srv.Transport,
+		DeploymentURL: srv.DeploymentURL,
+		Enabled:       srv.Enabled,
+	})
+}
+
+// RemoveMCPServer deletes a persisted server, satisfying capability.MCPServerPersister.
+func (s *Store) RemoveMCPServer(serverID string) error {
+	_, err := s.DeleteServer(serverID)
+	return err
+}

@@ -105,6 +105,7 @@ func (a *App) wireRPC() {
 	}
 	if a.capRPC != nil {
 		a.capRPC.SetRegistry(a.CapReg)
+		a.capRPC.SetMCPPersister(a.McpStore)
 		a.capRPC.SetLegacyExtensionsDir(filepath.Join(a.Cfg.Workspace, "extensions"))
 		a.capRPC.SetSkillsDir(filepath.Join(a.Cfg.Workspace, "skills"))
 	}

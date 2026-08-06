@@ -3,6 +3,7 @@ package channels
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 )
@@ -139,9 +140,22 @@ func (o *Orchestrator) consume(ctx context.Context, name string, ch Channel) {
 					_ = ts.StopTyping(ctx, msg.From)
 				}
 			}
-			o.dispatcher.Handle(ctx, msg)
+			response, derr := o.dispatcher.Handle(ctx, msg)
 			if stopTyping != nil {
 				stopTyping()
+			}
+			// Deliver the agent's reply back to the originating channel.
+			// Skip empty responses (e.g. blocked messages) and log send
+			// failures without failing the consumer loop.
+			if derr == nil && strings.TrimSpace(response) != "" {
+				reply := Message{
+					ID: msg.ID + "-reply", Channel: msg.Channel, From: msg.From,
+					Content: response, ReplyTo: msg.ReplyTo,
+				}
+				if err := ch.Send(ctx, reply); err != nil {
+					o.log.Warn("failed to send reply to channel",
+						"name", name, "error", err)
+				}
 			}
 		case <-ctx.Done():
 			return

@@ -23,14 +23,15 @@ func NewDispatcher(log *slog.Logger, dispatchFn DispatchFunc) *Dispatcher {
 }
 
 // Handle processes an inbound channel message. It sanitizes the content,
-// dispatches to the agent, and logs the outcome.
-func (d *Dispatcher) Handle(ctx context.Context, msg Message) {
+// dispatches to the agent, and returns the agent's response so the caller
+// (orchestrator) can deliver it back to the originating channel.
+func (d *Dispatcher) Handle(ctx context.Context, msg Message) (string, error) {
 	// Sanitize before dispatch.
 	sanitized, blocked := SanitizeInbound(msg.Content, d.log)
 	if blocked {
 		d.log.Warn("channel message blocked by injection detection",
 			"channel", msg.Channel, "from", msg.From)
-		return
+		return "", nil
 	}
 
 	d.log.Info("dispatching channel message",
@@ -40,7 +41,7 @@ func (d *Dispatcher) Handle(ctx context.Context, msg Message) {
 	if d.dispatchFn == nil {
 		d.log.Warn("no dispatch function set, message dropped",
 			"channel", msg.Channel)
-		return
+		return "", nil
 	}
 
 	msg.Content = sanitized
@@ -48,10 +49,11 @@ func (d *Dispatcher) Handle(ctx context.Context, msg Message) {
 	if err != nil {
 		d.log.Error("channel dispatch failed",
 			"channel", msg.Channel, "error", err)
-		return
+		return "", err
 	}
 	d.log.Debug("channel dispatch complete",
 		"channel", msg.Channel, "response_len", len(response))
+	return response, nil
 }
 
 // ChannelThreadID derives a stable thread identifier for a channel+ sender pair.
