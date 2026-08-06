@@ -1,5 +1,7 @@
 # Mneme
 
+English | [简体中文](./README.zh-CN.md)
+
 Mneme is an AI agent platform built with [Wails](https://wails.io) (Go backend +
 React/TypeScript frontend). It provides a desktop assistant, a CLI, sub-agent
 orchestration, a memory/learning pipeline, MCP tool integration, and a layered
