@@ -57,9 +57,17 @@ func (s *Sandbox) Command(ctx context.Context, workspaceRoot, command string, ar
 // but resolves to a noop (unsupported platform), sandboxing is marked required
 // so tool execution fails closed rather than silently degrading.
 func SetSandboxConfig(cfg config.SandboxConfig) {
+	globalSandbox = resolveSandbox(cfg)
+}
+
+// resolveSandbox is the single source of truth for turning a SandboxConfig
+// into a Sandbox seam (backend + fail-closed requirement). Both the global
+// seam (SetSandboxConfig) and the shell tool use it, so the fail-closed logic
+// cannot drift between them.
+func resolveSandbox(cfg config.SandboxConfig) *Sandbox {
 	switch {
 	case cfg.Mode == "disabled":
-		globalSandbox = newSandbox(sandbox.NoopBackend(), false)
+		return newSandbox(sandbox.NoopBackend(), false)
 	case cfg.BackendOverride != "":
 		backend := sandbox.NewByName(cfg.BackendOverride)
 		required := sandbox.IsNoop(backend)
@@ -67,14 +75,14 @@ func SetSandboxConfig(cfg config.SandboxConfig) {
 			slog.Error("sandbox: requested backend unavailable; tool execution will be refused",
 				"backend_override", cfg.BackendOverride)
 		}
-		globalSandbox = newSandbox(backend, required)
+		return newSandbox(backend, required)
 	default:
 		backend := sandbox.Detect()
 		required := cfg.Mode == "sandboxed" && sandbox.IsNoop(backend)
 		if required {
 			slog.Error("sandbox: mode=sandboxed requested but no sandbox backend is available; tool execution will be refused")
 		}
-		globalSandbox = newSandbox(backend, required)
+		return newSandbox(backend, required)
 	}
 }
 

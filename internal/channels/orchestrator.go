@@ -17,6 +17,7 @@ type Orchestrator struct {
 	dispatcher *Dispatcher
 	mu         sync.Mutex
 	wg         sync.WaitGroup
+	cancel     context.CancelFunc // cancels the consume-loop context on StopAll
 }
 
 // NewOrchestrator creates a channel orchestrator.
@@ -37,9 +38,15 @@ func (o *Orchestrator) Register(name string, ch Channel) {
 
 // StartAll starts all registered channels and begins consuming their events.
 // Each channel's Events() channel is consumed in its own goroutine. The
-// provided context controls the lifetime of all consumers.
+// provided context controls the lifetime of all consumers; StopAll cancels it.
 func (o *Orchestrator) StartAll(ctx context.Context) {
+	// Derive a cancellable context so StopAll can signal all consume loops to
+	// exit even when the caller passed context.Background() (as the GUI boot
+	// does). Without this, channels whose Stop() doesn't close their Events()
+	// channel (e.g. web) would leave their consume goroutine blocked forever.
+	ctx, cancel := context.WithCancel(ctx)
 	o.mu.Lock()
+	o.cancel = cancel
 	chans := make(map[string]Channel, len(o.channels))
 	for name, ch := range o.channels {
 		chans[name] = ch
@@ -64,12 +71,20 @@ func (o *Orchestrator) StartAll(ctx context.Context) {
 
 // StopAll stops all channels and waits for event consumers to finish.
 func (o *Orchestrator) StopAll() {
+	// Cancel the consume-loop context first so every consume goroutine's
+	// <-ctx.Done() branch fires and exits, even for channels whose Stop()
+	// does not close their Events() channel (e.g. web).
 	o.mu.Lock()
+	cancel := o.cancel
 	chans := make(map[string]Channel, len(o.channels))
 	for name, ch := range o.channels {
 		chans[name] = ch
 	}
 	o.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
 
 	for name, ch := range chans {
 		if err := ch.Stop(); err != nil {

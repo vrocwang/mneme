@@ -29,6 +29,9 @@ func main() {
 		Version:     "0.1.0",
 		Description: "Language runtime tools: node_exec, npm_exec, python_exec, python_venv",
 	})
+	// These tools can legitimately run long; match the original 5-minute
+	// per-call timeout rather than the SDK's 60s default.
+	srv.SetCallTimeout(5 * time.Minute)
 
 	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "node_exec",

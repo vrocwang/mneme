@@ -22,7 +22,15 @@ import (
 	"log/slog"
 	"os"
 	"sync"
+	"time"
 )
+
+// DefaultCallTimeout bounds each tool execution. The previous hand-written
+// loops wrapped every call in context.WithTimeout (typically 30–60s, up to
+// 5m for long-running tools). Since the JSON-RPC transport has no cancellation
+// signal, this default prevents a hung handler from blocking the extension
+// process forever. Tools needing longer can call SetCallTimeout.
+const DefaultCallTimeout = 60 * time.Second
 
 // ProtocolVersion is the extension protocol version implemented by this SDK.
 // It must match internal/tools.ProtocolVersion on the host side.
@@ -133,11 +141,12 @@ type Server struct {
 	manifest Manifest
 	log      *slog.Logger
 
-	mu      sync.RWMutex
-	tools   []ToolDef
-	handlers map[string]ToolHandler
-	agents  []AgentDef
-	config  ConfigHandler
+	mu         sync.RWMutex
+	tools      []ToolDef
+	handlers   map[string]ToolHandler
+	agents     []AgentDef
+	config     ConfigHandler
+	callTimeout time.Duration
 }
 
 // NewServer creates a Server with the given manifest. tool names in the
@@ -155,9 +164,18 @@ func NewServer(m Manifest) *Server {
 		m.AgentDefs = []string{}
 	}
 	return &Server{
-		manifest: m,
-		log:      slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
-		handlers: make(map[string]ToolHandler),
+		manifest:    m,
+		log:         slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
+		handlers:    make(map[string]ToolHandler),
+		callTimeout: DefaultCallTimeout,
+	}
+}
+
+// SetCallTimeout overrides the per-tool execution timeout (default
+// DefaultCallTimeout). Must be called before Run.
+func (s *Server) SetCallTimeout(d time.Duration) {
+	if d > 0 {
+		s.callTimeout = d
 	}
 }
 
@@ -291,7 +309,8 @@ func (s *Server) handle(req *rpcRequest) *rpcResponse {
 		if !ok {
 			return s.rpcResult(req, Result{Error: fmt.Sprintf("unknown tool: %s", params.Name)})
 		}
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(context.Background(), s.callTimeout)
+		defer cancel()
 		res := h(ctx, params.Args)
 		return s.rpcResult(req, res)
 

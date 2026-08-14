@@ -160,7 +160,70 @@ func isNativeBinaryFile(path string) bool {
 		return true
 	}
 	// Unix execute bit.
-	return info.Mode()&0111 != 0
+	if info.Mode()&0111 != 0 {
+		return true
+	}
+	// Fall back to magic-number sniffing. This is a defensive catch-all for
+	// native binaries that lack an execute bit — notably extensions extracted
+	// from the embedded filesystem, where os.WriteFile(0644) drops the mode.
+	if info.Size() >= 2048 {
+		return hasBinaryMagic(path)
+	}
+	return false
+}
+
+// hasBinaryMagic reads the first 4 bytes of a file and checks for known
+// native binary magic numbers: PE (MZ), ELF (\x7fELF), Mach-O variants.
+func hasBinaryMagic(path string) bool {
+	if isScriptFile(path) {
+		return false
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Size() < 2048 {
+		return false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	var magic [4]byte
+	if _, err := f.Read(magic[:]); err != nil {
+		return false
+	}
+	// PE: MZ (0x4D 0x5A)
+	if magic[0] == 0x4D && magic[1] == 0x5A {
+		return true
+	}
+	// ELF: \x7f E L F
+	if magic[0] == 0x7F && magic[1] == 'E' && magic[2] == 'L' && magic[3] == 'F' {
+		return true
+	}
+	// Mach-O 32-bit: CE FA ED FE or FE ED FA CE
+	if magic[0] == 0xCE && magic[1] == 0xFA && magic[2] == 0xED && magic[3] == 0xFE {
+		return true
+	}
+	if magic[0] == 0xFE && magic[1] == 0xED && magic[2] == 0xFA && magic[3] == 0xCE {
+		return true
+	}
+	// Mach-O 64-bit: CF FA ED FE or FE ED FA CF
+	if magic[0] == 0xCF && magic[1] == 0xFA && magic[2] == 0xED && magic[3] == 0xFE {
+		return true
+	}
+	if magic[0] == 0xFE && magic[1] == 0xED && magic[2] == 0xFA && magic[3] == 0xCF {
+		return true
+	}
+	return false
+}
+
+// isScriptFile returns true if the file extension suggests a script.
+func isScriptFile(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".py", ".js", ".mjs", ".ts", ".rb", ".sh", ".bash", ".lua", ".pl", ".php":
+		return true
+	}
+	return false
 }
 
 // resolveInterpreter reads the shebang line or falls back to extension mapping.

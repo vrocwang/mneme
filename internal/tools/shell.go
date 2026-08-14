@@ -11,7 +11,6 @@ import (
 
 	"github.com/simon/mneme/internal/config"
 	"github.com/simon/mneme/internal/security"
-	"github.com/simon/mneme/internal/security/sandbox"
 	"github.com/simon/mneme/internal/subprocess"
 )
 
@@ -46,14 +45,13 @@ const defaultMaxShellOutputBytes = 1 << 20 // 1MB — matches Rust MAX_OUTPUT_BY
 
 // Shell executes a shell command through the security gate.
 type Shell struct {
-	workspaceRoot   string
-	tier            security.Tier
-	sandbox         sandbox.Backend
-	sandboxRequired bool
-	runner          subprocess.Runner
-	maxOutputBytes  int
-	safeEnvVars     []string
-	timeoutSec      int
+	workspaceRoot  string
+	tier           security.Tier
+	sandbox        *Sandbox
+	runner         subprocess.Runner
+	maxOutputBytes int
+	safeEnvVars    []string
+	timeoutSec     int
 }
 
 func NewShell(workspaceRoot string, tier security.Tier, toolsShellCfg config.ToolsShellConfig, sandboxCfg config.SandboxConfig) *Shell {
@@ -68,20 +66,9 @@ func NewShellWithRunner(workspaceRoot string, tier security.Tier, toolsShellCfg 
 		workspaceRoot:  workspaceRoot,
 		tier:           tier,
 		runner:         runner,
+		sandbox:        resolveSandbox(sandboxCfg),
 		maxOutputBytes: toolsShellCfg.MaxOutputBytes,
 		safeEnvVars:    toolsShellCfg.SafeEnvVars,
-	}
-
-	// Resolve sandbox backend from config.
-	switch {
-	case sandboxCfg.Mode == "disabled":
-		s.sandbox = sandbox.NoopBackend()
-	case sandboxCfg.BackendOverride != "":
-		s.sandbox = sandbox.NewByName(sandboxCfg.BackendOverride)
-		s.sandboxRequired = sandbox.IsNoop(s.sandbox)
-	default:
-		s.sandbox = sandbox.Detect()
-		s.sandboxRequired = sandboxCfg.Mode == "sandboxed" && sandbox.IsNoop(s.sandbox)
 	}
 
 	// Apply defaults for zero values.
@@ -152,10 +139,7 @@ func (t *Shell) Execute(ctx context.Context, args map[string]interface{}) Result
 	if runtime.GOOS == "windows" {
 		shellBin, shellFlag = "cmd", "/c"
 	}
-	if t.sandboxRequired {
-		return Result{Error: "sandbox is required by configuration but no sandbox backend is available on this platform"}
-	}
-	cmd, err := t.sandbox.WrapCommand(ctx, t.workspaceRoot, shellBin, shellFlag, command)
+	cmd, err := t.sandbox.Command(ctx, t.workspaceRoot, shellBin, shellFlag, command)
 	if err != nil {
 		return Result{Error: fmt.Sprintf("sandbox wrap failed: %v", err)}
 	}

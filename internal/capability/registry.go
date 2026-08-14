@@ -609,13 +609,12 @@ func (r *CapabilityRegistry) Shutdown() {
 // these in reverse order. On a registration conflict it rolls back any partial
 // state and returns an error.
 func (r *CapabilityRegistry) RegisterExtension(setID string, set *CapabilitySet, proc *tools.ProtoProcess, extTools []tools.Tool, extAgents []*tools.AgentDef) (dispose.Func, error) {
-	// Pre-check to avoid mutating state when the set already exists. Boot-time
-	// discovery is single-threaded; a racy AddSet failure is still rolled back.
-	r.mu.RLock()
-	_, exists := r.sets[setID]
-	r.mu.RUnlock()
-	if exists {
-		return nil, fmt.Errorf("set %q already registered", setID)
+	// Reserve the set ID first. If it is already taken, return before mutating
+	// any tool/agent/process state — this avoids the ownership-overwrite bug
+	// where a losing registrar would clobber the winner's tools/agents/process
+	// and then its rollback would delete the winner's set.
+	if err := r.AddSet(set); err != nil {
+		return nil, err
 	}
 
 	for _, t := range extTools {
@@ -625,14 +624,6 @@ func (r *CapabilityRegistry) RegisterExtension(setID string, set *CapabilitySet,
 		r.RegisterAgent(setID, a)
 	}
 	r.TrackExtension(setID, proc)
-
-	if err := r.AddSet(set); err != nil {
-		// Roll back: undo tool/agent registration, stop the process, and clear
-		// the monitor — but only if we still own the set (AddSet failed, so it
-		// was never added; a concurrent registrar could have taken it).
-		_ = r.removeSetInternal(setID)
-		return nil, err
-	}
 
 	unwind := dispose.Once(func() {
 		_ = r.removeSetInternal(setID)
@@ -667,11 +658,11 @@ func (r *CapabilityRegistry) RegisterInProcessSet(set *CapabilitySet, inTools []
 	if set == nil {
 		return nil, fmt.Errorf("nil capability set")
 	}
-	r.mu.RLock()
-	_, exists := r.sets[set.ID]
-	r.mu.RUnlock()
-	if exists {
-		return nil, fmt.Errorf("set %q already registered", set.ID)
+
+	// Reserve the set ID first (same rationale as RegisterExtension): fail
+	// before mutating any tool/agent state on a duplicate set ID.
+	if err := r.AddSet(set); err != nil {
+		return nil, err
 	}
 
 	for _, t := range inTools {
@@ -679,10 +670,6 @@ func (r *CapabilityRegistry) RegisterInProcessSet(set *CapabilitySet, inTools []
 	}
 	for _, a := range inAgents {
 		r.RegisterAgent(set.ID, a)
-	}
-	if err := r.AddSet(set); err != nil {
-		_ = r.removeSetInternal(set.ID)
-		return nil, err
 	}
 
 	unwind := dispose.Once(func() { _ = r.removeSetInternal(set.ID) })
@@ -799,11 +786,18 @@ func (r *CapabilityRegistry) TrackExtension(setID string, proc *tools.ProtoProce
 					if delay > maxDelay {
 						delay = maxDelay
 					}
-					slog.Warn("extension health check failed, attempting restart",
-						"set_id", setID, "extension", proc.Manifest.Name,
-						"attempt", consecutiveFailures, "delay", delay)
-					time.Sleep(delay)
-					if err := proc.Restart(healthCtx); err != nil {
+				slog.Warn("extension health check failed, attempting restart",
+					"set_id", setID, "extension", proc.Manifest.Name,
+					"attempt", consecutiveFailures, "delay", delay)
+				// Sleep interruptibly: teardown (removeSetInternal) cancels
+				// healthCtx and must be able to stop this goroutine before it
+				// calls Restart and resurrects an already-unloaded process.
+				select {
+				case <-healthCtx.Done():
+					return
+				case <-time.After(delay):
+				}
+				if err := proc.Restart(healthCtx); err != nil {
 						slog.Error("extension auto-restart failed",
 							"set_id", setID, "extension", proc.Manifest.Name, "error", err)
 						r.UpdateSetHealth(setID, HealthDown)

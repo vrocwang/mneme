@@ -37,6 +37,9 @@ func main() {
 		Version:     "0.1.0",
 		Description: "Skill execution runtime: run, cancel, status, list, logs",
 	})
+	// Skill execution can legitimately run long; match the original 5-minute
+	// per-call timeout rather than the SDK's 60s default.
+	srv.SetCallTimeout(5 * time.Minute)
 
 	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "skill_run",
