@@ -10,7 +10,6 @@ import (
 
 	"github.com/simon/mneme/internal/agent"
 	"github.com/simon/mneme/internal/capability"
-	"github.com/simon/mneme/internal/channels"
 	chancli "github.com/simon/mneme/internal/channels/cli"
 	chanweb "github.com/simon/mneme/internal/channels/web"
 	"github.com/simon/mneme/internal/config"
@@ -268,7 +267,7 @@ func RegisterCoreChannels(reg *capability.CapabilityRegistry, log *slog.Logger) 
 	reg.RegisterBuiltinChannel(&capability.ChanProviderFunc{
 		NameStr: "web",
 		CreateFn: func(cfg capability.ChannelConfig) (capability.Channel, error) {
-			return &channelAdapter{Channel: chanweb.New(log), stop: make(chan struct{})}, nil
+			return chanweb.New(log), nil
 		},
 	})
 
@@ -276,114 +275,9 @@ func RegisterCoreChannels(reg *capability.CapabilityRegistry, log *slog.Logger) 
 	reg.RegisterBuiltinChannel(&capability.ChanProviderFunc{
 		NameStr: "cli",
 		CreateFn: func(cfg capability.ChannelConfig) (capability.Channel, error) {
-			return &channelAdapter{Channel: chancli.New(), stop: make(chan struct{})}, nil
+			return chancli.New(), nil
 		},
 	})
 
 	log.Info("core channels registered", "channels", reg.ListChannels())
-}
-
-// channelAdapter wraps a channels.Channel as a capability.Channel.
-type channelAdapter struct {
-	channels.Channel
-	stop chan struct{}
-}
-
-func (a *channelAdapter) Start(ctx context.Context) error { return a.Channel.Start(ctx) }
-func (a *channelAdapter) Stop() error {
-	if a.stop != nil {
-		select {
-		case <-a.stop:
-		default:
-			close(a.stop)
-		}
-	}
-	return a.Channel.Stop()
-}
-func (a *channelAdapter) Events() <-chan capability.ChannelMessage {
-	raw := a.Channel.Events()
-	out := make(chan capability.ChannelMessage, 128)
-	go func() {
-		defer close(out)
-		for {
-			select {
-			case <-a.stop:
-				return
-			case m, ok := <-raw:
-				if !ok {
-					return
-				}
-				select {
-				case out <- capability.ChannelMessage{
-					ID: m.ID, Channel: m.Channel, From: m.From,
-					Content: m.Content, ReplyTo: m.ReplyTo,
-				}:
-				case <-a.stop:
-					return
-				}
-			}
-		}
-	}()
-	return out
-}
-func (a *channelAdapter) Send(ctx context.Context, msg capability.ChannelMessage) error {
-	return a.Channel.Send(ctx, channels.Message{
-		ID: msg.ID, Channel: msg.Channel, From: msg.From,
-		Content: msg.Content, ReplyTo: msg.ReplyTo,
-	})
-}
-
-// CapToChanAdapter wraps a capability.Channel as a channels.Channel.
-func CapToChanAdapter(ch capability.Channel) channels.Channel {
-	return &capToChanAdapter{ch: ch, stop: make(chan struct{})}
-}
-
-type capToChanAdapter struct {
-	ch   capability.Channel
-	stop chan struct{}
-}
-
-func (a *capToChanAdapter) Name() string                    { return a.ch.Name() }
-func (a *capToChanAdapter) Start(ctx context.Context) error { return a.ch.Start(ctx) }
-func (a *capToChanAdapter) Stop() error {
-	if a.stop != nil {
-		select {
-		case <-a.stop:
-		default:
-			close(a.stop)
-		}
-	}
-	return a.ch.Stop()
-}
-func (a *capToChanAdapter) Events() <-chan channels.Message {
-	raw := a.ch.Events()
-	out := make(chan channels.Message, 128)
-	go func() {
-		defer close(out)
-		for {
-			select {
-			case <-a.stop:
-				return
-			case m, ok := <-raw:
-				if !ok {
-					return
-				}
-				select {
-				case out <- channels.Message{
-					ID: m.ID, Channel: m.Channel, From: m.From,
-					Content: m.Content, ReplyTo: m.ReplyTo,
-				}:
-				case <-a.stop:
-					return
-				}
-			}
-		}
-	}()
-	return out
-}
-func (a *capToChanAdapter) Send(ctx context.Context, msg channels.Message) error {
-	return a.ch.Send(ctx, capability.ChannelMessage{
-		ID: msg.ID, Channel: msg.Channel, From: msg.From,
-		Content: msg.Content, ReplyTo: msg.ReplyTo,
-	})
 }

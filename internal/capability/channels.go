@@ -1,8 +1,9 @@
 package capability
 
 import (
-	"context"
 	"fmt"
+
+	"github.com/simon/mneme/internal/channels"
 )
 
 // ChannelProvider creates a Channel from configuration.
@@ -26,24 +27,17 @@ type ChannelConfig struct {
 	Extras        map[string]string
 }
 
-// Channel is the interface all messaging channels implement.
-// This mirrors channels.Channel but is defined here to avoid circular imports.
-type Channel interface {
-	Name() string
-	Start(ctx context.Context) error
-	Stop() error
-	Send(ctx context.Context, msg ChannelMessage) error
-	Events() <-chan ChannelMessage
-}
+// Channel is the seam Definition for messaging channels, shared with the
+// channels package (which owns the interface). Aliasing here keeps the
+// capability registry free of a duplicated interface: there is exactly one
+// Definition, and in-process (web/cli) and future process-isolated providers
+// both implement channels.Channel.
+type Channel = channels.Channel
 
-// ChannelMessage represents an inbound/outbound channel message.
-type ChannelMessage struct {
-	ID      string
-	Channel string
-	From    string
-	Content string
-	ReplyTo string
-}
+// ChannelMessage is the message type flowing through a channel. Aliased to the
+// single channels.Message so no conversion adapters are needed between the
+// registry and the orchestrator.
+type ChannelMessage = channels.Message
 
 // ── Channel registration in CapabilityRegistry ──────────────────────────
 

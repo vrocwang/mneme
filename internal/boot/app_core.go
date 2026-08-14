@@ -345,7 +345,7 @@ func (a *AppCore) Init(headless bool) {
 				a.Log.Warn("channel not available", "name", name, "error", err)
 				continue
 			}
-			a.ChannelOrch.Register(name, CapToChanAdapter(ch))
+			a.ChannelOrch.Register(name, ch)
 		}
 		a.ChannelOrch.StartAll(context.Background())
 	}
