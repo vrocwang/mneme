@@ -12,6 +12,7 @@ import (
 	"github.com/simon/mneme/internal/agent"
 	"github.com/simon/mneme/internal/approval"
 	"github.com/simon/mneme/internal/artifacts"
+	"github.com/simon/mneme/internal/bundle"
 	"github.com/simon/mneme/internal/capability"
 	"github.com/simon/mneme/internal/channels"
 	"github.com/simon/mneme/internal/config"
@@ -270,59 +271,9 @@ func (a *AppCore) Init(headless bool) {
 	a.HookReg = agent.NewPostTurnHookRegistry().WithLogger(a.Log)
 	a.ChatService.SetHookRegistry(a.HookReg)
 
-	// ── Post-turn callbacks ──────────────────────────────────────────
-	// Runner handles memory extraction (ArchiveConversation) and learning
-	// (Reflect) internally. ChatService callbacks are only for persistence,
-	// metrics, and tracking that the Runner does not own.
-	if a.ConvStore != nil {
-		s := a.ConvStore
-		a.HookReg.Register(agent.NewPostTurnHook("persistence", func(ctx context.Context, snap *agent.TurnSnapshot) {
-			if snap == nil {
-				return
-			}
-			_ = s.AddMessage(snap.ThreadID, "assistant", snap.Response)
-		}))
-	}
-	if a.Metrics != nil {
-		turnCtr, turnDur, errCtr := health.DefaultAgentMetrics(a.Metrics)
-		toolCtr := a.Metrics.Counter("tool_calls_total")
-		toolFailCtr := a.Metrics.Counter("tool_failures_total")
-		a.HookReg.Register(agent.NewPostTurnHook("metrics", func(ctx context.Context, snap *agent.TurnSnapshot) {
-			turnCtr.Inc()
-			turnDur.Observe(snap.Duration.Milliseconds())
-			if snap.Error != nil {
-				errCtr.Inc()
-			}
-			toolCtr.Add(int64(len(snap.ToolCalls)))
-			for _, tc := range snap.ToolCalls {
-				if tc.Error != "" {
-					toolFailCtr.Inc()
-				}
-			}
-		}))
-	}
-	if a.ToolTracker != nil {
-		tt := a.ToolTracker
-		a.HookReg.Register(agent.NewPostTurnHook("tool-tracker", func(ctx context.Context, snap *agent.TurnSnapshot) {
-			for _, tc := range snap.ToolCalls {
-				dur := float64(0)
-				if tc.Duration > 0 {
-					dur = float64(tc.Duration.Milliseconds())
-				}
-				tt.RecordCall(tc.Name, tc.Error == "", dur, tc.Error)
-			}
-		}))
-	}
-	if a.CostTracker != nil {
-		// Cost tracking via the unified PostTurnHookRegistry (async, panic-recovered).
-		a.HookReg.Register(agent.NewCostTrackingHook(a.CostTracker))
-	}
-	if a.SessionMemory != nil {
-		sm := a.SessionMemory
-		a.HookReg.Register(agent.NewPostTurnHook("session-memory", func(ctx context.Context, snap *agent.TurnSnapshot) {
-			sm.TickTurn()
-		}))
-	}
+	// Post-turn hooks, cron jobs, subconscious evaluators, and the heartbeat
+	// handler are registered by the event bundles after all their runtime
+	// dependencies are created below (see the "event bundles" step).
 
 	// ── Channels (GUI only) ──────────────────────────────────────────
 	if !headless && a.ChatService != nil {
@@ -372,75 +323,17 @@ func (a *AppCore) Init(headless bool) {
 		a.Cron.WithChatSender(NewCronChatSender(a.ChatService))
 	}
 	a.Cron.WithShellRunner(NewShellRunner())
-	a.Cron.Add(&cron.Job{
-		ID:       "memory-maintenance",
-		Name:     "Memory pipeline maintenance",
-		Schedule: "hourly",
-		Enabled:  true,
-		Handler: func(ctx context.Context) error {
-			if a.Pipeline != nil {
-				return a.Pipeline.IndexContent("cron", "hourly maintenance pulse")
-			}
-			return nil
-		},
-	})
-	a.Cron.Start()
+	// Cron jobs are registered by the "cron-jobs" event bundle; the scheduler
+	// is started after all bundles have run.
 
 	// ── Subconscious ─────────────────────────────────────────────────
 	a.Subcon = subconscious.NewPersistent(a.Log, a.Cfg.Workspace)
-	gapEval := subconscious.NewMemoryGapEvaluator(a.Log)
-	if a.Pipeline != nil {
-		gapEval = gapEval.WithPipeline(subconscious.NewMemoryPipelineAdapter(a.Pipeline))
-	}
-	a.Subcon.Register(gapEval)
-	digestEval := subconscious.NewConversationDigestEvaluator(a.Log)
-	if a.Pipeline != nil {
-		digestEval = digestEval.WithPipeline(subconscious.NewMemoryPipelineAdapter(a.Pipeline))
-	}
-	a.Subcon.Register(digestEval)
-	a.Subcon.Register(subconscious.NewIdleReminderEvaluator(a.Log))
-	if a.Provider != nil && a.Pipeline != nil {
-		llmEval := subconscious.NewLLMEvaluator(a.Log, a.Provider, a.Cfg.Agent.DefaultModel,
-			subconscious.NewMemoryPipelineAdapter(a.Pipeline)).
-			WithWorkspace(a.Cfg.Workspace)
-		if a.Learning != nil {
-			llmEval = llmEval.WithPrefs(func() []subconscious.PreferencePair {
-				prefs := a.Learning.Preferences()
-				out := make([]subconscious.PreferencePair, len(prefs))
-				for i, p := range prefs {
-					out[i] = subconscious.PreferencePair{Key: p.Key, Value: p.Value, Confidence: p.Confidence}
-				}
-				return out
-			})
-		}
-		a.Subcon.Register(llmEval)
-	}
+	// Evaluators are registered by the "subconscious" event bundle.
 
 	// ── Heartbeat ────────────────────────────────────────────────────
 	a.Heartbeat = heartbeat.New(a.Log, 30*time.Second)
-	a.Heartbeat.Register(func(ctx context.Context) {
-		if a.Subcon == nil {
-			return
-		}
-		actions := a.Subcon.Think(ctx)
-		a.Subcon.HandleActions(actions, func(action subconscious.Action) {
-			switch action.Type {
-			case "suggestion":
-				if a.NotifBus != nil {
-					a.NotifBus.Notify(notifications.KindSystemAlert, action.Title, action.Message, "", "")
-				}
-			case "nudge":
-				if a.NotifBus != nil {
-					a.NotifBus.Notify(notifications.KindReminder, action.Title, action.Message, "", "")
-				}
-			default:
-				if a.NotifBus != nil {
-					a.NotifBus.Notify(notifications.KindSystemAlert, action.Title, action.Message, "", "")
-				}
-			}
-		})
-	})
-	a.Heartbeat.Start()
+	// The heartbeat handler is registered and started by the "heartbeat" event
+	// bundle after all dependencies exist.
 
 	// ── Learning ─────────────────────────────────────────────────────
 	a.Learning = learning.New(a.Log)
@@ -455,18 +348,6 @@ func (a *AppCore) Init(headless bool) {
 			a.Learning.UseFacetSystem(cache)
 			a.Learning.StartFacetRebuildLoop(context.Background())
 			a.Log.Info("learning facet system activated")
-			if a.ConvStore != nil {
-				ingestor := learning.NewTranscriptIngestor(a.ConvStore, learning.GlobalBuffer(), a.Log.Info)
-				a.Cron.Add(&cron.Job{
-					ID:       "transcript-ingest",
-					Name:     "Mine past transcripts for learning signals",
-					Schedule: "hourly",
-					Enabled:  true,
-					Handler: func(ctx context.Context) error {
-						return ingestor.Ingest(ctx)
-					},
-				})
-			}
 		}
 	}
 
@@ -487,21 +368,47 @@ func (a *AppCore) Init(headless bool) {
 	// ── Sync manager ─────────────────────────────────────────────────
 	a.SyncMgr = memsync.NewManager(a.Log)
 	memsync.RegisterEnvConnectors(a.SyncMgr, a.Log)
-	if a.Cron != nil && a.Pipeline != nil {
-		a.Cron.Add(&cron.Job{
-			ID:       "sync-connectors",
-			Name:     "Memory sync connectors",
-			Schedule: "hourly",
-			Enabled:  true,
-			Handler: memsync.SyncRunnerWithSnapshot(a.SyncMgr, a.Pipeline,
-				func(label string) error {
-					if diff := a.Pipeline.DiffService(); diff != nil {
-						_, err := diff.CreateCheckpoint(label)
-						return err
-					}
-					return nil
-				}),
-		})
+	// The sync cron job is registered by the "cron-jobs" event bundle.
+
+	// ── Event bundles ────────────────────────────────────────────────
+	// Register post-turn hooks, cron jobs, subconscious evaluators, and the
+	// heartbeat handler now that every dependency (Metrics, ToolTracker,
+	// CostTracker, Learning, SyncMgr, NotifBus, Subcon, Heartbeat, Pipeline)
+	// has been created. This ordering also fixes the pre-existing bug where the
+	// metrics/tool-tracker/cost hooks were registered before their components
+	// existed and therefore never ran.
+	eventDeps := &bundle.Deps{
+		Reg:           a.CapReg,
+		Cfg:           a.Cfg,
+		Workspace:     a.Cfg.Workspace,
+		SecurityTier:  a.Cfg.Security.Tier,
+		Log:           a.Log,
+		ConvStore:     a.ConvStore,
+		Metrics:       a.Metrics,
+		ToolTracker:   a.ToolTracker,
+		CostTracker:   a.CostTracker,
+		SessionMemory: a.SessionMemory,
+		HookReg:       a.HookReg,
+		Cron:          a.Cron,
+		Pipeline:      a.Pipeline,
+		Provider:      a.Provider,
+		Learning:      a.Learning,
+		SyncMgr:       a.SyncMgr,
+		Subcon:        a.Subcon,
+		Heartbeat:     a.Heartbeat,
+		NotifBus:      a.NotifBus,
+	}
+	eventRegistry := bundle.NewRegistry(a.Cfg.Bundles.Disabled)
+	if _, err := eventRegistry.Run(context.Background(), eventDeps, bundle.EventBundles()); err != nil {
+		a.Log.Error("event bundle registration failed", "error", err)
+	}
+
+	// Start the schedulers after their jobs/handlers are registered.
+	if a.Cron != nil {
+		a.Cron.Start()
+	}
+	if a.Heartbeat != nil {
+		a.Heartbeat.Start()
 	}
 
 	// ── Artifact store ───────────────────────────────────────────────

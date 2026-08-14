@@ -14,8 +14,20 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/simon/mneme/internal/agent"
 	"github.com/simon/mneme/internal/capability"
 	"github.com/simon/mneme/internal/config"
+	"github.com/simon/mneme/internal/cost"
+	"github.com/simon/mneme/internal/cron"
+	"github.com/simon/mneme/internal/health"
+	"github.com/simon/mneme/internal/heartbeat"
+	"github.com/simon/mneme/internal/inference"
+	"github.com/simon/mneme/internal/learning"
+	"github.com/simon/mneme/internal/memory"
+	"github.com/simon/mneme/internal/memory/conversations"
+	memsync "github.com/simon/mneme/internal/memory/sync"
+	"github.com/simon/mneme/internal/notifications"
+	"github.com/simon/mneme/internal/subconscious"
 	"github.com/simon/mneme/pkg/dispose"
 )
 
@@ -40,6 +52,24 @@ type Deps struct {
 	TavilyAPIKey string
 	SearxngURL   string
 	ProxyConfig  config.ProxyConfig
+
+	// Runtime components consumed by event-driven bundles (post-turn hooks,
+	// cron jobs, subconscious evaluators, heartbeat). All are optional; a
+	// bundle skips work for nil dependencies.
+	ConvStore    *conversations.Store
+	Metrics      *health.Registry
+	ToolTracker  *learning.ToolTrackerHook
+	CostTracker  *cost.Tracker
+	SessionMemory *memory.SessionMemory
+	HookReg      *agent.PostTurnHookRegistry
+	Cron         *cron.Scheduler
+	Pipeline     *memory.Pipeline
+	Provider     inference.Provider
+	Learning     *learning.Engine
+	SyncMgr      *memsync.Manager
+	Subcon       *subconscious.Engine
+	Heartbeat    *heartbeat.Heartbeat
+	NotifBus     *notifications.Bus
 }
 
 // Bundle is a named, independently enableable capability group. Register runs
