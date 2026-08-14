@@ -6,26 +6,23 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/simon/mneme/internal/config"
 )
 
-// Bootstrap wires all capability sources into the registry.
-// app.go calls only this — no registration logic in the Wails proxy.
-func Bootstrap(reg *CapabilityRegistry, workspace string, securityTier string, mcpServers []ServerEntry, braveAPIKey, tavilyAPIKey, searxngURL string, proxyConfig config.ProxyConfig, cfg *config.Config, log *slog.Logger) {
-	// 1. Core tools + agents (builtins)
-	registerBuiltins(reg, workspace, securityTier, braveAPIKey, tavilyAPIKey, searxngURL, proxyConfig, cfg, log)
-
-	// 2. Installed skills from skills/ directory.
+// Bootstrap wires the capability sources that are NOT part of the builtin
+// bundle: skills, extensions, and config-driven MCP servers. The builtin
+// agents and core tools are registered by internal/bundle (see
+// bundle.RegisterBuiltin), which the boot layer invokes before this.
+func Bootstrap(reg *CapabilityRegistry, workspace string, mcpServers []ServerEntry, log *slog.Logger) {
+	// 1. Installed skills from skills/ directory.
 	skillsDir := filepath.Join(workspace, "skills")
 	DiscoverSkills(reg, skillsDir, log)
 
-	// 3. Extension modules from extensions/ directory (auto-build + load).
+	// 2. Extension modules from extensions/ directory (auto-build + load).
 	//    Each extension has a manifest.json and is loaded via JSON-RPC.
 	extensionDirs := DefaultExtensionDirs(workspace)
 	discoverExtensions(reg, extensionDirs, log)
 
-	// 4. MCP servers from config
+	// 3. MCP servers from config
 	for _, srv := range mcpServers {
 		connectMCPServer(reg, srv, log)
 	}

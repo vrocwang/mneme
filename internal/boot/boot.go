@@ -16,6 +16,7 @@ import (
 
 	agenttoml "github.com/simon/mneme/internal/agent/toml"
 	"github.com/simon/mneme/internal/agent_workflows"
+	"github.com/simon/mneme/internal/bundle"
 	"github.com/simon/mneme/internal/capability"
 	"github.com/simon/mneme/internal/config"
 	"github.com/simon/mneme/internal/connectivity"
@@ -49,7 +50,25 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 	// the Wails Bind list is built. Each integration calls
 	// capability.RegisterWailsRPC to add its Wails-bound types.
 
-	capability.Bootstrap(reg, workspace, securityTier, mcpServers, cfg.Search.BraveAPIKey, cfg.Search.TavilyAPIKey, cfg.Search.SearxNGURL, cfg.Proxy, cfg, log)
+	// Register the first-layer bundles (builtin agents + core/network/
+	// productivity tools) before user-agent overrides and other capability
+	// sources. This is the no-privileged-core composition step.
+	bundleDeps := &bundle.Deps{
+		Reg:          reg,
+		Cfg:          cfg,
+		Workspace:    workspace,
+		SecurityTier: securityTier,
+		Log:          log,
+		BraveAPIKey:  cfg.Search.BraveAPIKey,
+		TavilyAPIKey: cfg.Search.TavilyAPIKey,
+		SearxngURL:   cfg.Search.SearxNGURL,
+		ProxyConfig:  cfg.Proxy,
+	}
+	if _, err := bundle.RegisterBuiltin(context.Background(), bundleDeps); err != nil {
+		log.Error("builtin bundle registration failed", "error", err)
+	}
+
+	capability.Bootstrap(reg, workspace, mcpServers, log)
 
 	workflows.RegisterAll(reg, workspace, log)
 

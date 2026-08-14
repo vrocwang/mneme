@@ -81,6 +81,17 @@ type Config struct {
 	Runtime            RuntimeConfig            `toml:"runtime"`
 	TaskSources        TaskSourcesConfig        `toml:"task_sources"`
 	InferenceHTTP      InferenceHTTPConfig      `toml:"inference_http"`
+	Bundles            BundleConfig             `toml:"bundles"`
+}
+
+// BundleConfig controls which capability bundles are enabled at boot. Bundles
+// are the no-privileged-core composition units: the built-in agents, core
+// tools, network tools, productivity tools, and event-driven behaviors
+// (post-turn hooks, cron jobs, subconscious evaluators, heartbeat) are each a
+// named bundle that can be disabled.
+type BundleConfig struct {
+	// Disabled lists bundle IDs to skip at boot. Empty = all enabled.
+	Disabled []string `toml:"disabled" json:"disabled"`
 }
 
 // SearchConfig holds API keys and endpoints for web search engines.
