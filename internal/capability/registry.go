@@ -11,6 +11,7 @@ import (
 
 	mcpclient "github.com/simon/mneme/internal/mcp/client"
 	"github.com/simon/mneme/internal/tools"
+	"github.com/simon/mneme/pkg/dispose"
 )
 
 // MCPAuditLogger is an optional audit logger for MCP tool calls.
@@ -35,7 +36,8 @@ type CapabilityRegistry struct {
 	mcpToolServer     map[string]string             // toolName → setID
 	scopedTools       map[string]bool               // non-nil when this is a ScopedView
 	mcpAudit          MCPAuditLogger
-	channels          map[string]*channelEntry // registered channel providers
+	channels          map[string]*channelEntry      // registered channel providers
+	disposes          map[string]dispose.Func       // setID → teardown (effect-style unwind)
 }
 
 func NewCapabilityRegistry() *CapabilityRegistry {
@@ -50,6 +52,8 @@ func NewCapabilityRegistry() *CapabilityRegistry {
 		extensionProcs:    make(map[string]*tools.ProtoProcess),
 		extensionMonitors: make(map[string]context.CancelFunc),
 		mcpToolServer:     make(map[string]string),
+		channels:          make(map[string]*channelEntry),
+		disposes:          make(map[string]dispose.Func),
 	}
 }
 
@@ -101,49 +105,18 @@ func (r *CapabilityRegistry) AddSet(set *CapabilitySet) error {
 	return nil
 }
 
+// RemoveSet removes a set and everything it owns (tools, agents, MCP clients,
+// extension processes). It is the imperative counterpart to DisposeSet and
+// returns an error when the set does not exist. Internally it shares the same
+// idempotent teardown as dispose-based unwinding.
 func (r *CapabilityRegistry) RemoveSet(id string) error {
-	r.mu.Lock()
-	if _, exists := r.sets[id]; !exists {
-		r.mu.Unlock()
+	r.mu.RLock()
+	_, exists := r.sets[id]
+	r.mu.RUnlock()
+	if !exists {
 		return fmt.Errorf("set %q not found", id)
 	}
-	// Remove owned tools.
-	for name, owner := range r.toolOwner {
-		if owner == id {
-			delete(r.exec, name)
-			delete(r.toolOwner, name)
-			delete(r.mcpToolServer, name)
-		}
-	}
-	// Remove owned agents.
-	for agentID, owner := range r.agentOwner {
-		if owner == id {
-			delete(r.agents, agentID)
-			delete(r.agentOwner, agentID)
-		}
-	}
-	// Snapshot MCP client and extension process to close outside the lock.
-	mcpClient := r.mcpClients[id]
-	delete(r.mcpClients, id)
-	extensionProc := r.extensionProcs[id]
-	delete(r.extensionProcs, id)
-	extensionCancel := r.extensionMonitors[id]
-	delete(r.extensionMonitors, id)
-	delete(r.sets, id)
-	r.mu.Unlock()
-
-	// Cancel health monitor before stopping the process.
-	if extensionCancel != nil {
-		extensionCancel()
-	}
-	// Close/stop outside the lock — these operations can block.
-	if mcpClient != nil {
-		mcpClient.Close()
-	}
-	if extensionProc != nil {
-		extensionProc.Stop()
-	}
-	return nil
+	return r.removeSetInternal(id)
 }
 
 func (r *CapabilityRegistry) GetSet(id string) (*CapabilitySet, bool) {
@@ -593,9 +566,15 @@ func (r *CapabilityRegistry) DisconnectSet(id string) error {
 }
 
 // Shutdown stops all extension processes and disconnects all MCP servers.
-// Call during app shutdown to prevent orphaned child processes.
+// Call during app shutdown to prevent orphaned child processes. It unwinds
+// registered effects (dispose funcs) in addition to any process/mcp client
+// not yet tracked via RegisterExtension.
 func (r *CapabilityRegistry) Shutdown() {
 	r.mu.Lock()
+	disposes := make([]dispose.Func, 0, len(r.disposes))
+	for _, d := range r.disposes {
+		disposes = append(disposes, d)
+	}
 	// Copy maps to avoid holding the lock during slow Stop/Close calls.
 	extProcs := make(map[string]*tools.ProtoProcess, len(r.extensionProcs))
 	mcpClients := make(map[string]*mcpclient.Client, len(r.mcpClients))
@@ -607,6 +586,11 @@ func (r *CapabilityRegistry) Shutdown() {
 	}
 	r.mu.Unlock()
 
+	// Unwind effect-style registrations first (they stop their own processes).
+	for _, d := range disposes {
+		d()
+	}
+	// Fallback for any process/client not covered by a dispose.
 	for id, proc := range extProcs {
 		slog.Info("stopping extension", "id", id)
 		proc.Stop()
@@ -617,6 +601,105 @@ func (r *CapabilityRegistry) Shutdown() {
 			slog.Warn("MCP client close error", "id", id, "error", err)
 		}
 	}
+}
+
+// RegisterExtension registers a process-isolated extension as a single effect:
+// it registers its tools and agents, tracks its process and health monitor,
+// and adds the capability set. It returns a DisposeFunc that unwinds all of
+// these in reverse order. On a registration conflict it rolls back any partial
+// state and returns an error.
+func (r *CapabilityRegistry) RegisterExtension(setID string, set *CapabilitySet, proc *tools.ProtoProcess, extTools []tools.Tool, extAgents []*tools.AgentDef) (dispose.Func, error) {
+	// Pre-check to avoid mutating state when the set already exists. Boot-time
+	// discovery is single-threaded; a racy AddSet failure is still rolled back.
+	r.mu.RLock()
+	_, exists := r.sets[setID]
+	r.mu.RUnlock()
+	if exists {
+		return nil, fmt.Errorf("set %q already registered", setID)
+	}
+
+	for _, t := range extTools {
+		r.RegisterTool(setID, t)
+	}
+	for _, a := range extAgents {
+		r.RegisterAgent(setID, a)
+	}
+	r.TrackExtension(setID, proc)
+
+	if err := r.AddSet(set); err != nil {
+		// Roll back: undo tool/agent registration, stop the process, and clear
+		// the monitor — but only if we still own the set (AddSet failed, so it
+		// was never added; a concurrent registrar could have taken it).
+		_ = r.removeSetInternal(setID)
+		return nil, err
+	}
+
+	unwind := dispose.Once(func() {
+		_ = r.removeSetInternal(setID)
+	})
+
+	r.mu.Lock()
+	r.disposes[setID] = unwind
+	r.mu.Unlock()
+	return unwind, nil
+}
+
+// DisposeSet unwinds a previously registered extension effect and removes it
+// from the registry. Idempotent: disposing a non-existent or already-disposed
+// set is a no-op.
+func (r *CapabilityRegistry) DisposeSet(setID string) {
+	r.mu.Lock()
+	d, ok := r.disposes[setID]
+	delete(r.disposes, setID)
+	r.mu.Unlock()
+	if ok && d != nil {
+		d()
+	}
+}
+
+// removeSetInternal performs the full teardown for a set: unregister tools and
+// agents, cancel the health monitor, stop the process, and remove the set. It
+// is idempotent (missing entries are ignored) and is the shared implementation
+// behind RemoveSet and RegisterExtension rollback/dispose.
+func (r *CapabilityRegistry) removeSetInternal(id string) error {
+	r.mu.Lock()
+	if _, exists := r.sets[id]; !exists {
+		r.mu.Unlock()
+		return nil // already gone — idempotent
+	}
+	for name, owner := range r.toolOwner {
+		if owner == id {
+			delete(r.exec, name)
+			delete(r.toolOwner, name)
+			delete(r.mcpToolServer, name)
+		}
+	}
+	for agentID, owner := range r.agentOwner {
+		if owner == id {
+			delete(r.agents, agentID)
+			delete(r.agentOwner, agentID)
+		}
+	}
+	mcpClient := r.mcpClients[id]
+	delete(r.mcpClients, id)
+	extensionProc := r.extensionProcs[id]
+	delete(r.extensionProcs, id)
+	extensionCancel := r.extensionMonitors[id]
+	delete(r.extensionMonitors, id)
+	delete(r.sets, id)
+	delete(r.disposes, id)
+	r.mu.Unlock()
+
+	if extensionCancel != nil {
+		extensionCancel()
+	}
+	if mcpClient != nil {
+		mcpClient.Close()
+	}
+	if extensionProc != nil {
+		extensionProc.Stop()
+	}
+	return nil
 }
 
 // ── Extension process tracking ───────────────────────────────────

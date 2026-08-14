@@ -114,23 +114,21 @@ func discoverExtensions(reg *CapabilityRegistry, dirs []string, log *slog.Logger
 			if err != nil {
 				log.Warn("extension list tools failed", "name", mf.Name, "error", err)
 			}
-			for _, t := range extTools {
-				reg.RegisterTool(setID, t)
-			}
 
 			// Register agents.
 			extAgents, err := proc.ListAgents(context.Background())
 			if err != nil {
 				log.Warn("extension list agents failed", "name", mf.Name, "error", err)
 			}
+			agentDefs := make([]*tools.AgentDef, 0, len(extAgents))
 			for _, a := range extAgents {
 				aCopy := a
-				reg.RegisterAgent(setID, &aCopy)
+				agentDefs = append(agentDefs, &aCopy)
 			}
 
-			reg.TrackExtension(setID, proc)
-
-			if err := reg.AddSet(set); err != nil {
+			// Register the extension as a single effect. The returned dispose is
+			// stored in the registry and unwound on shutdown/uninstall.
+			if _, err := reg.RegisterExtension(setID, set, proc, extTools, agentDefs); err != nil {
 				// Set already registered - same extension found in a different
 				// directory. Stop the duplicate process and skip silently.
 				proc.Stop()
