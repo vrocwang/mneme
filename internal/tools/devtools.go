@@ -269,7 +269,10 @@ func (t *readDiffTool) Execute(ctx context.Context, args map[string]interface{})
 		gitArgs = append(gitArgs, "--", p)
 	}
 
-	cmd := sandboxCmd(ctx, t.workspaceRoot, "git", gitArgs...)
+	cmd, err := sandboxCmd(ctx, t.workspaceRoot, "git", gitArgs...)
+	if err != nil {
+		return Result{Error: fmt.Sprintf("sandbox unavailable: %v", err)}
+	}
 	cmd.Dir = t.workspaceRoot
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -351,7 +354,10 @@ func (t *runLinterTool) Execute(ctx context.Context, args map[string]interface{}
 
 	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
-	cmd := sandboxCmd(ctx, t.workspaceRoot, cmdArgs[0], cmdArgs[1:]...)
+	cmd, err := sandboxCmd(ctx, t.workspaceRoot, cmdArgs[0], cmdArgs[1:]...)
+	if err != nil {
+		return Result{Error: fmt.Sprintf("sandbox unavailable: %v", err)}
+	}
 	cmd.Dir = t.workspaceRoot
 	out, err := cmd.CombinedOutput()
 	outStr := strings.TrimSpace(string(out))
@@ -414,12 +420,18 @@ func (t *workspaceStateTool) Execute(ctx context.Context, args map[string]interf
 
 	// Git branch
 	b.WriteString("=== Git Status ===\n")
-	cmd := sandboxCmd(ctx, t.workspaceRoot, "git", "branch", "--show-current")
+	cmd, serr := sandboxCmd(ctx, t.workspaceRoot, "git", "branch", "--show-current")
+	if serr != nil {
+		return Result{Error: fmt.Sprintf("sandbox unavailable: %v", serr)}
+	}
 	cmd.Dir = t.workspaceRoot
 	if out, err := cmd.Output(); err == nil {
 		b.WriteString(fmt.Sprintf("Branch: %s\n", strings.TrimSpace(string(out))))
 	}
-	cmd = sandboxCmd(ctx, t.workspaceRoot, "git", "status", "--short")
+	cmd, serr = sandboxCmd(ctx, t.workspaceRoot, "git", "status", "--short")
+	if serr != nil {
+		return Result{Error: fmt.Sprintf("sandbox unavailable: %v", serr)}
+	}
 	cmd.Dir = t.workspaceRoot
 	if out, err := cmd.Output(); err == nil {
 		status := string(out)
@@ -432,7 +444,10 @@ func (t *workspaceStateTool) Execute(ctx context.Context, args map[string]interf
 
 	// Recent commits
 	b.WriteString("\n=== Recent Commits ===\n")
-	cmd = sandboxCmd(ctx, t.workspaceRoot, "git", "log", "--oneline", "-10")
+	cmd, serr = sandboxCmd(ctx, t.workspaceRoot, "git", "log", "--oneline", "-10")
+	if serr != nil {
+		return Result{Error: fmt.Sprintf("sandbox unavailable: %v", serr)}
+	}
 	cmd.Dir = t.workspaceRoot
 	if out, err := cmd.Output(); err == nil {
 		b.WriteString(string(out))

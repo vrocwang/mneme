@@ -255,11 +255,7 @@ func (a *AppCore) Init(headless bool) {
 	// Startup event published by caller after subscribers are registered.
 
 	// ── Security policy ──────────────────────────────────────────────
-	a.SecurityPolicy = &security.SecurityPolicy{
-		WorkspaceOnly:  a.Cfg.Security.Tier == "readonly",
-		WorkspaceRoot:  a.Cfg.Workspace,
-		ForbiddenPaths: a.Cfg.Security.ForbiddenPaths,
-	}
+	a.SecurityPolicy = a.Cfg.BuildSecurityPolicy()
 	security.ReloadLivePolicy(a.SecurityPolicy)
 	security.SetExtraAllowedCommands(a.Cfg.Security.Commands.ExtraAllowedCommands)
 

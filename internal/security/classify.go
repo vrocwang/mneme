@@ -482,17 +482,17 @@ func classifySegment(segment string) CommandClass {
 				strings.HasPrefix(al, "--recursive") || strings.HasPrefix(al, "--force") {
 				hasForceRecursive = true
 			}
-			// Match root paths: "/" exactly, "//" (double-slash root), or
-			// top-level absolute dirs like "/etc", "/home".
-			if a == "/" || a == "//" || filepath.Clean(a) == "/" ||
-				(strings.HasPrefix(a, "/") && !strings.ContainsRune(a[1:], '/')) {
+			// Any absolute path target (/, //, /etc, /etc/passwd, /*, /home/*) is
+			// a destructive removal when combined with force+recursive — it
+			// reaches outside the workspace into the host filesystem.
+			if strings.HasPrefix(a, "/") {
 				hasRoot = true
 			}
 		}
 		if hasForceRecursive && hasRoot {
 			return Destructive
 		}
-		// rm without force+recursive on root is Write, not Destructive
+		// rm without force+recursive on an absolute path is Write, not Destructive
 		if hasRoot {
 			return Write
 		}

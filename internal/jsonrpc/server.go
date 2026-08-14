@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/simon/mneme/internal/inference"
+	"github.com/simon/mneme/internal/security"
 	"github.com/simon/mneme/pkg/events"
 )
 
@@ -21,6 +22,14 @@ type Server struct {
 	provider inference.Provider
 	bus      *events.Bus
 	registry *MethodRegistry
+	guard    *security.PairingGuard
+	limiter  *security.ActionTracker
+}
+
+// SetAuthGuard attaches the pairing guard used to authenticate requests.
+// Without a guard the server fails closed for all non-health endpoints.
+func (s *Server) SetAuthGuard(guard *security.PairingGuard) {
+	s.guard = guard
 }
 
 // NewServer creates a JSON-RPC server.
@@ -32,6 +41,9 @@ func NewServer(log *slog.Logger, bind string, port int, provider inference.Provi
 		provider: provider,
 		bus:      bus,
 		registry: newMethodRegistry(),
+		// 300 requests per minute per client IP is generous for local tooling
+		// while bounding abuse from a compromised process or browser tab.
+		limiter: security.NewActionTracker(time.Minute, 300),
 	}
 }
 
@@ -39,14 +51,19 @@ func NewServer(log *slog.Logger, bind string, port int, provider inference.Provi
 func (s *Server) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
-	mux.HandleFunc("/api/rpc", s.handleRPC)
-	mux.HandleFunc("/api/events", s.handleSSE)
-	mux.HandleFunc("/v1/chat/completions", s.handleCompletions)
-	mux.HandleFunc("/v1/models", s.handleModels)
+	// All non-health endpoints require a valid bearer token and are rate
+	// limited per client IP. CORS headers are intentionally not emitted so
+	// browser-based cross-origin clients (including DNS-rebinding attacks)
+	// cannot read responses.
+	protected := s.requireAuth
+	mux.Handle("/api/rpc", s.rateLimit(protected(http.HandlerFunc(s.handleRPC))))
+	mux.Handle("/api/events", s.rateLimit(protected(http.HandlerFunc(s.handleSSE))))
+	mux.Handle("/v1/chat/completions", s.rateLimit(protected(http.HandlerFunc(s.handleCompletions))))
+	mux.Handle("/v1/models", s.rateLimit(protected(http.HandlerFunc(s.handleModels))))
 
 	s.srv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", s.bind, s.port),
-		Handler:      withCORS(mux),
+		Handler:      mux,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 5 * time.Minute, // long timeout for streaming responses
 		IdleTimeout:  60 * time.Second,
@@ -75,18 +92,4 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	// Return available models in OpenAI format.
 	w.Write([]byte(`{"object":"list","data":[]}`))
-}
-
-// withCORS wraps a handler with permissive CORS headers for local development.
-func withCORS(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }

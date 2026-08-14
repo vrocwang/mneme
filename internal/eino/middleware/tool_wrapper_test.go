@@ -87,7 +87,7 @@ func TestToolWrapper_SecurityDenies_BlocksExecution(t *testing.T) {
 }
 
 func TestToolWrapper_ScrubsOutput(t *testing.T) {
-	sec := &SecurityMiddleware{} // nil gate -> CheckTool passes
+	sec := &SecurityMiddleware{ApprovalGate: autoApproveGate()}
 	inner := &fakeInvokable{name: "read", run: func(context.Context, string) (string, error) {
 		return "key=sk-abcdefghijklmnopqrstuvwxyz1234567890", nil
 	}}
@@ -142,9 +142,9 @@ func TestToolWrapper_NonInvokableReturnsError(t *testing.T) {
 }
 
 func TestToolWrapper_MarksApprovalHandled(t *testing.T) {
-	// With a nil approval gate the wrapper still marks the context so that
+	// With an auto-approving gate the wrapper marks the context so that
 	// defense-in-depth tools (e.g. shell tier gate) know approval ran.
-	sec := &SecurityMiddleware{}
+	sec := &SecurityMiddleware{ApprovalGate: autoApproveGate()}
 	var seenCtx context.Context
 	inner := &fakeInvokable{name: "shell", run: func(ctx context.Context, _ string) (string, error) {
 		seenCtx = ctx

@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/simon/mneme/internal/security"
 )
 
 // WhatsAppData provides tools for parsing and analyzing exported WhatsApp chat data.
@@ -71,7 +73,19 @@ func (t *WhatsAppData) Execute(ctx context.Context, args map[string]interface{})
 		return Result{Error: "file_path and action are required"}
 	}
 
-	data, err := os.ReadFile(filePath)
+	// Confine reads to the workspace, matching every other file tool. The
+	// file_path is joined to the workspace rather than trusted as an absolute
+	// path so an LLM cannot pass e.g. /Users/.../.ssh/id_rsa.
+	fullPath := filePath
+	if !filepath.IsAbs(fullPath) {
+		fullPath = filepath.Join(t.workspace, fullPath)
+	}
+	resolved, err := security.ValidatePath(fullPath, t.workspace)
+	if err != nil {
+		return Result{Error: fmt.Sprintf("path rejected: %v", err)}
+	}
+
+	data, err := os.ReadFile(resolved)
 	if err != nil {
 		return Result{Error: fmt.Sprintf("read file: %v", err)}
 	}

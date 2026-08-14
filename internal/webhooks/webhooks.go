@@ -11,11 +11,14 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/simon/mneme/internal/security"
 )
 
 // Event is a normalized webhook event delivered to the agent.
@@ -39,6 +42,7 @@ type Server struct {
 	secret  string
 	handler Handler
 	server  *http.Server
+	limiter *security.ActionTracker
 }
 
 // NewServer creates a webhook server.
@@ -48,6 +52,9 @@ func NewServer(log *slog.Logger, port int, secret string, handler Handler) *Serv
 		port:    port,
 		secret:  secret,
 		handler: handler,
+		// 120 webhook deliveries per hour per client IP is generous for a
+		// local loopback listener while still bounding abuse.
+		limiter: security.NewActionTracker(time.Hour, 120),
 	}
 }
 
@@ -61,11 +68,11 @@ func (s *Server) Start() error {
 	})
 
 	s.server = &http.Server{
-		Addr:    fmt.Sprintf(":%d", s.port),
+		Addr:    fmt.Sprintf("127.0.0.1:%d", s.port),
 		Handler: mux,
 	}
 
-	s.log.Info("webhook server starting", "port", s.port)
+	s.log.Info("webhook server starting", "port", s.port, "addr", s.server.Addr)
 	return s.server.ListenAndServe()
 }
 
@@ -83,8 +90,17 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Rate limit per client IP before doing any work.
+	if !s.limiter.RecordAction(clientIP(r)) {
+		s.log.Warn("webhook rate limit exceeded", "remote", r.RemoteAddr)
+		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+		return
+	}
+
 	// Read the full body so it can be used for both signature verification
-	// and JSON parsing.
+	// and JSON parsing. Cap the size to bound memory usage from the network.
+	const maxBodyBytes = 1 << 20 // 1MB
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	bodyBytes, err := io.ReadAll(r.Body)
 	r.Body.Close()
 	if err != nil {
@@ -92,19 +108,24 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify signature if secret is configured.
-	if s.secret != "" {
-		sig := r.Header.Get("X-Webhook-Signature")
-		if sig == "" {
-			sig = r.Header.Get("X-Hub-Signature-256")
-		}
-		if sig == "" {
-			sig = r.Header.Get("X-Slack-Signature")
-		}
-		if !s.verifySignature(r, sig, bodyBytes) {
-			http.Error(w, "invalid signature", http.StatusUnauthorized)
-			return
-		}
+	// Verify signature. The server is fail-closed: without a configured secret
+	// no request is accepted, and with a secret every request must carry a valid
+	// signature. This prevents unauthenticated remote dispatch to the agent.
+	if s.secret == "" {
+		s.log.Error("webhook request rejected: no secret configured")
+		http.Error(w, "webhook secret not configured", http.StatusServiceUnavailable)
+		return
+	}
+	sig := r.Header.Get("X-Webhook-Signature")
+	if sig == "" {
+		sig = r.Header.Get("X-Hub-Signature-256")
+	}
+	if sig == "" {
+		sig = r.Header.Get("X-Slack-Signature")
+	}
+	if !s.verifySignature(r, sig, bodyBytes) {
+		http.Error(w, "invalid signature", http.StatusUnauthorized)
+		return
 	}
 
 	// Parse payload as JSON if possible; fall back to passing raw bytes.
@@ -156,11 +177,16 @@ func (s *Server) verifySignature(r *http.Request, sig string, body []byte) bool 
 
 	mac := hmac.New(sha256.New, []byte(s.secret))
 
-	// Slack format: "v0=<hex>" where the HMAC covers "v0:<timestamp>:<body>"
+	// Slack format: "v0=<hex>" where the HMAC covers "v0:<timestamp>:<body>".
+	// The timestamp is validated for freshness to prevent replay of a captured
+	// signature.
 	if strings.HasPrefix(sig, "v0=") {
 		sig = strings.TrimPrefix(sig, "v0=")
 		ts := r.Header.Get("X-Slack-Request-Timestamp")
 		if ts == "" {
+			return false
+		}
+		if !freshTimestamp(ts, 5*time.Minute) {
 			return false
 		}
 		mac.Write([]byte("v0:" + ts + ":"))
@@ -175,4 +201,27 @@ func (s *Server) verifySignature(r *http.Request, sig string, body []byte) bool 
 	mac.Write(body)
 	expected := hex.EncodeToString(mac.Sum(nil))
 	return hmac.Equal([]byte(sig), []byte(expected))
+}
+
+// freshTimestamp verifies that a unix timestamp string is within the given
+// window of the current time, guarding against replay of captured signatures.
+func freshTimestamp(ts string, window time.Duration) bool {
+	secs, err := strconv.ParseInt(strings.TrimSpace(ts), 10, 64)
+	if err != nil {
+		return false
+	}
+	delta := time.Since(time.Unix(secs, 0))
+	if delta < 0 {
+		delta = -delta
+	}
+	return delta <= window
+}
+
+// clientIP extracts the IP portion of RemoteAddr (dropping the port).
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }

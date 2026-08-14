@@ -188,9 +188,20 @@ func validateURL(rawURL string) error {
 }
 
 // isPrivateIP returns true if the IP is a private, loopback, link-local,
-// or otherwise internal address that should not be reachable.
+// multicast, or otherwise internal address that should not be reachable.
 func isPrivateIP(ip net.IP) bool {
-	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() {
+	if ip == nil {
+		return false
+	}
+	// Normalize IPv4-mapped IPv6 addresses (::ffff:a.b.c.d) to their IPv4 form
+	// so they are classified by the IPv4 rules below. IsLoopback/IsPrivate
+	// return false for the mapped form otherwise.
+	if ip4 := ip.To4(); ip4 != nil {
+		ip = ip4
+	}
+
+	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsInterfaceLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
 		return true
 	}
 	if ip.IsPrivate() {
@@ -199,7 +210,38 @@ func isPrivateIP(ip net.IP) bool {
 	if ip.Equal(net.IPv4(169, 254, 169, 254)) {
 		return true
 	}
+
+	// Cover ranges that IsPrivate() does not: CGNAT, benchmark, multicast and
+	// reserved ranges. Using explicit *net.IPNet members is unambiguous.
+	for _, block := range ssrfBlockedNetworks {
+		if block.Contains(ip) {
+			return true
+		}
+	}
 	return false
+}
+
+// ssrfBlockedNetworks holds CIDR ranges that must never be reachable by agent
+// network tools but are not covered by net.IP.IsPrivate.
+var ssrfBlockedNetworks = mustParseCIDRs(
+	"0.0.0.0/8",       // "this network"
+	"100.64.0.0/10",   // carrier-grade NAT
+	"169.254.0.0/16",  // link-local (also covered by IsLinkLocalUnicast)
+	"198.18.0.0/15",   // benchmarking
+	"224.0.0.0/4",     // multicast
+	"240.0.0.0/4",     // reserved (including 255.255.255.255/32)
+)
+
+func mustParseCIDRs(cidrs ...string) []*net.IPNet {
+	out := make([]*net.IPNet, 0, len(cidrs))
+	for _, c := range cidrs {
+		_, n, err := net.ParseCIDR(c)
+		if err != nil {
+			continue
+		}
+		out = append(out, n)
+	}
+	return out
 }
 
 // blockPrivateIPs validates that the resolved IPs for a host are not private,

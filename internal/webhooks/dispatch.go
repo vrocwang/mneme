@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/simon/mneme/internal/agent"
+	"github.com/simon/mneme/internal/security"
 )
 
 // DispatchHandler implements webhooks.Handler for routing events through
@@ -73,11 +74,32 @@ func (h *DispatchHandler) handleEcho(event Event) error {
 func (h *DispatchHandler) handleAgent(event Event, reg *TunnelRegistration) error {
 	h.log.Info("webhook routing to agent", "agent_id", reg.TargetID, "event_id", event.ID)
 
+	payload := string(event.Payload)
+
+	// Webhook payloads are external, untrusted input. Unlike channel messages
+	// (which pass through SanitizeInbound), they must be scanned for prompt
+	// injection here before reaching the agent loop.
+	if res := security.DetectPromptInjection(payload); res.Blocked {
+		h.log.Warn("webhook payload blocked by injection detection",
+			"event_id", event.ID, "severity", res.Severity.String())
+		h.tm.RecordActivity(WebhookActivityEntry{
+			ID:         event.ID,
+			TunnelUUID: event.TunnelUUID,
+			RequestID:  event.ID,
+			Status:     400,
+			Error:      "payload blocked by injection detection",
+			CreatedAt:  time.Now().UTC(),
+		})
+		return fmt.Errorf("payload blocked by injection detection")
+	} else if res.Sanitized != "" {
+		payload = res.Sanitized
+	}
+
 	envelope := &agent.TriageEnvelope{
 		ID:          event.ID,
 		Source:      "webhook",
 		EventKind:   event.EventType,
-		Payload:     string(event.Payload),
+		Payload:     payload,
 		ContentType: event.Headers["Content-Type"],
 		ReceivedAt:  event.ReceivedAt,
 	}

@@ -15,26 +15,18 @@ type Browser struct {
 	timeoutSecs int
 }
 
-// NewBrowser creates a browser tool with SSRF-safe redirect handling.
+// NewBrowser creates a browser tool with an SSRF-safe HTTP client.
 // timeoutSecs is the HTTP client timeout in seconds. If 0, defaults to 30.
 func NewBrowser(timeoutSecs int) *Browser {
 	if timeoutSecs <= 0 {
 		timeoutSecs = 30
 	}
+	client := newSSRFSafeHTTPClient()
+	client.Timeout = time.Duration(timeoutSecs) * time.Second
 	return &Browser{
 		timeoutSecs: timeoutSecs,
-		client: &http.Client{
-			Timeout: time.Duration(timeoutSecs) * time.Second,
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				if len(via) >= 10 {
-					return fmt.Errorf("too many redirects")
-				}
-				if err := validateURLFn(req.URL.String()); err != nil {
-					return fmt.Errorf("redirect blocked: %w", err)
-				}
-				return nil
-			},
-		}}
+		client:      client,
+	}
 }
 
 func (t *Browser) Schema() Schema {

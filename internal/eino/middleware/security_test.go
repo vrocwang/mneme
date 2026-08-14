@@ -7,10 +7,28 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/simon/mneme/internal/agent"
 	"github.com/simon/mneme/internal/approval"
 )
 
 var secTestLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
+
+// autoApproveGate returns an approval gate that auto-approves every origin and
+// risk level, so tests of non-approval behaviour (scrubbing, context marking)
+// can exercise the gate path without parking.
+func autoApproveGate() *approval.Gate {
+	gate := approval.NewGate(nil, nil, secTestLogger, true)
+	gate.SetOriginPolicy(approval.OriginPolicyConfig{
+		AutoApproveRisk: map[agent.TurnOriginKind]string{
+			agent.OriginWebChat:           "dangerous",
+			agent.OriginCLI:               "dangerous",
+			agent.OriginTrustedAutomation: "dangerous",
+			agent.OriginExternalChannel:   "dangerous",
+			agent.OriginUnknown:           "dangerous",
+		},
+	})
+	return gate
+}
 
 func TestFilterInput_AllowsSafeContent(t *testing.T) {
 	m := &SecurityMiddleware{}
@@ -28,10 +46,10 @@ func TestFilterInput_BlocksInjection(t *testing.T) {
 	}
 }
 
-func TestCheckTool_NilGateAllows(t *testing.T) {
+func TestCheckTool_NilGateFailsClosed(t *testing.T) {
 	m := &SecurityMiddleware{} // ApprovalGate is nil
-	if err := m.CheckTool(context.Background(), "shell", `{"command":"rm -rf /"}`); err != nil {
-		t.Fatalf("nil approval gate should allow all tools, got: %v", err)
+	if err := m.CheckTool(context.Background(), "shell", `{"command":"rm -rf /"}`); err == nil {
+		t.Fatal("nil approval gate must fail closed (refuse to execute tools)")
 	}
 }
 

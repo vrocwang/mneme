@@ -20,9 +20,14 @@ var sensitiveAppDenylist = []string{
 }
 
 // IsSensitiveApp returns true if the app name matches the denylist.
-// Uses case-insensitive substring matching.
+// Uses case-insensitive substring matching. An empty app name is never
+// sensitive (it would otherwise match the first denylist entry via the
+// empty-string substring).
 func IsSensitiveApp(appName string) (bool, string) {
-	lower := strings.ToLower(appName)
+	lower := strings.ToLower(strings.TrimSpace(appName))
+	if lower == "" {
+		return false, ""
+	}
 	for _, denied := range sensitiveAppDenylist {
 		if strings.Contains(lower, denied) || strings.Contains(denied, lower) {
 			return true, denied

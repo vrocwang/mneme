@@ -5,10 +5,12 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/simon/mneme/internal/boot"
 	"github.com/simon/mneme/internal/jsonrpc"
+	"github.com/simon/mneme/internal/security"
 	"github.com/simon/mneme/pkg/events"
 )
 
@@ -26,6 +28,17 @@ func runServer(args []string) error {
 		return fmt.Errorf("failed to create JSON-RPC server")
 	}
 
+	// Authenticate the JSON-RPC surface with a pairing token written to the
+	// workspace. The token is printed below so the operator can use curl/CLI.
+	guard, err := security.NewPairingGuard(core.Cfg.Workspace, log)
+	if err != nil {
+		return fmt.Errorf("create pairing guard: %w", err)
+	}
+	if envToken, ok := security.LoadTokenFromEnv(); ok {
+		guard.AddToken(envToken)
+	}
+	srv.SetAuthGuard(guard)
+
 	// Register health + agent endpoints.
 	jsonrpc.RegisterAppMethods(srv, &cliAppMethods{core: core})
 
@@ -38,9 +51,11 @@ func runServer(args []string) error {
 		srv.Stop()
 	}()
 
+	token, _ := os.ReadFile(guard.TokenPath())
 	fmt.Fprintf(os.Stderr, "Mneme JSON-RPC server starting on %s:%d\n", core.Cfg.InferenceHTTP.Bind, core.Cfg.InferenceHTTP.Port)
-	fmt.Fprintf(os.Stderr, "Endpoints:\n")
-	fmt.Fprintf(os.Stderr, "  /health             — health check\n")
+	fmt.Fprintf(os.Stderr, "Auth token: %s\n", strings.TrimSpace(string(token)))
+	fmt.Fprintf(os.Stderr, "Endpoints (require Authorization: Bearer <token>):\n")
+	fmt.Fprintf(os.Stderr, "  /health             — health check (no auth)\n")
 	fmt.Fprintf(os.Stderr, "  /api/rpc            — JSON-RPC 2.0\n")
 	fmt.Fprintf(os.Stderr, "  /v1/chat/completions — OpenAI-compatible chat API\n")
 	fmt.Fprintf(os.Stderr, "  /v1/models           — model list\n")

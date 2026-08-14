@@ -16,11 +16,10 @@ import (
 
 // defaultSafeEnvVars lists environment variables that are safe to pass to
 // child processes. These are functional variables that cannot contain secrets.
-// SSH_AUTH_SOCK and SSH_AGENT_PID are intentionally included — this is a
-// personal AI assistant running on the user's own machine at the user's
-// chosen autonomy tier. SSH keys are an ambient authority the user has
-// explicitly granted by running the app under their account.
-// This list is used as a fallback when config does not specify SafeEnvVars.
+// SSH_AUTH_SOCK / SSH_AGENT_PID are deliberately excluded — they are ambient
+// authority (the user's SSH keys) and must not be forwarded to agent-run
+// commands without explicit approval. This list is used as a fallback when
+// config does not specify SafeEnvVars.
 var defaultSafeEnvVars = []string{
 	"PATH", "HOME", "USER", "LOGNAME",
 	"LANG", "LC_ALL", "LC_CTYPE", "LC_MESSAGES",
@@ -29,7 +28,6 @@ var defaultSafeEnvVars = []string{
 	"XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR",
 	"DISPLAY", "WAYLAND_DISPLAY",
 	"DBUS_SESSION_BUS_ADDRESS",
-	"SSH_AUTH_SOCK", "SSH_AGENT_PID",
 	"PWD", "OLDPWD",
 	// EDITOR, VISUAL, PAGER, BROWSER intentionally excluded —
 	// they are classified as dangerous env prefixes by classify.go
@@ -47,12 +45,13 @@ const defaultMaxShellOutputBytes = 1 << 20 // 1MB — matches Rust MAX_OUTPUT_BY
 
 // Shell executes a shell command through the security gate.
 type Shell struct {
-	workspaceRoot  string
-	tier           security.Tier
-	sandbox        sandbox.Backend
-	maxOutputBytes int
-	safeEnvVars    []string
-	timeoutSec     int
+	workspaceRoot   string
+	tier            security.Tier
+	sandbox         sandbox.Backend
+	sandboxRequired bool
+	maxOutputBytes  int
+	safeEnvVars     []string
+	timeoutSec      int
 }
 
 func NewShell(workspaceRoot string, tier security.Tier, toolsShellCfg config.ToolsShellConfig, sandboxCfg config.SandboxConfig) *Shell {
@@ -69,8 +68,10 @@ func NewShell(workspaceRoot string, tier security.Tier, toolsShellCfg config.Too
 		s.sandbox = sandbox.NoopBackend()
 	case sandboxCfg.BackendOverride != "":
 		s.sandbox = sandbox.NewByName(sandboxCfg.BackendOverride)
+		s.sandboxRequired = sandbox.IsNoop(s.sandbox)
 	default:
 		s.sandbox = sandbox.Detect()
+		s.sandboxRequired = sandboxCfg.Mode == "sandboxed" && sandbox.IsNoop(s.sandbox)
 	}
 
 	// Apply defaults for zero values.
@@ -141,10 +142,18 @@ func (t *Shell) Execute(ctx context.Context, args map[string]interface{}) Result
 	if runtime.GOOS == "windows" {
 		shellBin, shellFlag = "cmd", "/c"
 	}
+	if t.sandboxRequired {
+		return Result{Error: "sandbox is required by configuration but no sandbox backend is available on this platform"}
+	}
 	cmd, err := t.sandbox.WrapCommand(ctx, t.workspaceRoot, shellBin, shellFlag, command)
 	if err != nil {
 		return Result{Error: fmt.Sprintf("sandbox wrap failed: %v", err)}
 	}
+
+	// Run the shell in its own process group so a timeout can kill the whole
+	// tree (children spawned by `sh -c` included) rather than only the direct
+	// child process.
+	setProcessGroup(cmd)
 
 	// Sanitize environment: clear all inherited vars and only pass safe ones.
 	// This prevents leakage of API keys and secrets to child processes.
@@ -170,9 +179,7 @@ func (t *Shell) Execute(ctx context.Context, args map[string]interface{}) Result
 	case r := <-ch:
 		output, err = r.output, r.err
 	case <-time.After(time.Duration(t.timeoutSec) * time.Second):
-		if cmd.Process != nil {
-			cmd.Process.Kill()
-		}
+		killProcessTree(cmd)
 		return Result{Error: fmt.Sprintf("command timed out after %d seconds", t.timeoutSec)}
 	}
 	outStr := string(output)
