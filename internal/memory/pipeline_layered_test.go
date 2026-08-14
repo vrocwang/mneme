@@ -56,7 +56,7 @@ func TestPipeline_ExtractAtoms_Layered(t *testing.T) {
 	for _, m := range msgs {
 		doc += fmt.Sprintf("[%s]: %s\n", m.Role, m.Content)
 	}
-	p.extractAtoms(context.Background(), "t1", doc)
+	p.extractAtoms(context.Background(), "t1", doc, nil)
 
 	atoms, err := p.layered.ListAtomsRecent(context.Background(), 100)
 	if err != nil {

@@ -375,8 +375,10 @@ func (p *Pipeline) handleArchive(ctx context.Context, job queue.Job) (queue.JobO
 	// facts from the raw conversation and stores them independently, each
 	// traced back to its source message. This is what makes drill-down and
 	// per-fact retrieval possible, in contrast to the legacy flat chunk.
+	// It reuses the SummarizeMemory key facts when an archivist ran, so no
+	// second LLM extraction call is made.
 	if p.layered != nil {
-		p.extractAtoms(ctx, threadID, doc)
+		p.extractAtoms(ctx, threadID, doc, archivistResult)
 	}
 
 	// Redact PII and secrets before storage.
@@ -886,16 +888,16 @@ func truncate(s string, max int) string {
 // many un-aggregated atoms accumulate, they are rolled into a scenario block.
 const minAtomsPerScenario = 8
 
-// extractAtoms atomizes a conversation into L1 atomic facts. Facts come from
-// the archivist (LLM, with heuristic fallback) when available, otherwise from
-// a heuristic sentence splitter. Each atom carries an L0 thread ref so later
-// layers can drill down. doc is the pre-built, already-redacted conversation
-// document.
-func (p *Pipeline) extractAtoms(ctx context.Context, threadID, doc string) {
-	facts, err := p.factsForConversation(ctx, doc)
-	if err != nil {
-		p.log.Warn("L1 atom extraction failed", "thread_id", threadID, "error", err)
-		return
+// extractAtoms atomizes a conversation into L1 atomic facts. It reuses the
+// archivist SummarizeMemory key facts when available (no second LLM call);
+// otherwise it falls back to heuristic sentence splitting. Each fact is
+// redacted before being persisted so PII/secrets never reach the atom table.
+func (p *Pipeline) extractAtoms(ctx context.Context, threadID, doc string, archResult *archivist.SummaryResult) {
+	// Prefer the archivist's key facts (already computed by SummarizeMemory);
+	// fall back to heuristic sentence splitting when none are available.
+	facts := archivist.HeuristicFacts(doc)
+	if archResult != nil && len(archResult.KeyFacts) > 0 {
+		facts = archResult.KeyFacts
 	}
 
 	inserted := 0
@@ -904,13 +906,18 @@ func (p *Pipeline) extractAtoms(ctx context.Context, threadID, doc string) {
 		if f == "" {
 			continue
 		}
-		if existing, _ := p.layered.FindAtomByContent(ctx, f); existing != nil {
-			if archivist.SimpleSimilarity(existing.Content, f) >= 0.9 {
+		// Redact before persisting: atoms must never carry PII/secrets at rest.
+		redacted, _ := p.redactor.Redact(f)
+		if redacted == "" {
+			continue
+		}
+		if existing, _ := p.layered.FindAtomByContent(ctx, redacted); existing != nil {
+			if archivist.SimpleSimilarity(existing.Content, redacted) >= 0.9 {
 				continue // near-duplicate
 			}
 		}
 		atom := store.Atom{
-			Content: f,
+			Content: redacted,
 			Source:  "conversation",
 			Taint:   store.TaintInternal,
 			// L0 traceability is at thread granularity: LLM-rewritten facts
@@ -919,7 +926,7 @@ func (p *Pipeline) extractAtoms(ctx context.Context, threadID, doc string) {
 		}
 		// Embed the atom for vector retrieval when an embedder is present.
 		if p.embedder != nil {
-			if vecs, e := p.embedder.Embed(ctx, []string{f}); e == nil && len(vecs) > 0 {
+			if vecs, e := p.embedder.Embed(ctx, []string{redacted}); e == nil && len(vecs) > 0 {
 				atom.Vector = vecs[0]
 				atom.EmbeddingModel = fmt.Sprintf("%s:%d", p.embedder.Name(), p.embedder.Dimensions())
 			}
@@ -934,19 +941,6 @@ func (p *Pipeline) extractAtoms(ctx context.Context, threadID, doc string) {
 	if inserted > 0 {
 		p.aggregateScenarios(ctx)
 	}
-}
-
-// factsForConversation returns the atomic facts for a conversation document,
-// preferring the archivist's LLM extraction and falling back to a heuristic
-// splitter.
-func (p *Pipeline) factsForConversation(ctx context.Context, doc string) ([]string, error) {
-	if p.arch != nil {
-		if facts, err := p.arch.ExtractFacts(ctx, doc); err == nil && len(facts) > 0 {
-			return facts, nil
-		}
-		// Fall through to heuristic on LLM error/empty.
-	}
-	return archivist.HeuristicFacts(doc), nil
 }
 
 // aggregateScenarios rolls un-aggregated L1 atoms into an L2 scenario block
