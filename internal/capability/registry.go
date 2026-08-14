@@ -368,6 +368,39 @@ func (r *CapabilityRegistry) UnregisterAgent(id string) {
 	}
 }
 
+// RegisterAgentSet registers an agent into its own capability set, creating
+// the set on first use. It is used for user-defined agents and agent packs so
+// they appear as distinct, named sets rather than being mixed into the Core
+// builtin set.
+func (r *CapabilityRegistry) RegisterAgentSet(setID string, kind SourceKind, setName string, def *tools.AgentDef) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, exists := r.sets[setID]; !exists {
+		r.sets[setID] = &CapabilitySet{
+			ID:      setID,
+			Name:    setName,
+			Kind:    kind,
+			Health:  HealthOK,
+			Enabled: true,
+			Agents:  make([]AgentDescriptor, 0, 1),
+		}
+	}
+	r.agents[def.ID] = def
+	r.agentOwner[def.ID] = setID
+	if s, ok := r.sets[setID]; ok {
+		// Replace any prior descriptor for the same ID (override semantics).
+		filtered := s.Agents[:0]
+		for _, a := range s.Agents {
+			if a.ID != def.ID {
+				filtered = append(filtered, a)
+			}
+		}
+		s.Agents = append(filtered, agentDefToDescriptor(def))
+		s.AgentCount = len(s.Agents)
+	}
+}
+
 func (r *CapabilityRegistry) AllAgents() []AgentDescriptor {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

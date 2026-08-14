@@ -85,21 +85,22 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 	todos.RegisterTools(reg, todos.NewStore(workspace))
 
 	// Load user-defined agent definitions from workspace/agents/*.toml.
-	// User agents override built-in ones with the same ID.
+	// User agents override built-in ones with the same ID, and are grouped
+	// into their own "user-agents" capability set rather than the Core set.
 	agentsDir := filepath.Join(workspace, "agents")
 	userDefs, errs := agenttoml.LoadAgentsFromDir(agentsDir)
 	for _, def := range userDefs {
 		if _, exists := reg.GetAgent(def.ID); exists {
 			reg.UnregisterAgent(def.ID)
 		}
-		reg.RegisterAgent("builtin", def)
+		reg.RegisterAgentSet("user-agents", capability.KindUserAgent, "User Agents", def)
 	}
 	for _, err := range errs {
 		log.Warn("agent file parse error", "error", err)
 	}
 
 	// Load agent packs from extensions/agents/ subdirectories (agent.toml + prompt.md).
-	// Agent packs use the same tier/override semantics as user-defined agents.
+	// Each pack is registered as its own capability set (agent-pack:<name>).
 	agentPacksDirs := []string{
 		filepath.Join(workspace, "extensions", "agents"),
 		filepath.Join("extensions", "agents"), // development: relative to CWD
@@ -110,7 +111,7 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 			if _, exists := reg.GetAgent(def.ID); exists {
 				reg.UnregisterAgent(def.ID)
 			}
-			reg.RegisterAgent("builtin", def)
+			reg.RegisterAgentSet("agent-pack:"+def.ID, capability.KindAgentPack, "Agent Pack: "+def.Name, def)
 		}
 		for _, err := range packErrs {
 			log.Warn("agent pack parse error", "dir", dir, "error", err)

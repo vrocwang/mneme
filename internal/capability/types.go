@@ -10,10 +10,12 @@ import (
 type SourceKind string
 
 const (
-	KindBuiltin   SourceKind = "builtin"
-	KindExtension SourceKind = "extension"
-	KindMCPServer SourceKind = "mcp_server"
-	KindSkill     SourceKind = "skill"
+	KindBuiltin    SourceKind = "builtin"
+	KindExtension  SourceKind = "extension"
+	KindMCPServer  SourceKind = "mcp_server"
+	KindSkill      SourceKind = "skill"
+	KindUserAgent  SourceKind = "user_agent"
+	KindAgentPack  SourceKind = "agent_pack"
 )
 
 // SetHealth reports the connection health of a capability set.
