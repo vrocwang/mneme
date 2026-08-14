@@ -87,6 +87,34 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
+// EnsureSchema creates the user_profile table if it does not already exist.
+// The table was historically assumed to exist but never created; call this at
+// boot so the L3 persona layer works out of the box.
+func EnsureSchema(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS user_profile (
+			facet_id TEXT PRIMARY KEY,
+			facet_type TEXT NOT NULL,
+			key TEXT NOT NULL,
+			value TEXT NOT NULL,
+			confidence REAL NOT NULL DEFAULT 0,
+			evidence_count INTEGER NOT NULL DEFAULT 1,
+			source_segment_ids TEXT NOT NULL DEFAULT '',
+			first_seen_at REAL NOT NULL DEFAULT 0,
+			last_seen_at REAL NOT NULL DEFAULT 0,
+			state TEXT NOT NULL DEFAULT 'provisional',
+			stability REAL NOT NULL DEFAULT 0,
+			user_state TEXT NOT NULL DEFAULT 'auto',
+			evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+			class TEXT NOT NULL DEFAULT '',
+			cue_families_json TEXT NOT NULL DEFAULT '{}',
+			UNIQUE(facet_type, key)
+		);
+		CREATE INDEX IF NOT EXISTS idx_user_profile_state ON user_profile(state);
+	`)
+	return err
+}
+
 // UpsertFacet inserts or updates a profile facet. On conflict (same facet_type + key):
 // increments evidence_count, updates last_seen_at, appends segment ID to source.
 // Overwrites value only if new confidence >= existing confidence.

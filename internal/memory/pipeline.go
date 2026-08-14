@@ -18,6 +18,7 @@ import (
 	"github.com/simon/mneme/internal/memory/conversations"
 	"github.com/simon/mneme/internal/memory/entities"
 	"github.com/simon/mneme/internal/memory/graph"
+	"github.com/simon/mneme/internal/memory/profile"
 	"github.com/simon/mneme/internal/memory/queue"
 	"github.com/simon/mneme/internal/memory/store"
 	"github.com/simon/mneme/internal/memory/tree"
@@ -37,6 +38,7 @@ type Pipeline struct {
 	entityReg      *entities.Registry      // optional — entity extraction and storage
 	entityGraph    *graph.Graph            // optional — entity co-occurrence graph
 	entityEnricher entities.Enricher       // optional — LLM entity enrichment
+	profileStore   *profile.Store          // optional — L3 persona facet store
 	redactor       *Redactor               // PII/secret redaction before storage
 }
 
@@ -110,6 +112,13 @@ func (a embeddingAdapter) Dimensions() int { return a.Provider.Dimensions() }
 
 // SetEntityEnricher configures an optional LLM-based entity enricher.
 func (p *Pipeline) SetEntityEnricher(e entities.Enricher) { p.entityEnricher = e }
+
+// WithProfile sets the L3 persona facet store. When set, the pipeline extracts
+// user profile facets from scenario content during L1→L2 aggregation.
+func (p *Pipeline) WithProfile(ps *profile.Store) *Pipeline {
+	p.profileStore = ps
+	return p
+}
 
 // WithArchivist sets an archivist for LLM-based chunk summarization during archival.
 func (p *Pipeline) WithArchivist(a *archivist.Archivist) *Pipeline {
@@ -956,7 +965,61 @@ func (p *Pipeline) aggregateScenarios(ctx context.Context) {
 		p.log.Warn("L2 mark atoms failed", "scenario_id", scenarioID, "error", err)
 		return
 	}
+	// L2→L3: extract user profile facets from the aggregated scenario content.
+	if p.profileStore != nil {
+		p.extractPersona(ctx, scenarioID, batch)
+	}
 	p.log.Info("aggregated L1 atoms into scenario", "scenario_id", scenarioID, "atoms", len(ids))
+}
+
+// extractPersona derives L3 user-profile facets from a scenario's atoms using
+// lightweight pattern heuristics (matching ArchivistHook.extractSimpleFacets).
+// Each matched facet is upserted with the scenario ID as its evidence source.
+func (p *Pipeline) extractPersona(ctx context.Context, scenarioID int64, atoms []store.Atom) {
+	now := float64(time.Now().UnixNano()) / 1e9
+	for _, a := range atoms {
+		msg := strings.ToLower(a.Content)
+		type check struct {
+			pattern   string
+			facetType profile.FacetType
+			key       string
+		}
+		checks := []check{
+			{"i work at ", profile.FacetRole, "employer"},
+			{"i am a ", profile.FacetRole, "job_title"},
+			{"i'm a ", profile.FacetRole, "job_title"},
+			{"my name is ", profile.FacetContext, "name"},
+			{"i live in ", profile.FacetContext, "location"},
+			{"i prefer ", profile.FacetPreference, "general_preference"},
+			{"i use ", profile.FacetSkill, "tool"},
+		}
+		for _, c := range checks {
+			if idx := strings.Index(msg, c.pattern); idx >= 0 {
+				val := extractAfter(msg[idx+len(c.pattern):])
+				if val != "" && len(val) < 200 {
+					_ = p.profileStore.UpsertFacet(&profile.ProfileFacet{
+						FacetType:        c.facetType,
+						Key:              c.key,
+						Value:            val,
+						Confidence:       0.5,
+						SourceSegmentIDs: fmt.Sprintf("%d", scenarioID),
+						LastSeenAt:       now,
+					})
+				}
+				break
+			}
+		}
+	}
+}
+
+// extractAfter returns text up to the first punctuation or 80 chars.
+func extractAfter(s string) string {
+	for i, r := range s {
+		if r == '.' || r == ',' || r == '!' || r == '?' || r == '\n' || i > 80 {
+			return strings.TrimSpace(s[:i])
+		}
+	}
+	return strings.TrimSpace(s)
 }
 
 type pipelineGraphScorer struct {

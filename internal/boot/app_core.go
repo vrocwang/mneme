@@ -200,11 +200,24 @@ func (a *AppCore) Init(headless bool) {
 
 	// ── Pipeline + conversations store (before capReg) ───────────────
 	if a.DB != nil {
+		// L3 persona layer: ensure the profile table exists and wire the store
+		// into the middleware so extracted user facets reach the prompt.
+		if err := profile.EnsureSchema(a.DB); err != nil {
+			a.addStartupError("profile schema", err)
+		} else {
+			a.ProfileStore = profile.NewStore(a.DB)
+		}
+
 		a.Pipeline, a.ConvStore = NewPipeline(a.DB, a.Provider, a.Cfg, nil, a.Log)
 		if a.ConvStore != nil {
 			a.Log.Info("conversations store initialized")
 		}
 		if a.Pipeline != nil {
+			// Wire the L3 persona store into the pipeline so L2→L3 facet
+			// extraction runs during scenario aggregation.
+			if a.ProfileStore != nil {
+				a.Pipeline.WithProfile(a.ProfileStore)
+			}
 			a.SessionMemory = memory.NewSessionMemory(a.Cfg.Workspace, memory.DefaultSessionMemoryConfig(), a.Log)
 			a.SessionTracker = ctxmgr.NewSessionMemoryTracker()
 			a.MemoryPrefetcher = NewMemoryPrefetcher(a.Pipeline)
