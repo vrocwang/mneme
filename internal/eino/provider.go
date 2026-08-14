@@ -135,7 +135,4 @@ var (
 	_ model.BaseChatModel = (*openai.ChatModel)(nil)
 	_ model.BaseChatModel = (*claude.ChatModel)(nil)
 	_ model.BaseChatModel = (*ollama.ChatModel)(nil)
-
-	// Verify that converting to ToolCallingChatModel is valid.
-	_ = func(cm model.ToolCallingChatModel) {} // accept ToolCallingChatModel
 )

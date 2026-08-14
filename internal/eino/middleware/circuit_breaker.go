@@ -52,6 +52,22 @@ func NewCircuitBreaker() *CircuitBreakerMiddleware {
 	}
 }
 
+// NewCircuitBreakerWithConfig returns a breaker with explicit thresholds.
+// Zero values fall back to the defaults.
+func NewCircuitBreakerWithConfig(maxRepeatFailures, maxConsecutiveFails, maxRepeatOutputs int) *CircuitBreakerMiddleware {
+	cb := NewCircuitBreaker()
+	if maxRepeatFailures > 0 {
+		cb.MaxRepeatFailures = maxRepeatFailures
+	}
+	if maxConsecutiveFails > 0 {
+		cb.MaxConsecutiveFails = maxConsecutiveFails
+	}
+	if maxRepeatOutputs > 0 {
+		cb.MaxRepeatOutputs = maxRepeatOutputs
+	}
+	return cb
+}
+
 // RecordFailure records a tool execution failure. It increments the
 // repeat-failure counter for the specific tool+args combination (keyed
 // by SHA-256 hash) and increments the consecutive-failure counter.

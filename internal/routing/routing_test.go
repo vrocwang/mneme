@@ -35,25 +35,3 @@ func TestSetAndResolveRoute(t *testing.T) {
 		t.Errorf("expected fallback 'default-model', got %q", got)
 	}
 }
-
-func TestParseRouteKind(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected RouteKind
-	}{
-		{"coding", RouteCoding},
-		{"CODING", RouteCoding},
-		{"reasoning", RouteReasoning},
-		{"summary", RouteSummary},
-		{"summarization", RouteSummary},
-		{"vision", RouteVision},
-		{"unknown", RouteDefault},
-		{"", RouteDefault},
-	}
-	for _, tc := range tests {
-		got := ParseRouteKind(tc.input)
-		if got != tc.expected {
-			t.Errorf("ParseRouteKind(%q) = %q, want %q", tc.input, got, tc.expected)
-		}
-	}
-}

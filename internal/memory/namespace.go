@@ -36,23 +36,6 @@ func (m *NamespaceManager) List() ([]string, error) {
 	}
 	rows.Close()
 
-	// From kv_namespace
-	kvRows, err := m.db.Query(`SELECT DISTINCT namespace FROM kv_namespace ORDER BY namespace`)
-	if err != nil {
-		return nil, fmt.Errorf("list from kv_namespace: %w", err)
-	}
-	defer kvRows.Close()
-	for kvRows.Next() {
-		var s string
-		if err := kvRows.Scan(&s); err != nil {
-			return nil, err
-		}
-		if s != "" {
-			seen[SanitizeNamespace(s)] = true
-		}
-	}
-	kvRows.Close()
-
 	result := make([]string, 0, len(seen))
 	for ns := range seen {
 		result = append(result, ns)
@@ -70,19 +53,9 @@ func (m *NamespaceManager) Clear(ns string) error {
 	if _, err := m.db.Exec(`DELETE FROM memory_chunks WHERE source = ?`, ns); err != nil {
 		return fmt.Errorf("clear memory_chunks: %w", err)
 	}
-	// Delete from memory_conversations (by matching source in metadata, best effort)
+	// Delete from memory_chunks (by matching source in metadata, best effort)
 	if _, err := m.db.Exec(`DELETE FROM memory_chunks WHERE source LIKE ? ESCAPE '\'`, likeNs+":%"); err != nil {
 		return fmt.Errorf("clear memory_chunks subsources: %w", err)
-	}
-	// Delete from kv_namespace
-	if _, err := m.db.Exec(`DELETE FROM kv_namespace WHERE namespace = ?`, ns); err != nil {
-		return fmt.Errorf("clear kv_namespace: %w", err)
-	}
-	// Delete from tool_rules where the namespace appears as a JSON string value
-	// in tags_json. Using the quoted form avoids matching substrings of other values
-	// (e.g. ns="go" won't match tags='["golang"]').
-	if _, err := m.db.Exec(`DELETE FROM tool_rules WHERE tags_json LIKE ? ESCAPE '\'`, `%"`+likeNs+`"%`); err != nil {
-		return fmt.Errorf("clear tool_rules: %w", err)
 	}
 	// Delete from mem_tree_nodes (source-scoped).
 	if _, err := m.db.Exec(`DELETE FROM mem_tree_nodes WHERE id LIKE ? ESCAPE '\'`, likeNs+":%"); err != nil {

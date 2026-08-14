@@ -14,7 +14,7 @@ import (
 	"log/slog"
 	"path/filepath"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/simon/mneme/internal/sqlite"
 
 	"github.com/simon/mneme/internal/agent"
 	"github.com/simon/mneme/internal/app_state"
@@ -34,7 +34,6 @@ import (
 	"github.com/simon/mneme/internal/monitor"
 	"github.com/simon/mneme/internal/registry"
 	"github.com/simon/mneme/internal/routing"
-	"github.com/simon/mneme/internal/service"
 	"github.com/simon/mneme/internal/webhooks"
 	"github.com/simon/mneme/pkg/events"
 )
@@ -56,15 +55,11 @@ type App struct {
 
 	// Event subscriptions (managed by subscribers.go)
 	eventSubs *subscriberSet
-
-	// Service manager (currently unused but kept for future services)
-	svcMgr *service.Manager
 }
 
 func NewApp(cfg *config.Config, log *slog.Logger) *App {
 	return &App{
 		AppCore: boot.NewAppCore(cfg, log),
-		svcMgr:  service.NewManager(log),
 	}
 }
 
@@ -92,7 +87,6 @@ func (a *App) shutdown(ctx context.Context) {
 		a.eventSubs.unsubscribeAll()
 	}
 	a.AppCore.Shutdown()
-	a.svcMgr.StopAll()
 }
 
 // wireRPC injects dependencies into RPC objects. This is pure DI -

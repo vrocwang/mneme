@@ -62,7 +62,6 @@ type AppCore struct {
 	Pipeline         *memory.Pipeline
 	ProfileStore     *profile.Store
 	MemoryPrefetcher *agent.MemoryPrefetcher
-	SessionMemory    *memory.SessionMemory
 	SessionTracker   *ctxmgr.SessionMemoryTracker
 
 	Cron        *cron.Scheduler
@@ -218,7 +217,6 @@ func (a *AppCore) Init(headless bool) {
 			if a.ProfileStore != nil {
 				a.Pipeline.WithProfile(a.ProfileStore)
 			}
-			a.SessionMemory = memory.NewSessionMemory(a.Cfg.Workspace, memory.DefaultSessionMemoryConfig(), a.Log)
 			a.SessionTracker = ctxmgr.NewSessionMemoryTracker()
 			a.MemoryPrefetcher = NewMemoryPrefetcher(a.Pipeline)
 		}
@@ -345,24 +343,28 @@ func (a *AppCore) Init(headless bool) {
 	// Evaluators are registered by the "subconscious" event bundle.
 
 	// ── Heartbeat ────────────────────────────────────────────────────
-	a.Heartbeat = heartbeat.New(a.Log, bundle.HeartbeatInterval)
+	a.Heartbeat = heartbeat.New(a.Log, heartbeatInterval(a.Cfg))
 	// The heartbeat handler is registered and started by the "heartbeat" event
 	// bundle after all dependencies exist.
 
 	// ── Learning ─────────────────────────────────────────────────────
-	a.Learning = learning.New(a.Log)
 	a.ToolTracker = learning.NewToolTrackerHook(nil)
-	if a.Provider != nil {
-		a.Learning.SetProvider(a.Provider, a.Cfg.Agent.DefaultModel)
-	}
-	if a.DB != nil {
-		store, _ := learning.NewSQLiteStore(a.DB)
-		a.Learning.UseSQLiteStore(store)
-		if cache, err := learning.NewSQLiteCache(a.DB); err == nil {
-			a.Learning.UseFacetSystem(cache)
-			a.Learning.StartFacetRebuildLoop(context.Background())
-			a.Log.Info("learning facet system activated")
+	if a.Cfg.Learning.Enabled {
+		a.Learning = learning.New(a.Log)
+		if a.Provider != nil {
+			a.Learning.SetProvider(a.Provider, a.Cfg.Agent.DefaultModel)
 		}
+		if a.DB != nil {
+			store, _ := learning.NewSQLiteStore(a.DB)
+			a.Learning.UseSQLiteStore(store)
+			if cache, err := learning.NewSQLiteCache(a.DB); err == nil {
+				a.Learning.UseFacetSystem(cache)
+				a.Learning.StartFacetRebuildLoop(context.Background())
+				a.Log.Info("learning facet system activated")
+			}
+		}
+	} else {
+		a.Log.Info("learning disabled by config")
 	}
 
 	// ── Metrics ──────────────────────────────────────────────────────
@@ -392,25 +394,24 @@ func (a *AppCore) Init(headless bool) {
 	// metrics/tool-tracker/cost hooks were registered before their components
 	// existed and therefore never ran.
 	eventDeps := &bundle.Deps{
-		Reg:           a.CapReg,
-		Cfg:           a.Cfg,
-		Workspace:     a.Cfg.Workspace,
-		SecurityTier:  a.Cfg.Security.Tier,
-		Log:           a.Log,
-		ConvStore:     a.ConvStore,
-		Metrics:       a.Metrics,
-		ToolTracker:   a.ToolTracker,
-		CostTracker:   a.CostTracker,
-		SessionMemory: a.SessionMemory,
-		HookReg:       a.HookReg,
-		Cron:          a.Cron,
-		Pipeline:      a.Pipeline,
-		Provider:      a.Provider,
-		Learning:      a.Learning,
-		SyncMgr:       a.SyncMgr,
-		Subcon:        a.Subcon,
-		Heartbeat:     a.Heartbeat,
-		NotifBus:      a.NotifBus,
+		Reg:          a.CapReg,
+		Cfg:          a.Cfg,
+		Workspace:    a.Cfg.Workspace,
+		SecurityTier: a.Cfg.Security.Tier,
+		Log:          a.Log,
+		ConvStore:    a.ConvStore,
+		Metrics:      a.Metrics,
+		ToolTracker:  a.ToolTracker,
+		CostTracker:  a.CostTracker,
+		HookReg:      a.HookReg,
+		Cron:         a.Cron,
+		Pipeline:     a.Pipeline,
+		Provider:     a.Provider,
+		Learning:     a.Learning,
+		SyncMgr:      a.SyncMgr,
+		Subcon:       a.Subcon,
+		Heartbeat:    a.Heartbeat,
+		NotifBus:     a.NotifBus,
 	}
 	eventRegistry := bundle.NewRegistry(a.Cfg.Bundles.Disabled)
 	if _, err := eventRegistry.Run(context.Background(), eventDeps, bundle.EventBundles()); err != nil {
@@ -474,7 +475,11 @@ func (a *AppCore) Init(headless bool) {
 			AuditLogger:  a.AuditLogger,
 		}
 
-		breakerMW := einomw.NewCircuitBreaker()
+		breakerMW := einomw.NewCircuitBreakerWithConfig(
+			a.Cfg.CircuitBreaker.MaxRepeatFailures,
+			a.Cfg.CircuitBreaker.MaxNoProgressFails,
+			0,
+		)
 
 		memMW := &einomw.MemoryMiddleware{
 			Pipeline:   a.Pipeline,

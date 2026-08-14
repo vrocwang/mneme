@@ -43,7 +43,6 @@ func (p *einoProvider) Chat(ctx context.Context, req inference.ChatRequest) (<-c
 		}
 		defer stream.Close()
 
-		var fullText string
 		for {
 			msg, err := stream.Recv()
 			if err == io.EOF {
@@ -59,7 +58,6 @@ func (p *einoProvider) Chat(ctx context.Context, req inference.ChatRequest) (<-c
 
 			// Emit text content as tokens.
 			if msg.Content != "" {
-				fullText += msg.Content
 				tokens <- inference.Token{Text: msg.Content}
 			}
 
@@ -87,7 +85,7 @@ func (p *einoProvider) Chat(ctx context.Context, req inference.ChatRequest) (<-c
 			}
 		}
 
-		tokens <- inference.Token{Text: fullText, IsFinal: true}
+		tokens <- inference.Token{IsFinal: true}
 	}()
 
 	return tokens, errs

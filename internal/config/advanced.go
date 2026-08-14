@@ -116,6 +116,8 @@ func (c *Config) GetCostConfig() CostConfig { return c.Cost }
 // ── Autonomy, Sandbox, Observability, and other config sections ───────
 
 // AutonomyConfig controls the agent's autonomy level and security boundaries.
+// Deprecated: parsed for config-file compatibility but not wired to any
+// consumer (security tier + approval gate govern autonomy at runtime).
 type AutonomyConfig struct {
 	Level                        string             `toml:"level" json:"level"`
 	WorkspaceOnly                bool               `toml:"workspace_only" json:"workspace_only"`
@@ -147,7 +149,7 @@ func defaultSandboxConfig() SandboxConfig {
 
 // ActionDirConfig controls the agent's tool sandbox root.
 type ActionDirConfig struct {
-	Path     string `toml:"path" json:"path"`
+	Path     string `toml:"path" json:"path"` // Deprecated: parsed but not read; Override governs the sandbox root
 	Override string `toml:"override" json:"override,omitempty"`
 }
 
@@ -170,6 +172,7 @@ type ProxyConfig struct {
 }
 
 // DashboardConfig controls the dashboard display.
+// Deprecated: parsed for config-file compatibility but not wired to any consumer.
 type DashboardConfig struct {
 	Enabled         bool `toml:"enabled" json:"enabled"`
 	RefreshInterval int  `toml:"refresh_interval_secs" json:"refresh_interval_secs"`
@@ -180,6 +183,7 @@ func defaultDashboardConfig() DashboardConfig {
 }
 
 // UpdateConfig controls automatic update checking.
+// Deprecated: parsed for config-file compatibility but not wired to any consumer.
 type UpdateConfig struct {
 	CheckIntervalSecs int    `toml:"check_interval_secs" json:"check_interval_secs"`
 	Channel           string `toml:"channel" json:"channel"`
@@ -190,6 +194,7 @@ func defaultUpdateConfig() UpdateConfig {
 }
 
 // MeetConfig controls meeting assistant behaviour.
+// Deprecated: parsed for config-file compatibility but not wired to any consumer.
 type MeetConfig struct {
 	AutoJoin   bool   `toml:"auto_join" json:"auto_join"`
 	ListenOnly bool   `toml:"listen_only" json:"listen_only"`
@@ -212,6 +217,8 @@ func defaultScreenIntelligenceConfig() ScreenIntelligenceConfig {
 }
 
 // RuntimeConfig controls managed runtime (Node/Python) settings.
+// Deprecated: parsed for config-file compatibility; internal/runtime uses its
+// own bootstrap configs rather than this struct.
 type RuntimeConfig struct {
 	AutoInstall bool                `toml:"auto_install" json:"auto_install"`
 	Version     string              `toml:"version" json:"version,omitempty"`
@@ -235,6 +242,7 @@ type PythonRuntimeConfig struct {
 }
 
 // TaskSourcesConfig controls proactive task ingestion from external tools.
+// Deprecated: parsed for config-file compatibility but not wired to any consumer.
 type TaskSourcesConfig struct {
 	Enabled     bool `toml:"enabled" json:"enabled"`
 	PollMinutes int  `toml:"poll_minutes" json:"poll_minutes"`

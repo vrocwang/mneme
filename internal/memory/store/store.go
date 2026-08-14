@@ -443,13 +443,61 @@ func (s *Store) CountByTaintSince(ctx context.Context, taint MemoryTaint, since 
 	return count, err
 }
 
-// SearchByVector performs brute-force cosine similarity search over all
-// chunks that have a vector embedding matching the given model signature.
+// SearchByVector performs cosine similarity search over chunks whose vector
+// embedding matches the given model signature.
+//
+// When the SQLite vec1 extension is available (it is, via internal/sqlite),
+// distance is computed natively with vec1_cos_distance and ordered in SQL —
+// an exact linear scan, but SIMD-accelerated and returning results in one
+// query. If that errors (e.g. a mismatched stored vector dimension), it falls
+// back to the brute-force cosine scan so results are never lost.
 func (s *Store) SearchByVector(queryVec []float32, limit int, modelSig string) ([]VectorResult, error) {
 	if len(queryVec) == 0 {
 		return nil, nil
 	}
 
+	// Native vec1 path: cosine distance in SQL, ordered ascending (distance 0
+	// == identical). We convert to similarity (1 - distance) on scan.
+	rows, err := s.db.Query(
+		`SELECT id, source, taint, content, summary, vector, embedding_model, created_at,
+		        vec1_cos_distance(?, vector) AS dist
+		 FROM memory_chunks
+		 WHERE vector IS NOT NULL AND embedding_model = ?
+		 ORDER BY dist
+		 LIMIT ?`, EncodeVector(queryVec), modelSig, limit)
+	if err != nil {
+		return s.searchByVectorBruteForce(queryVec, limit, modelSig)
+	}
+	defer rows.Close()
+
+	var results []VectorResult
+	for rows.Next() {
+		var c MemoryChunk
+		var vectorBlob []byte
+		var dist float64
+		if err := rows.Scan(&c.ID, &c.Source, &c.Taint, &c.Content, &c.Summary, &vectorBlob, &c.EmbeddingModel, &c.CreatedAt, &dist); err != nil {
+			return s.searchByVectorBruteForce(queryVec, limit, modelSig)
+		}
+		c.Taint = normalizeTaint(string(c.Taint))
+		if len(vectorBlob) > 0 {
+			c.Vector, _ = DecodeVector(vectorBlob)
+		}
+		var err error
+		c.Content, err = s.decryptContent(c.Content)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt chunk %d content: %w", c.ID, err)
+		}
+		results = append(results, VectorResult{Chunk: c, Similarity: vec1Similarity(dist)})
+	}
+	if err := rows.Err(); err != nil {
+		return s.searchByVectorBruteForce(queryVec, limit, modelSig)
+	}
+	return results, nil
+}
+
+// searchByVectorBruteForce is the pre-vec1 fallback: it loads every chunk
+// matching the model signature and scores them with Go-side cosine similarity.
+func (s *Store) searchByVectorBruteForce(queryVec []float32, limit int, modelSig string) ([]VectorResult, error) {
 	rows, err := s.db.Query(
 		`SELECT id, source, taint, content, summary, vector, embedding_model, created_at
 		 FROM memory_chunks
@@ -483,6 +531,20 @@ func (s *Store) SearchByVector(queryVec []float32, limit int, modelSig string) (
 		result = append(result, VectorResult{Chunk: scored[i].chunk, Similarity: scored[i].score})
 	}
 	return result, nil
+}
+
+// vec1Similarity converts a vec1 cosine distance (0 == identical, 1 ==
+// orthogonal, 2 == opposite) into a cosine similarity clamped to [0, 1],
+// matching the semantics of CosineSimilarity.
+func vec1Similarity(dist float64) float64 {
+	sim := 1 - dist
+	if sim < 0 {
+		return 0
+	}
+	if sim > 1 {
+		return 1
+	}
+	return sim
 }
 
 // HybridSearch combines FTS5 BM25 text search with vector similarity via RRF fusion.

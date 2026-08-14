@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/simon/mneme/internal/sqlite"
 
 	"github.com/simon/mneme/internal/memory/conversations"
 	"github.com/simon/mneme/internal/memory/queue"

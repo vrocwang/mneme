@@ -83,7 +83,11 @@ func ReloadEino(a *AppCore) {
 		ApprovalGate: a.ApprovalGate,
 		AuditLogger:  a.AuditLogger,
 	}
-	breakerMW := einomw.NewCircuitBreaker()
+	breakerMW := einomw.NewCircuitBreakerWithConfig(
+		a.Cfg.CircuitBreaker.MaxRepeatFailures,
+		a.Cfg.CircuitBreaker.MaxNoProgressFails,
+		0,
+	)
 	memMW := &einomw.MemoryMiddleware{
 		Pipeline:   a.Pipeline,
 		Prefetcher: a.MemoryPrefetcher,

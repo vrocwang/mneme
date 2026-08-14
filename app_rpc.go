@@ -41,7 +41,7 @@ func (a *App) SearchMemory(query string) (string, error) {
 	if a.Pipeline == nil {
 		return "Memory pipeline not available.", nil
 	}
-	result, err := a.Pipeline.Search(context.Background(), query, 20)
+	result, err := a.Pipeline.Search(context.Background(), query, a.Pipeline.DefaultSearchLimit())
 	if err != nil {
 		return "", err
 	}

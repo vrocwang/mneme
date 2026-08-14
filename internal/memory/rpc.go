@@ -19,7 +19,7 @@ func (r *MemoryRPC) SearchMemory(query string, filter string) (string, error) {
 	if r.pipeline == nil {
 		return "Memory pipeline not available.", nil
 	}
-	result, err := r.pipeline.SearchWithFilter(context.Background(), query, 20, filter)
+	result, err := r.pipeline.SearchWithFilter(context.Background(), query, r.pipeline.DefaultSearchLimit(), filter)
 	if err != nil {
 		return "", err
 	}

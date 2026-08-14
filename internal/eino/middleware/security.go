@@ -33,12 +33,6 @@ type SecurityMiddleware struct {
 
 	// AuditLogger records security events. Nil-safe.
 	AuditLogger *security.AuditLogger
-
-	// Sandbox, when true, enables additional sandbox restrictions on
-	// tool execution (e.g. cwd jailing). The actual enforcement is
-	// handled by the tool runner; this flag is read by downstream
-	// middleware to decide whether to activate sandbox mode.
-	Sandbox bool
 }
 
 // FilterInput runs prompt-injection detection on user-supplied content.

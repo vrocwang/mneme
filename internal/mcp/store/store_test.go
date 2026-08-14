@@ -4,8 +4,8 @@ import (
 	"database/sql"
 	"testing"
 
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/simon/mneme/internal/capability"
+	_ "github.com/simon/mneme/internal/sqlite"
 )
 
 // newTestStore creates an MCP store backed by an in-memory SQLite database.

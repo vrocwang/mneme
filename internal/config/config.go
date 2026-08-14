@@ -24,13 +24,13 @@ type ProviderConfig struct {
 
 // ChannelConfig holds credentials for a messaging channel.
 type ChannelConfig struct {
-	Enabled       bool   `toml:"enabled"`
+	Enabled       bool   `toml:"enabled"` // Deprecated: channels are registered regardless of this flag
 	Token         string `toml:"token"`
 	SigningSecret string `toml:"signing_secret"`  // Slack only
 	WebhookURL    string `toml:"webhook_url"`     // Discord/WhatsApp
 	PhoneNumberID string `toml:"phone_number_id"` // WhatsApp Business API
 
-	// Signal-specific fields (matching Rust SignalConfig).
+	// Signal-specific fields. Deprecated: no Signal channel backend exists.
 	SignalHTTPURL       string   `toml:"signal_http_url"`           // signal-cli daemon REST API URL
 	SignalAccount       string   `toml:"signal_account"`            // E.164 phone number
 	SignalGroupID       string   `toml:"signal_group_id"`           // restrict to group/dm
@@ -124,6 +124,8 @@ type ToolsConfig struct {
 }
 
 // BrowserConfig holds settings for the headless browser tool.
+// Deprecated: parsed for config-file compatibility but not wired to any
+// consumer; the browser tool is hardcoded via tools.NewBrowserOpen.
 type BrowserConfig struct {
 	Headless    bool `toml:"headless"`     // run browser in headless mode
 	TimeoutSecs int  `toml:"timeout_secs"` // page load timeout, 0 = default
@@ -157,11 +159,13 @@ type WebhookConfig struct {
 	Enabled    bool   `toml:"enabled"`     // start the local HTTP listener
 	Port       int    `toml:"port"`        // HTTP listen port, default 9500
 	Secret     string `toml:"secret"`      // HMAC secret for signature verification
-	RelayURL   string `toml:"relay_url"`   // optional Socket.IO relay for internet access
-	RelayToken string `toml:"relay_token"` // auth token for the relay server
+	RelayURL   string `toml:"relay_url"`   // Deprecated: parsed but never read by the webhook server
+	RelayToken string `toml:"relay_token"` // Deprecated: parsed but never read by the webhook server
 }
 
 // ContextConfig controls the context manager's token budget and compaction.
+// Deprecated: parsed for config-file compatibility but not wired to any
+// consumer (the eino agent manages its own context via tokenjuice compaction).
 type ContextConfig struct {
 	MaxTokens           int     `toml:"max_tokens"`           // max context window, default 128000
 	CompactionThreshold float64 `toml:"compaction_threshold"` // fraction of max that triggers compaction, default 0.90

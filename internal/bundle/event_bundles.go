@@ -77,12 +77,6 @@ func eventHooksBundle() Bundle {
 		if d.CostTracker != nil {
 			d.HookReg.Register(agent.NewCostTrackingHook(d.CostTracker))
 		}
-		if d.SessionMemory != nil {
-			sm := d.SessionMemory
-			d.HookReg.Register(agent.NewPostTurnHook("session-memory", func(ctx context.Context, snap *agent.TurnSnapshot) {
-				sm.TickTurn()
-			}))
-		}
 		return nil, nil
 	})
 }
@@ -95,14 +89,22 @@ func cronJobsBundle() Bundle {
 			return nil, nil
 		}
 
-		if d.Pipeline != nil {
+		if d.Pipeline != nil && d.Cfg != nil && d.Cfg.Memory.RetentionDays > 0 {
+			retentionDays := d.Cfg.Memory.RetentionDays
 			d.Cron.Add(&cron.Job{
-				ID:       "memory-maintenance",
-				Name:     "Memory pipeline maintenance",
+				ID:       "memory-retention",
+				Name:     "Memory retention purge",
 				Schedule: "hourly",
 				Enabled:  true,
 				Handler: func(ctx context.Context) error {
-					return d.Pipeline.IndexContent("cron", "hourly maintenance pulse")
+					n, err := d.Pipeline.ForgetAtomsOlderThan(ctx, time.Duration(retentionDays)*24*time.Hour)
+					if err != nil {
+						return err
+					}
+					if n > 0 {
+						d.Log.Info("memory retention purge", "atoms_deleted", n, "retention_days", retentionDays)
+					}
+					return nil
 				},
 			})
 		}

@@ -95,57 +95,9 @@ type ChatRequest struct {
 
 // ── Provider interface ─────────────────────────────────────────────────────
 
-// LifecycleManager is an optional interface for providers that manage their own
-// runtime (start, stop, health check, model pull). Local inference services
-// implement this via extensions.
-type LifecycleManager interface {
-	Start(ctx context.Context) error
-	Stop() error
-	HealthCheck(ctx context.Context) error
-	PullModel(ctx context.Context, model string) error
-	ListModels(ctx context.Context) ([]string, error)
-}
-
 type Provider interface {
 	Name() string
 	Chat(ctx context.Context, req ChatRequest) (<-chan Token, <-chan error)
-}
-
-// VisionProvider is an optional interface for providers that can report
-// whether they support vision/image inputs.
-type VisionProvider interface {
-	SupportsVision() bool
-}
-
-// ── MockProvider for testing ───────────────────────────────────────────────
-
-type MockProvider struct {
-	NameStr string
-	Tokens  []Token
-}
-
-func (m *MockProvider) Name() string {
-	if m.NameStr == "" {
-		return "mock"
-	}
-	return m.NameStr
-}
-
-func (m *MockProvider) Chat(ctx context.Context, req ChatRequest) (<-chan Token, <-chan error) {
-	tokens := make(chan Token, len(m.Tokens))
-	errs := make(chan error, 1)
-	go func() {
-		defer close(tokens)
-		defer close(errs)
-		for _, tok := range m.Tokens {
-			select {
-			case tokens <- tok:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	return tokens, errs
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────

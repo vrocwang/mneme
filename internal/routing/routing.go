@@ -47,13 +47,6 @@ func (r *Router) SetRoute(kind RouteKind, model string) {
 	r.routes[kind] = model
 }
 
-// SetFallback updates the default fallback model.
-func (r *Router) SetFallback(model string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.fallback = model
-}
-
 // ProviderModel describes a provider's available models for routing configuration.
 type ProviderModel struct {
 	Name   string
@@ -129,22 +122,6 @@ func DefaultRoutes() []ModelRoute {
 		{Kind: RouteReasoning, Model: ""},
 		{Kind: RouteSummary, Model: ""},
 		{Kind: RouteVision, Model: ""},
-	}
-}
-
-// ParseRouteKind converts a string to a RouteKind (case-insensitive).
-func ParseRouteKind(s string) RouteKind {
-	switch strings.ToLower(s) {
-	case "coding":
-		return RouteCoding
-	case "reasoning":
-		return RouteReasoning
-	case "summary", "summarization":
-		return RouteSummary
-	case "vision":
-		return RouteVision
-	default:
-		return RouteDefault
 	}
 }
 

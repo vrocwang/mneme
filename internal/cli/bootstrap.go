@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"os"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/simon/mneme/internal/sqlite"
 
 	"github.com/simon/mneme/internal/boot"
 	"github.com/simon/mneme/internal/config"

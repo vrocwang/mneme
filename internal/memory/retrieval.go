@@ -59,14 +59,15 @@ type ScoredChunk struct {
 }
 
 type MultiStrategyRetriever struct {
-	mu             sync.Mutex
-	store          *store.Store
-	memTree        *tree.Tree
-	embedder       embeddingProvider
-	graphScorer    GraphScorer
-	episodicScorer EpisodicScorer
-	weights        RetrievalWeights
-	log            *slog.Logger
+	mu                sync.Mutex
+	store             *store.Store
+	memTree           *tree.Tree
+	embedder          embeddingProvider
+	graphScorer       GraphScorer
+	episodicScorer    EpisodicScorer
+	weights           RetrievalWeights
+	freshnessHalfLife float64 // hours; 0 = default (7 days)
+	log               *slog.Logger
 }
 
 type embeddingProvider interface {
@@ -97,6 +98,14 @@ func (r *MultiStrategyRetriever) WithGraphScorer(gs GraphScorer) *MultiStrategyR
 }
 func (r *MultiStrategyRetriever) WithEpisodicScorer(es EpisodicScorer) *MultiStrategyRetriever {
 	r.episodicScorer = es
+	return r
+}
+
+// WithFreshnessHalfLife sets the freshness decay half-life in hours.
+func (r *MultiStrategyRetriever) WithFreshnessHalfLife(hours float64) *MultiStrategyRetriever {
+	if hours > 0 {
+		r.freshnessHalfLife = hours
+	}
 	return r
 }
 
@@ -258,7 +267,7 @@ func (r *MultiStrategyRetriever) searchWeighted(ctx context.Context, query strin
 
 	// Apply freshness decay: older chunks naturally fade.
 	for i := range ranked {
-		decay := freshnessDecay(ranked[i].Chunk.CreatedAt)
+		decay := freshnessDecay(ranked[i].Chunk.CreatedAt, r.freshnessHalfLife)
 		ranked[i].Score *= decay
 		ranked[i].Signals["freshness"] = decay
 	}
@@ -419,8 +428,8 @@ func temporalBoost(query string, createdAt string) float64 {
 
 // freshnessDecay returns a decay factor based on the age of the content.
 // Uses exponential decay: exp(-ageInHours / halfLifeHours).
-// Default half-life is 7 days (168 hours).
-func freshnessDecay(createdAt string) float64 {
+// A halfLifeHours of 0 falls back to the default (7 days / 168 hours).
+func freshnessDecay(createdAt string, halfLifeHours float64) float64 {
 	if createdAt == "" {
 		return 1.0
 	}
@@ -432,7 +441,10 @@ func freshnessDecay(createdAt string) float64 {
 	if ageHours < 0 {
 		return 1.0
 	}
-	halfLife := 168.0 // 7 days
+	halfLife := halfLifeHours
+	if halfLife <= 0 {
+		halfLife = 168.0 // 7 days
+	}
 	return math.Exp(-ageHours / halfLife)
 }
 

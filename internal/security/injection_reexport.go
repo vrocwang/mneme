@@ -32,14 +32,6 @@ func DetectPromptInjection(input string) InjectionResult {
 	return prompt_injection.DetectPromptInjection(input)
 }
 
-func QuickInjectionCheck(input string) bool {
-	return prompt_injection.QuickInjectionCheck(input)
-}
-
 func EnforcePromptInput(input string) PromptEnforcementDecision {
 	return prompt_injection.EnforcePromptInput(input)
-}
-
-func ScanToolDefinition(name, description string) (float64, []string) {
-	return prompt_injection.ScanToolDefinition(name, description)
 }

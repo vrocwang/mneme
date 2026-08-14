@@ -56,20 +56,19 @@ type Deps struct {
 	// Runtime components consumed by event-driven bundles (post-turn hooks,
 	// cron jobs, subconscious evaluators, heartbeat). All are optional; a
 	// bundle skips work for nil dependencies.
-	ConvStore    *conversations.Store
-	Metrics      *health.Registry
-	ToolTracker  *learning.ToolTrackerHook
-	CostTracker  *cost.Tracker
-	SessionMemory *memory.SessionMemory
-	HookReg      *agent.PostTurnHookRegistry
-	Cron         *cron.Scheduler
-	Pipeline     *memory.Pipeline
-	Provider     inference.Provider
-	Learning     *learning.Engine
-	SyncMgr      *memsync.Manager
-	Subcon       *subconscious.Engine
-	Heartbeat    *heartbeat.Heartbeat
-	NotifBus     *notifications.Bus
+	ConvStore   *conversations.Store
+	Metrics     *health.Registry
+	ToolTracker *learning.ToolTrackerHook
+	CostTracker *cost.Tracker
+	HookReg     *agent.PostTurnHookRegistry
+	Cron        *cron.Scheduler
+	Pipeline    *memory.Pipeline
+	Provider    inference.Provider
+	Learning    *learning.Engine
+	SyncMgr     *memsync.Manager
+	Subcon      *subconscious.Engine
+	Heartbeat   *heartbeat.Heartbeat
+	NotifBus    *notifications.Bus
 }
 
 // Bundle is a named, independently enableable capability group. Register runs

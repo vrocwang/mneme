@@ -28,7 +28,7 @@ Mneme 是一个基于 [Wails](https://wails.io)（Go 后端 + React/TypeScript �
 go build ./...
 
 # 独立 CLI 二进制
-go build -tags "sqlite_fts5" -o mneme-cli ./cmd/mneme-cli/
+go build -o mneme-cli ./cmd/mneme-cli/
 
 # Wails 桌面 GUI
 wails build      # 生产构建
@@ -201,7 +201,7 @@ go build -ldflags="-s -w" -o <name> .
 ## 测试
 
 ```bash
-go test -tags "sqlite_fts5" ./internal/...
+go test ./internal/...
 ```
 
 核心包与中间件均有测试覆盖：安全门控、熔断器、工具包装、工具过滤、结果转换与失败转移配置。

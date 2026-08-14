@@ -24,7 +24,6 @@ type MemoryMiddleware struct {
 	Prefetcher *agent.MemoryPrefetcher
 	Profile    *profile.Store
 	Tracker    *ctxmgr.SessionMemoryTracker
-	ToolRules  *memory.ToolRuleStore
 	Log        *slog.Logger
 
 	// Optional injectors that were previously wired via the context Manager
@@ -89,25 +88,17 @@ func (m *MemoryMiddleware) ModifyMessages(ctx context.Context, msgs []*schema.Me
 		}
 	}
 
-	// 3. Tool rules — critical/high-priority tool-specific rules that
-	//    the agent should follow when invoking certain tools.
-	if m.ToolRules != nil {
-		if section := m.ToolRules.BuildPromptSection(); section != "" {
-			sysMsg.Content = m.appendSection(sysMsg.Content, section)
-		}
-	}
-
-	// 4. Skills — installable SKILL.md files that match the user's request.
+	// 3. Skills — installable SKILL.md files that match the user's request.
 	if m.Skills != nil {
 		sysMsg.Content = m.Skills.InjectPrompt(ctx, userMessage, sysMsg.Content)
 	}
 
-	// 5. Workflows — reusable phase-keyed workflow guidance.
+	// 4. Workflows — reusable phase-keyed workflow guidance.
 	if m.Workflows != nil {
 		sysMsg.Content = m.Workflows.InjectPrompt(ctx, userMessage, sysMsg.Content)
 	}
 
-	// 6. Past experiences — prior learnings prepended to the user message.
+	// 5. Past experiences — prior learnings prepended to the user message.
 	if m.Exp != nil {
 		exps, err := m.Exp.GetRelevant(ctx, userMessage, 5)
 		if err == nil && len(exps) > 0 {

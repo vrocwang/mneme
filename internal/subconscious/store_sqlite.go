@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/simon/mneme/internal/sqlite"
 )
 
 // SQLiteStore provides persistent storage for tasks, reflections, and engine state
@@ -26,7 +26,7 @@ func NewSQLiteStore(workspaceDir string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("create subconscious dir: %w", err)
 	}
 	dbPath := filepath.Join(workspaceDir, "subconscious.db")
-	db, err := sql.Open("sqlite3", dbPath+"?_journal=WAL&_timeout=5000")
+	db, err := sql.Open("sqlite3", "file:"+dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, fmt.Errorf("open subconscious db: %w", err)
 	}

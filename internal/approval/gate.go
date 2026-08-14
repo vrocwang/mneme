@@ -324,6 +324,7 @@ func (g *Gate) RequestApproval(ctx context.Context, toolName string, argsJSON st
 			"tool":     toolName,
 			"args":     redactedArgs,
 			"decision": decision.String(),
+			"reason":   reason,
 			"origin":   originStr,
 		})
 	}
@@ -388,18 +389,6 @@ func (g *Gate) CancelAll(reason string) {
 		}
 	}
 	g.log.Info("all pending approvals cancelled", "reason", reason, "count", len(requests))
-}
-
-// BuildApproveFunc creates an ApproveFunc backed by the gate. When gate is nil,
-// all tools are auto-approved. Used by the security policy checker.
-func BuildApproveFunc(gate *Gate) func(ctx context.Context, toolName, argsJSON, reason string) (string, error) {
-	return func(ctx context.Context, toolName, argsJSON, reason string) (string, error) {
-		if gate == nil {
-			return "approve_once", nil
-		}
-		decision, _ := gate.RequestApproval(ctx, toolName, argsJSON, reason)
-		return decision.String(), nil
-	}
 }
 
 // ListPendingForUI returns pending approvals formatted for the Wails frontend.

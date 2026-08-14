@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/cloudwego/eino/components/tool"
@@ -105,22 +104,4 @@ func WrapAllTools(tools []tool.BaseTool, sec *SecurityMiddleware, cb *CircuitBre
 		}
 	}
 	return out
-}
-
-// unwrapArgsJSON is a helper that tries to unmarshal JSON arguments into a
-// structured form for logging. It is not part of the public API.
-func unwrapArgsJSON(raw string) string {
-	if raw == "" {
-		return raw
-	}
-	var m map[string]interface{}
-	if err := json.Unmarshal([]byte(raw), &m); err != nil {
-		return raw
-	}
-	// Re-marshal with sorted keys for stable comparison in the breaker.
-	b, err := json.Marshal(m)
-	if err != nil {
-		return raw
-	}
-	return string(b)
 }

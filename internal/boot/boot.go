@@ -133,14 +133,6 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 		}
 	}
 
-	// Validate agent tier hierarchy after all agents are loaded.
-	allAgents := reg.AllAgents()
-	agentDefs := make([]*tools.AgentDef, 0, len(allAgents))
-	for _, desc := range allAgents {
-		if def, ok := reg.GetAgent(desc.ID); ok {
-			agentDefs = append(agentDefs, def)
-		}
-	}
 	// Tier hierarchy validation removed — eino uses AgentAsTool delegation
 
 	// ── Wired modules (parallel OpenHuman's all.rs controller registry) ──

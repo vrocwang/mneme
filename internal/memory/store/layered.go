@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 )
 
@@ -391,6 +392,179 @@ func (s *LayeredStore) MigrateChunksToAtoms(ctx context.Context) (int, error) {
 		migrated++
 	}
 	return migrated, nil
+}
+
+// ── Vector search (sqlite-vec) ────────────────────────────────────────
+
+// AtomVectorResult pairs an L1 atom with its cosine similarity to a query.
+type AtomVectorResult struct {
+	Atom       Atom
+	Similarity float64
+}
+
+// ScenarioVectorResult pairs an L2 scenario with its cosine similarity.
+type ScenarioVectorResult struct {
+	Scenario   Scenario
+	Similarity float64
+}
+
+// SearchAtomsByVector returns the top-k L1 atoms by cosine similarity to the
+// query vector, computed natively with vec1_cos_distance. Falls back to a Go
+// cosine scan if the vec1 extension is unavailable or a stored vector has an
+// unexpected dimension (so results are never lost).
+func (s *LayeredStore) SearchAtomsByVector(ctx context.Context, queryVec []float32, limit int, modelSig string) ([]AtomVectorResult, error) {
+	if len(queryVec) == 0 {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, content, summary, source, taint, refs, scenario_id, vector, embedding_model, created_at,
+		        vec1_cos_distance(?, vector) AS dist
+		 FROM mem_l1_atom
+		 WHERE vector IS NOT NULL AND embedding_model = ?
+		 ORDER BY dist LIMIT ?`, EncodeVector(queryVec), modelSig, limit)
+	if err != nil {
+		return s.searchAtomsByVectorBruteForce(ctx, queryVec, limit, modelSig)
+	}
+	defer rows.Close()
+
+	var out []AtomVectorResult
+	for rows.Next() {
+		var a Atom
+		var refsJSON string
+		var vectorBlob []byte
+		var scenarioID sql.NullInt64
+		var dist float64
+		if err := rows.Scan(&a.ID, &a.Content, &a.Summary, &a.Source, &a.Taint, &refsJSON, &scenarioID, &vectorBlob, &a.EmbeddingModel, &a.CreatedAt, &dist); err != nil {
+			return s.searchAtomsByVectorBruteForce(ctx, queryVec, limit, modelSig)
+		}
+		a.Taint = normalizeTaint(string(a.Taint))
+		if scenarioID.Valid {
+			a.ScenarioID = scenarioID.Int64
+		}
+		if refsJSON != "" {
+			_ = json.Unmarshal([]byte(refsJSON), &a.Refs)
+		}
+		if len(vectorBlob) > 0 {
+			a.Vector, _ = DecodeVector(vectorBlob)
+		}
+		out = append(out, AtomVectorResult{Atom: a, Similarity: vec1Similarity(dist)})
+	}
+	if err := rows.Err(); err != nil {
+		return s.searchAtomsByVectorBruteForce(ctx, queryVec, limit, modelSig)
+	}
+	return out, nil
+}
+
+func (s *LayeredStore) searchAtomsByVectorBruteForce(ctx context.Context, queryVec []float32, limit int, modelSig string) ([]AtomVectorResult, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, content, summary, source, taint, refs, scenario_id, vector, embedding_model, created_at
+		 FROM mem_l1_atom WHERE vector IS NOT NULL AND embedding_model = ?
+		 ORDER BY id DESC LIMIT 10000`, modelSig)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	atoms, err := scanAtoms(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	type scored struct {
+		atom Atom
+		sim  float64
+	}
+	var items []scored
+	for _, a := range atoms {
+		if len(a.Vector) == 0 {
+			continue
+		}
+		items = append(items, scored{atom: a, sim: CosineSimilarity(queryVec, a.Vector)})
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].sim > items[j].sim })
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	out := make([]AtomVectorResult, len(items))
+	for i, it := range items {
+		out[i] = AtomVectorResult{Atom: it.atom, Similarity: it.sim}
+	}
+	return out, nil
+}
+
+// SearchScenariosByVector returns the top-k L2 scenarios by cosine similarity,
+// computed natively with vec1_cos_distance with a brute-force fallback.
+func (s *LayeredStore) SearchScenariosByVector(ctx context.Context, queryVec []float32, limit int, modelSig string) ([]ScenarioVectorResult, error) {
+	if len(queryVec) == 0 {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, content, atom_ids, vector, embedding_model, created_at,
+		        vec1_cos_distance(?, vector) AS dist
+		 FROM mem_l2_scenario
+		 WHERE vector IS NOT NULL AND embedding_model = ?
+		 ORDER BY dist LIMIT ?`, EncodeVector(queryVec), modelSig, limit)
+	if err != nil {
+		return s.searchScenariosByVectorBruteForce(ctx, queryVec, limit, modelSig)
+	}
+	defer rows.Close()
+
+	var out []ScenarioVectorResult
+	for rows.Next() {
+		var sc Scenario
+		var atomIDsJSON string
+		var vectorBlob []byte
+		var dist float64
+		if err := rows.Scan(&sc.ID, &sc.Content, &atomIDsJSON, &vectorBlob, &sc.EmbeddingModel, &sc.CreatedAt, &dist); err != nil {
+			return s.searchScenariosByVectorBruteForce(ctx, queryVec, limit, modelSig)
+		}
+		if atomIDsJSON != "" {
+			_ = json.Unmarshal([]byte(atomIDsJSON), &sc.AtomIDs)
+		}
+		if len(vectorBlob) > 0 {
+			sc.Vector, _ = DecodeVector(vectorBlob)
+		}
+		out = append(out, ScenarioVectorResult{Scenario: sc, Similarity: vec1Similarity(dist)})
+	}
+	if err := rows.Err(); err != nil {
+		return s.searchScenariosByVectorBruteForce(ctx, queryVec, limit, modelSig)
+	}
+	return out, nil
+}
+
+func (s *LayeredStore) searchScenariosByVectorBruteForce(ctx context.Context, queryVec []float32, limit int, modelSig string) ([]ScenarioVectorResult, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, content, atom_ids, vector, embedding_model, created_at
+		 FROM mem_l2_scenario WHERE vector IS NOT NULL AND embedding_model = ?
+		 ORDER BY id DESC LIMIT 10000`, modelSig)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	scenarios, err := scanScenarios(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	type scored struct {
+		sc  Scenario
+		sim float64
+	}
+	var items []scored
+	for _, sc := range scenarios {
+		if len(sc.Vector) == 0 {
+			continue
+		}
+		items = append(items, scored{sc: sc, sim: CosineSimilarity(queryVec, sc.Vector)})
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].sim > items[j].sim })
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	out := make([]ScenarioVectorResult, len(items))
+	for i, it := range items {
+		out[i] = ScenarioVectorResult{Scenario: it.sc, Similarity: it.sim}
+	}
+	return out, nil
 }
 
 // ── helpers ────────────────────────────────────────────────────────────

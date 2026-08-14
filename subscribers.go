@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"github.com/simon/mneme/internal/agent"
 	"github.com/simon/mneme/internal/notifications"
 	"github.com/simon/mneme/internal/security"
 	"github.com/simon/mneme/pkg/events"
@@ -82,14 +83,17 @@ func (a *App) registerSubscribers() *subscriberSet {
 	}, events.DomainMemory)
 	set.subs = append(set.subs, sub)
 
-	// ── Subagent event subscriber — forwards to Wails frontend ──────────────
+	// ── Subagent/background task event subscriber — forwards to Wails frontend ──
 	sub = bus.SubscribeDomain(func(e events.Event) {
-		data, _ := e.Data.(map[string]interface{})
+		evt, _ := e.Data.(agent.BackgroundProgressEvent)
 		runtime.EventsEmit(a.ctx, "chat:"+string(e.Kind), map[string]interface{}{
-			"agent_id":   stringField(data, "agent_id"),
-			"task":       stringField(data, "task"),
-			"session_id": stringField(data, "session_id"),
-			"agent_type": stringField(data, "agent_type"),
+			"task_id":       evt.TaskID,
+			"status":        evt.Status,
+			"message":       evt.Message,
+			"checkpoint_id": evt.CheckPointID,
+			"token_count":   evt.TokenCount,
+			"tool_calls":    evt.ToolCalls,
+			"error":         evt.Error,
 		})
 	}, events.DomainAgent)
 	set.subs = append(set.subs, sub)

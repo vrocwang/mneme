@@ -5,8 +5,9 @@ import (
 	"database/sql"
 	"log/slog"
 	"path/filepath"
+	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/simon/mneme/internal/sqlite"
 
 	"github.com/simon/mneme/internal/agent"
 	"github.com/simon/mneme/internal/bundle"
@@ -20,7 +21,6 @@ import (
 	mcpstore "github.com/simon/mneme/internal/mcp/store"
 	"github.com/simon/mneme/internal/memory"
 	"github.com/simon/mneme/internal/memory/conversations"
-	"github.com/simon/mneme/internal/memory/diff"
 	"github.com/simon/mneme/internal/memory/entities"
 	"github.com/simon/mneme/internal/memory/store"
 	"github.com/simon/mneme/internal/security"
@@ -111,7 +111,14 @@ func NewPipeline(db *sql.DB, provider inference.Provider, cfg *config.Config, ca
 		memStore.EnableEncryption(key)
 	}
 
-	pipeline := memory.NewPipeline(log, convStore, memStore, db)
+	pipeline := memory.NewPipelineWithConfig(log, convStore, memStore, db, memory.PipelineConfig{
+		WorkerCount:       cfg.Memory.Pipeline.WorkerCount,
+		TreeBucketSize:    cfg.Memory.Pipeline.TreeBucketSize,
+		ArchiveMsgLimit:   cfg.Memory.Pipeline.ArchiveMsgLimit,
+		MaxChunkSize:      cfg.Memory.MaxChunkSize,
+		MaxSearchResults:  cfg.Memory.MaxSearchResults,
+		FreshnessHalfLife: cfg.Memory.Pipeline.FreshnessHalfLife,
+	})
 	pipeline.Start()
 
 	// Init entity extraction + knowledge graph for co-occurrence scoring during retrieval.
@@ -141,15 +148,19 @@ func NewPipeline(db *sql.DB, provider inference.Provider, cfg *config.Config, ca
 		}))
 	}
 	pipeline.ApplyRetrievalProfile(cfg.Memory.RetrievalWeights.Profile)
+	// Explicit numeric weights override the named profile when configured.
+	pipeline.ApplyRetrievalWeights(memory.RetrievalWeights{
+		FTS5:     cfg.Memory.RetrievalWeights.FTS5,
+		Vector:   cfg.Memory.RetrievalWeights.Vector,
+		Keyword:  cfg.Memory.RetrievalWeights.Keyword,
+		Tree:     cfg.Memory.RetrievalWeights.Tree,
+		Graph:    cfg.Memory.RetrievalWeights.Graph,
+		Episodic: cfg.Memory.RetrievalWeights.Episodic,
+	})
 
 	if capReg != nil {
 		br := bundle.NewRegistry(cfg.Bundles.Disabled)
 		RegisterLateTools(capReg, convStore, pipeline, provider, cfg.Agent.DefaultModel, br)
-		if br.IsEnabled(bundle.BundleMemory) {
-			if diffStore, err := diff.NewStore(db); err == nil {
-				diff.RegisterMemoryDiffTools(capReg, diffStore)
-			}
-		}
 	}
 
 	return pipeline, convStore
@@ -284,4 +295,13 @@ func RegisterCoreChannels(reg *capability.CapabilityRegistry, log *slog.Logger) 
 	})
 
 	log.Info("core channels registered", "channels", reg.ListChannels())
+}
+
+// heartbeatInterval returns the configured heartbeat cadence, or the default
+// when unset.
+func heartbeatInterval(cfg *config.Config) time.Duration {
+	if cfg != nil && cfg.Cron.HeartbeatIntervalSecs > 0 {
+		return time.Duration(cfg.Cron.HeartbeatIntervalSecs) * time.Second
+	}
+	return bundle.HeartbeatInterval
 }

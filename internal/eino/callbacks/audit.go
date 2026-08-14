@@ -45,18 +45,3 @@ func (a *AuditCallback) OnToolCall(toolName, args, threadID string) {
 		},
 	)
 }
-
-// OnToolBlocked records an audit event when a tool invocation is blocked
-// by the security pipeline.
-func (a *AuditCallback) OnToolBlocked(toolName, reason string) {
-	if a.logger == nil {
-		return
-	}
-	a.logger.Record(
-		security.AuditToolBlocked,
-		security.AuditEvent{
-			ToolName: toolName,
-			Reason:   reason,
-		},
-	)
-}

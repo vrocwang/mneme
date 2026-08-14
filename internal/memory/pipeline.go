@@ -29,7 +29,7 @@ type Pipeline struct {
 	log            *slog.Logger
 	convStore      *conversations.Store
 	memStore       *store.Store
-	layered        *store.LayeredStore  // optional — L1 atoms / L2 scenarios (layered model)
+	layered        *store.LayeredStore // optional — L1 atoms / L2 scenarios (layered model)
 	memTree        *tree.Tree
 	queue          *queue.Queue
 	embedder       embeddings.Provider     // optional — when set, enables vector search
@@ -40,23 +40,70 @@ type Pipeline struct {
 	entityEnricher entities.Enricher       // optional — LLM entity enrichment
 	profileStore   *profile.Store          // optional — L3 persona facet store
 	redactor       *Redactor               // PII/secret redaction before storage
+
+	archiveMsgLimit   int     // max messages archived per conversation (0 = default)
+	maxChunkChars     int     // max runes per memory chunk before splitting (0 = default)
+	freshnessHalfLife float64 // hours for freshness decay half-life (0 = default)
+	maxSearchResults  int     // default search result limit (0 = default)
 }
 
+// PipelineConfig carries runtime tunables for the pipeline that were
+// previously hardcoded. Zero values fall back to the built-in defaults.
+type PipelineConfig struct {
+	WorkerCount       int
+	TreeBucketSize    int
+	ArchiveMsgLimit   int
+	MaxChunkSize      int
+	MaxSearchResults  int
+	FreshnessHalfLife float64
+}
+
+const (
+	defaultArchiveMsgLimit   = 200
+	defaultMaxChunkChars     = 2000
+	defaultMaxSearchResults  = 20
+	defaultFreshnessHalfLife = 168.0 // 7 days in hours
+)
+
 func NewPipeline(log *slog.Logger, convStore *conversations.Store, memStore *store.Store, db *sql.DB) *Pipeline {
+	return NewPipelineWithConfig(log, convStore, memStore, db, PipelineConfig{})
+}
+
+// NewPipelineWithConfig is NewPipeline with explicit runtime tunables.
+func NewPipelineWithConfig(log *slog.Logger, convStore *conversations.Store, memStore *store.Store, db *sql.DB, pc PipelineConfig) *Pipeline {
+	if pc.WorkerCount <= 0 {
+		pc.WorkerCount = 2
+	}
+	if pc.TreeBucketSize <= 0 {
+		pc.TreeBucketSize = 10
+	}
+	if pc.ArchiveMsgLimit <= 0 {
+		pc.ArchiveMsgLimit = defaultArchiveMsgLimit
+	}
+	if pc.MaxChunkSize <= 0 {
+		pc.MaxChunkSize = defaultMaxChunkChars
+	}
+	if pc.MaxSearchResults <= 0 {
+		pc.MaxSearchResults = defaultMaxSearchResults
+	}
+	if pc.FreshnessHalfLife <= 0 {
+		pc.FreshnessHalfLife = defaultFreshnessHalfLife
+	}
+
 	cfg := queue.DefaultConfig(db)
-	cfg.WorkerCount = 2
+	cfg.WorkerCount = pc.WorkerCount
 
 	// Use a persistent tree when a DB is available, so memory survives restarts.
 	var memTree *tree.Tree
 	if db != nil {
 		var err error
-		memTree, err = tree.NewPersistentTree(10, db)
+		memTree, err = tree.NewPersistentTree(pc.TreeBucketSize, db)
 		if err != nil {
 			log.Warn("failed to create persistent memory tree, using in-memory fallback", "error", err)
-			memTree = tree.NewTree(10)
+			memTree = tree.NewTree(pc.TreeBucketSize)
 		}
 	} else {
-		memTree = tree.NewTree(10)
+		memTree = tree.NewTree(pc.TreeBucketSize)
 	}
 
 	if db != nil {
@@ -77,13 +124,17 @@ func NewPipeline(log *slog.Logger, convStore *conversations.Store, memStore *sto
 	}
 
 	return &Pipeline{
-		log:       log,
-		convStore: convStore,
-		memStore:  memStore,
-		layered:   layered,
-		memTree:   memTree,
-		queue:     queue.New(cfg),
-		redactor:  NewRedactor(),
+		log:               log,
+		convStore:         convStore,
+		memStore:          memStore,
+		layered:           layered,
+		memTree:           memTree,
+		queue:             queue.New(cfg),
+		redactor:          NewRedactor(),
+		archiveMsgLimit:   pc.ArchiveMsgLimit,
+		maxChunkChars:     pc.MaxChunkSize,
+		maxSearchResults:  pc.MaxSearchResults,
+		freshnessHalfLife: pc.FreshnessHalfLife,
 	}
 }
 
@@ -93,6 +144,7 @@ func (p *Pipeline) WithEmbedder(e embeddings.Provider) *Pipeline {
 	p.embedder = e
 	if p.retriever == nil {
 		p.retriever = NewMultiStrategyRetriever(p.memStore, p.memTree, embeddingAdapter{e}, DefaultWeights(), p.log)
+		p.retriever.WithFreshnessHalfLife(p.freshnessHalfLife)
 		if p.entityGraph != nil {
 			p.retriever.WithGraphScorer(&pipelineGraphScorer{graph: p.entityGraph, entityReg: p.entityReg, embedder: p.embedder})
 		}
@@ -341,7 +393,7 @@ func (p *Pipeline) handleArchive(ctx context.Context, job queue.Job) (queue.JobO
 		return queue.JobOutcome{Done: true}, nil
 	}
 
-	msgs, err := p.convStore.GetMessages(threadID, 200)
+	msgs, err := p.convStore.GetMessages(threadID, p.archiveMsgLimit)
 	if err != nil {
 		return queue.JobOutcome{}, err
 	}
@@ -527,8 +579,8 @@ func (p *Pipeline) embedIfAvailable(ctx context.Context, chunk store.MemoryChunk
 		return chunk, false
 	}
 	// Split long content into sub-chunks and insert them individually.
-	if utf8.RuneCountInString(chunk.Content) > maxChunkChars {
-		sub := chunkContent(chunk.Content, maxChunkChars)
+	if utf8.RuneCountInString(chunk.Content) > p.maxChunkChars {
+		sub := chunkContent(chunk.Content, p.maxChunkChars)
 		anyInserted := false
 		for i, s := range sub {
 			subChunk := chunk
@@ -559,8 +611,8 @@ func (p *Pipeline) embedIfAvailable(ctx context.Context, chunk store.MemoryChunk
 		// Signal to the caller that sub-chunks were already inserted.
 		// The returned chunk is a truncated marker — do not re-insert.
 		runes := []rune(chunk.Content)
-		if len(runes) > maxChunkChars {
-			chunk.Content = string(runes[:maxChunkChars]) + "\n... [truncated]"
+		if len(runes) > p.maxChunkChars {
+			chunk.Content = string(runes[:p.maxChunkChars]) + "\n... [truncated]"
 		}
 		return chunk, true
 	}
@@ -576,10 +628,6 @@ func (p *Pipeline) embedIfAvailable(ctx context.Context, chunk store.MemoryChunk
 	}
 	return chunk, false
 }
-
-// maxChunkChars is the maximum characters per memory chunk before splitting.
-// At ~4 chars/token, 2000 chars ≈ 500 tokens, safe for any embedding model.
-const maxChunkChars = 2000
 
 // chunkContent splits content into sub-chunks of at most maxLen runes,
 // preferring to split at paragraph boundaries. Using runes prevents
@@ -677,6 +725,15 @@ func (p *Pipeline) TreeRootSummaries() []TreeSummary {
 
 // TreeSearch searches the memory tree for nodes matching a query.
 
+// DefaultSearchLimit returns the configured max-search-results limit, or the
+// built-in default when unset.
+func (p *Pipeline) DefaultSearchLimit() int {
+	if p == nil || p.maxSearchResults <= 0 {
+		return defaultMaxSearchResults
+	}
+	return p.maxSearchResults
+}
+
 // SearchWithFilter performs a memory search with an optional signal filter.
 // filter: "all", "fts5", "vector", "graph", or "" (same as "all").
 func (p *Pipeline) SearchWithFilter(ctx context.Context, query string, limit int, filter string) (*SearchResult, error) {
@@ -718,6 +775,19 @@ func (p *Pipeline) ApplyRetrievalProfile(profile string) {
 	}
 	p.retriever.ApplyProfile(WeightProfile(profile))
 }
+
+// ApplyRetrievalWeights sets the retriever's explicit numeric weights.
+// All-zero weights are ignored (the retriever keeps its current/default set).
+func (p *Pipeline) ApplyRetrievalWeights(w RetrievalWeights) {
+	if p.retriever == nil {
+		return
+	}
+	if w.FTS5 == 0 && w.Vector == 0 && w.Keyword == 0 && w.Tree == 0 && w.Graph == 0 && w.Episodic == 0 {
+		return
+	}
+	p.retriever.SetWeights(w)
+}
+
 func (p *Pipeline) TreeSearchNodes(query string, limit int) []TreeSummary {
 	if p.memTree == nil {
 		return nil
@@ -763,6 +833,41 @@ func (p *Pipeline) ListRecentAtoms(ctx context.Context, limit int) ([]store.Atom
 		ctx = context.Background()
 	}
 	return p.layered.ListAtomsRecent(ctx, limit)
+}
+
+// SearchAtomsByVector returns the top-k L1 atoms by vector similarity to the
+// query (embedded via the pipeline's embedder). A nil/disabled layered store or
+// missing embedder yields nil, nil.
+func (p *Pipeline) SearchAtomsByVector(ctx context.Context, query string, limit int) ([]store.AtomVectorResult, error) {
+	if p.layered == nil || p.embedder == nil {
+		return nil, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	vecs, err := p.embedder.Embed(ctx, []string{query})
+	if err != nil || len(vecs) == 0 {
+		return nil, err
+	}
+	modelSig := fmt.Sprintf("%s:%d", p.embedder.Name(), p.embedder.Dimensions())
+	return p.layered.SearchAtomsByVector(ctx, vecs[0], limit, modelSig)
+}
+
+// SearchScenariosByVector returns the top-k L2 scenarios by vector similarity
+// to the query. A nil/disabled layered store or missing embedder yields nil.
+func (p *Pipeline) SearchScenariosByVector(ctx context.Context, query string, limit int) ([]store.ScenarioVectorResult, error) {
+	if p.layered == nil || p.embedder == nil {
+		return nil, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	vecs, err := p.embedder.Embed(ctx, []string{query})
+	if err != nil || len(vecs) == 0 {
+		return nil, err
+	}
+	modelSig := fmt.Sprintf("%s:%d", p.embedder.Name(), p.embedder.Dimensions())
+	return p.layered.SearchScenariosByVector(ctx, vecs[0], limit, modelSig)
 }
 
 func (p *Pipeline) Search(ctx context.Context, query string, limit int) (*SearchResult, error) {
@@ -821,8 +926,8 @@ type SearchResult struct {
 	Query  string
 	Chunks []store.MemoryChunk
 	Nodes  []*tree.Node
-	Atoms  []store.Atom     // layered L1 atomic facts (fine-grained recall)
-	Scored []ScoredChunk    // populated when multi-strategy retriever is active
+	Atoms  []store.Atom  // layered L1 atomic facts (fine-grained recall)
+	Scored []ScoredChunk // populated when multi-strategy retriever is active
 }
 
 // TotalResults returns the combined result count.

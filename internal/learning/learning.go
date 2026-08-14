@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/simon/mneme/internal/agent"
@@ -133,11 +132,6 @@ func (e *Engine) Save(ctx context.Context, exp agent.Experience) error {
 	return nil
 }
 
-// LastModified returns the time this engine state was last updated.
-func (e *Engine) LastModified() time.Time {
-	return time.Now() // in-memory only
-}
-
 // UseFacetSystem installs the stability-detector-based facet system.
 // When set, post-turn reflections push LearningCandidates into the ring buffer
 // instead of directly overwriting preferences. The detector rebuild cycle
@@ -169,16 +163,6 @@ func (e *Engine) Shutdown() {
 	e.mu.RUnlock()
 	if s != nil {
 		s.Stop()
-	}
-}
-
-// OnFacetTriggerEvent signals the scheduler that a rebuild-triggering event occurred.
-func (e *Engine) OnFacetTriggerEvent() {
-	e.mu.RLock()
-	s := e.scheduler
-	e.mu.RUnlock()
-	if s != nil {
-		s.OnTriggerEvent()
 	}
 }
 
@@ -620,30 +604,6 @@ func (e *Engine) Preferences() []*Preference {
 		result = append(result, p)
 	}
 	return result
-}
-
-// SubconsciousPrefs returns preferences in the format expected by the
-// subconscious.LLMEvaluator (implements subconscious.LearningSnapshot).
-func (e *Engine) SubconsciousPrefs() []struct {
-	Key        string
-	Value      string
-	Confidence float64
-} {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	out := make([]struct {
-		Key        string
-		Value      string
-		Confidence float64
-	}, 0, len(e.preferences))
-	for _, p := range e.preferences {
-		out = append(out, struct {
-			Key        string
-			Value      string
-			Confidence float64
-		}{p.Key, p.Value, p.Confidence})
-	}
-	return out
 }
 
 func isAlphanumeric(b byte) bool {

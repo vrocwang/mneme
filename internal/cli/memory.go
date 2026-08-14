@@ -24,7 +24,7 @@ func runMemory(args []string) error {
 		if core.Pipeline == nil {
 			return fmt.Errorf("memory pipeline not available; database or provider may be missing")
 		}
-		result, err := core.Pipeline.Search(context.Background(), query, 20)
+		result, err := core.Pipeline.Search(context.Background(), query, core.Pipeline.DefaultSearchLimit())
 		if err != nil {
 			return fmt.Errorf("search: %w", err)
 		}

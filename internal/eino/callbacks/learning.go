@@ -27,9 +27,3 @@ func (l *LearningCallback) OnTurnEnd(ctx context.Context, threadID, userMsg, ass
 	}
 	l.engine.Reflect(ctx, threadID, userMsg, assistantMsg)
 }
-
-// Engine returns the underlying learning engine, or nil if none was
-// configured.
-func (l *LearningCallback) Engine() *learning.Engine {
-	return l.engine
-}

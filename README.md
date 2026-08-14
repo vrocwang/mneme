@@ -34,7 +34,7 @@ security model — with all non-core capabilities delivered as runtime extension
 go build ./...
 
 # Standalone CLI binary
-go build -tags "sqlite_fts5" -o mneme-cli ./cmd/mneme-cli/
+go build -o mneme-cli ./cmd/mneme-cli/
 
 # Wails desktop GUI
 wails build      # production build
