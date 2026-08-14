@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/simon/mneme/internal/memory/archivist"
 	"github.com/simon/mneme/internal/memory/conversations"
 	"github.com/simon/mneme/internal/memory/queue"
 	"github.com/simon/mneme/internal/memory/store"
@@ -32,7 +33,7 @@ func TestPipeline_DedupAtoms(t *testing.T) {
 	for i, f := range facts {
 		if i > 0 {
 			if existing, _ := p.layered.FindAtomByContent(ctx, f); existing != nil {
-				if similarityScore(existing.Content, f) >= 0.9 {
+				if archivist.SimpleSimilarity(existing.Content, f) >= 0.9 {
 					continue // deduped
 				}
 			}

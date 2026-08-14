@@ -367,7 +367,7 @@ func (p *Pipeline) handleArchive(ctx context.Context, job queue.Job) (queue.JobO
 	// traced back to its source message. This is what makes drill-down and
 	// per-fact retrieval possible, in contrast to the legacy flat chunk.
 	if p.layered != nil {
-		p.extractAtoms(ctx, threadID, msgs)
+		p.extractAtoms(ctx, threadID, doc)
 	}
 
 	// Redact PII and secrets before storage.
@@ -826,45 +826,38 @@ const minAtomsPerScenario = 8
 
 // extractAtoms atomizes a conversation into L1 atomic facts. Facts come from
 // the archivist (LLM, with heuristic fallback) when available, otherwise from
-// a heuristic sentence splitter. Each atom is traced back to the L0 message it
-// came from so later layers can drill down.
-func (p *Pipeline) extractAtoms(ctx context.Context, threadID string, msgs []conversations.Message) {
-	facts, err := p.factsForConversation(ctx, threadID, msgs)
+// a heuristic sentence splitter. Each atom carries an L0 thread ref so later
+// layers can drill down. doc is the pre-built, already-redacted conversation
+// document.
+func (p *Pipeline) extractAtoms(ctx context.Context, threadID, doc string) {
+	facts, err := p.factsForConversation(ctx, doc)
 	if err != nil {
 		p.log.Warn("L1 atom extraction failed", "thread_id", threadID, "error", err)
 		return
 	}
 
-	// Build a message-ID map so each fact can point at a plausible source. We
-	// associate a fact with the first message whose content it appears in.
 	inserted := 0
 	for _, f := range facts {
 		f = strings.TrimSpace(f)
 		if f == "" {
 			continue
 		}
-		redacted, found := p.redact(f)
-		if len(found) > 0 {
-			p.log.Debug("redacted PII from atom", "thread_id", threadID, "patterns", found)
-		}
-		if redacted == "" {
-			continue
-		}
-		// Dedup: skip atoms that are near-duplicates of an already-stored atom.
-		if existing, _ := p.layered.FindAtomByContent(ctx, redacted); existing != nil {
-			if similarityScore(existing.Content, redacted) >= 0.9 {
-				continue
+		if existing, _ := p.layered.FindAtomByContent(ctx, f); existing != nil {
+			if archivist.SimpleSimilarity(existing.Content, f) >= 0.9 {
+				continue // near-duplicate
 			}
 		}
 		atom := store.Atom{
-			Content: redacted,
+			Content: f,
 			Source:  "conversation",
 			Taint:   store.TaintInternal,
-			Refs:    []store.AtomRef{{ThreadID: threadID, MessageID: findSourceMessage(redacted, msgs)}},
+			// L0 traceability is at thread granularity: LLM-rewritten facts
+			// cannot be reliably matched back to a single raw message.
+			Refs: []store.AtomRef{{ThreadID: threadID}},
 		}
 		// Embed the atom for vector retrieval when an embedder is present.
 		if p.embedder != nil {
-			if vecs, e := p.embedder.Embed(ctx, []string{redacted}); e == nil && len(vecs) > 0 {
+			if vecs, e := p.embedder.Embed(ctx, []string{f}); e == nil && len(vecs) > 0 {
 				atom.Vector = vecs[0]
 				atom.EmbeddingModel = fmt.Sprintf("%s:%d", p.embedder.Name(), p.embedder.Dimensions())
 			}
@@ -881,18 +874,17 @@ func (p *Pipeline) extractAtoms(ctx context.Context, threadID string, msgs []con
 	}
 }
 
-// factsForConversation returns the atomic facts for a conversation, preferring
-// the archivist's LLM extraction and falling back to a heuristic splitter.
-func (p *Pipeline) factsForConversation(ctx context.Context, threadID string, msgs []conversations.Message) ([]string, error) {
-	doc := composeDoc(msgs)
+// factsForConversation returns the atomic facts for a conversation document,
+// preferring the archivist's LLM extraction and falling back to a heuristic
+// splitter.
+func (p *Pipeline) factsForConversation(ctx context.Context, doc string) ([]string, error) {
 	if p.arch != nil {
-		facts, err := p.arch.ExtractFacts(ctx, doc)
-		if err == nil && len(facts) > 0 {
+		if facts, err := p.arch.ExtractFacts(ctx, doc); err == nil && len(facts) > 0 {
 			return facts, nil
 		}
 		// Fall through to heuristic on LLM error/empty.
 	}
-	return heuristicFacts(doc), nil
+	return archivist.HeuristicFacts(doc), nil
 }
 
 // aggregateScenarios rolls un-aggregated L1 atoms into an L2 scenario block
@@ -938,107 +930,6 @@ func (p *Pipeline) aggregateScenarios(ctx context.Context) {
 		return
 	}
 	p.log.Info("aggregated L1 atoms into scenario", "scenario_id", scenarioID, "atoms", len(ids))
-}
-
-// redact redacts PII/secrets, returning the sanitized text and matched patterns.
-func (p *Pipeline) redact(text string) (string, []string) {
-	if p.redactor == nil {
-		return text, nil
-	}
-	return p.redactor.Redact(text)
-}
-
-// composeDoc joins conversation messages into a single document.
-func composeDoc(msgs []conversations.Message) string {
-	var b strings.Builder
-	for _, m := range msgs {
-		b.WriteString(fmt.Sprintf("[%s]: %s\n", m.Role, m.Content))
-	}
-	return b.String()
-}
-
-// findSourceMessage returns the ID of the first message whose content contains
-// the atom text, or 0 when no message matches.
-func findSourceMessage(atom string, msgs []conversations.Message) int64 {
-	for _, m := range msgs {
-		if m.Content != "" && strings.Contains(m.Content, atom) {
-			return m.ID
-		}
-	}
-	return 0
-}
-
-// heuristicFacts splits content into self-contained sentences as a fallback
-// when no LLM archivist is available. Sentences that are too short (<30 runes)
-// or too long (>300 runes) are skipped, mirroring archivist.heuristicFacts.
-func heuristicFacts(content string) []string {
-	sentences := splitSentences(content)
-	var facts []string
-	for _, s := range sentences {
-		s = strings.TrimSpace(s)
-		if utf8.RuneCountInString(s) > 30 && utf8.RuneCountInString(s) < 300 {
-			facts = append(facts, s)
-		}
-	}
-	if len(facts) > 8 {
-		facts = facts[:8]
-	}
-	return facts
-}
-
-// splitSentences splits text on sentence terminators.
-func splitSentences(text string) []string {
-	var sentences []string
-	current := strings.Builder{}
-	for _, r := range text {
-		current.WriteRune(r)
-		if r == '.' || r == '!' || r == '?' || r == '\n' {
-			s := strings.TrimSpace(current.String())
-			if s != "" {
-				sentences = append(sentences, s)
-			}
-			current.Reset()
-		}
-	}
-	if s := strings.TrimSpace(current.String()); s != "" {
-		sentences = append(sentences, s)
-	}
-	return sentences
-}
-
-// similarityScore is a lightweight Jaccard-like word-overlap similarity in
-// [0,1]. It is used for cheap L1 dedup before insertion; the LLM-based
-// archivist.Deduplicate remains available for higher-fidelity merging.
-func similarityScore(a, b string) float64 {
-	wa := wordSet(a)
-	wb := wordSet(b)
-	if len(wa) == 0 || len(wb) == 0 {
-		return 0
-	}
-	common := 0
-	for w := range wa {
-		if wb[w] {
-			common++
-		}
-	}
-	union := len(wa)
-	for w := range wb {
-		if !wa[w] {
-			union++
-		}
-	}
-	if union == 0 {
-		return 0
-	}
-	return float64(common) / float64(union)
-}
-
-func wordSet(s string) map[string]bool {
-	set := make(map[string]bool)
-	for _, w := range strings.Fields(strings.ToLower(s)) {
-		set[w] = true
-	}
-	return set
 }
 
 type pipelineGraphScorer struct {

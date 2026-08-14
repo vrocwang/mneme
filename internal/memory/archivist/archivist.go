@@ -234,6 +234,13 @@ func heuristicSummary(content string) *SummaryResult {
 }
 
 func heuristicFacts(content string) []string {
+	return HeuristicFacts(content)
+}
+
+// HeuristicFacts splits content into self-contained sentences as a fallback
+// when no LLM archivist is available. Sentences that are too short or too long
+// are skipped. Exported so the memory pipeline can reuse the same fallback.
+func HeuristicFacts(content string) []string {
 	sentences := splitSentences(content)
 	var facts []string
 	for _, s := range sentences {
@@ -261,35 +268,37 @@ func extractEntitiesHeuristic(content string) []string {
 }
 
 func simpleSimilarity(a, b string) float64 {
-	wordsA := strings.Fields(strings.ToLower(a))
-	wordsB := strings.Fields(strings.ToLower(b))
-	if len(wordsA) == 0 || len(wordsB) == 0 {
+	return SimpleSimilarity(a, b)
+}
+
+// SimpleSimilarity computes a Jaccard-like word-overlap similarity in [0,1].
+// Exported so the memory pipeline can reuse the same dedup metric without
+// duplicating the implementation.
+func SimpleSimilarity(a, b string) float64 {
+	wa := wordSetLower(a)
+	wb := wordSetLower(b)
+	if len(wa) == 0 || len(wb) == 0 {
 		return 0
-	}
-	setA := make(map[string]bool, len(wordsA))
-	for _, w := range wordsA {
-		setA[w] = true
 	}
 	common := 0
-	seen := make(map[string]bool)
-	for _, w := range wordsB {
-		if setA[w] && !seen[w] {
+	for w := range wa {
+		if wb[w] {
 			common++
-			seen[w] = true
 		}
 	}
-	// Jaccard-like: size of intersection divided by size of union.
-	// wordsB may contain duplicates; deduplicate it for the denominator.
-	setBSize := len(setA) // approximate: use setA size as a proxy for setB uniqueness
-	for _, w := range wordsB {
-		if !setA[w] {
-			setBSize++
-		}
-	}
-	if setBSize == 0 {
+	union := len(wa) + len(wb) - common
+	if union == 0 {
 		return 0
 	}
-	return float64(common) / float64(setBSize)
+	return float64(common) / float64(union)
+}
+
+func wordSetLower(s string) map[string]bool {
+	set := make(map[string]bool)
+	for _, w := range strings.Fields(strings.ToLower(s)) {
+		set[w] = true
+	}
+	return set
 }
 
 // ── Helpers ─────────────────────────────────────────────────────

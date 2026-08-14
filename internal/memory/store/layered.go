@@ -501,5 +501,3 @@ func ensureColumn(db *sql.DB, table, column, columnType string) error {
 	_, err = db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, columnType))
 	return err
 }
-
-var _ = time.Now // keep time import for future retention TTL

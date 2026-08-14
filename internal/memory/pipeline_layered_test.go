@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"testing"
@@ -49,7 +50,13 @@ func TestPipeline_ExtractAtoms_Layered(t *testing.T) {
 		t.Fatal("expected messages")
 	}
 
-	p.extractAtoms(context.Background(), "t1", msgs)
+	// Build the conversation doc the same way handleArchive does, then run
+	// the layered atom extraction.
+	var doc string
+	for _, m := range msgs {
+		doc += fmt.Sprintf("[%s]: %s\n", m.Role, m.Content)
+	}
+	p.extractAtoms(context.Background(), "t1", doc)
 
 	atoms, err := p.layered.ListAtomsRecent(context.Background(), 100)
 	if err != nil {
