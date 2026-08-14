@@ -544,9 +544,13 @@ func (a *AppCore) Init(headless bool) {
 					Store:    dagStore,
 					Log:      a.Log,
 				})
-				// Re-register tools with the wired runner.
-				dag.RegisterTools(a.CapReg, a.DAGRunner, dagStore)
-				a.Log.Info("dag runner initialized")
+				// Re-register tools with the wired runner, only when the DAG
+				// bundle is enabled (the bootstrap-time placeholder was also
+				// gated, so this must be too or the disable is ineffective).
+				if bundle.NewRegistry(a.Cfg.Bundles.Disabled).IsEnabled(bundle.BundleDAG) {
+					dag.RegisterTools(a.CapReg, a.DAGRunner, dagStore)
+					a.Log.Info("dag runner initialized")
+				}
 			}
 		}
 	}

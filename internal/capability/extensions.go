@@ -78,7 +78,7 @@ func discoverExtensions(reg *CapabilityRegistry, dirs []string, log *slog.Logger
 			if !binaryExists(binaryPath) {
 				if mf.Build != "" && fileExists(filepath.Join(extDir, "go.mod")) {
 					log.Info("building extension from source", "name", mf.Name, "command", mf.Build)
-					if err := buildExtension(extDir, mf.Build, log); err != nil {
+					if err := buildExtension(extDir, mf.Build); err != nil {
 						log.Warn("extension build failed", "name", mf.Name, "error", err)
 						continue
 					}
@@ -229,7 +229,7 @@ func fileExists(path string) bool {
 // binary is missing; production never reaches this path because binaries are
 // pre-built and present. The command is executed through the platform shell so
 // quoted flags (e.g. -ldflags="-s -w") are parsed correctly.
-func buildExtension(extDir, buildCmd string, log *slog.Logger) error {
+func buildExtension(extDir, buildCmd string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
