@@ -767,6 +767,17 @@ func (p *Pipeline) Search(ctx context.Context, query string, limit int) (*Search
 	if ctx == nil {
 		ctx = context.Background()
 	}
+
+	// Layered L1 atoms: searched independently so fine-grained facts surface
+	// alongside (not instead of) the legacy flat results. A nil/disabled
+	// layered store yields nil.
+	var atoms []store.Atom
+	if p.layered != nil {
+		if a, err := p.layered.SearchAtoms(ctx, query, limit); err == nil {
+			atoms = a
+		}
+	}
+
 	// Use multi-strategy retriever when available.
 	if p.retriever != nil {
 		scored, err := p.retriever.Search(ctx, query, limit)
@@ -777,7 +788,7 @@ func (p *Pipeline) Search(ctx context.Context, query string, limit int) (*Search
 		for i, s := range scored {
 			chunks[i] = s.Chunk
 		}
-		return &SearchResult{Query: query, Chunks: chunks, Scored: scored}, nil
+		return &SearchResult{Query: query, Chunks: chunks, Scored: scored, Atoms: atoms}, nil
 	}
 
 	// Fallback: basic FTS5 + vector + tree search.
@@ -800,15 +811,16 @@ func (p *Pipeline) Search(ctx context.Context, query string, limit int) (*Search
 
 treeSearch:
 	nodes := p.memTree.Search(query, limit)
-	return &SearchResult{Query: query, Chunks: chunks, Nodes: nodes}, nil
+	return &SearchResult{Query: query, Chunks: chunks, Nodes: nodes, Atoms: atoms}, nil
 }
 
-// SearchResult combines store and tree results.
+// SearchResult combines store, tree, and layered-atom results.
 type SearchResult struct {
 	Query  string
 	Chunks []store.MemoryChunk
 	Nodes  []*tree.Node
-	Scored []ScoredChunk // populated when multi-strategy retriever is active
+	Atoms  []store.Atom     // layered L1 atomic facts (fine-grained recall)
+	Scored []ScoredChunk    // populated when multi-strategy retriever is active
 }
 
 // TotalResults returns the combined result count.
@@ -822,7 +834,14 @@ func (r *SearchResult) TotalResults() int {
 // Formatted returns search results as a readable string.
 func (r *SearchResult) Formatted() string {
 	if len(r.Scored) > 0 {
-		return FormatScoredResults(r.Scored)
+		out := FormatScoredResults(r.Scored)
+		if len(r.Atoms) > 0 {
+			out += "\n=== Atomic Facts ===\n"
+			for _, a := range r.Atoms {
+				out += fmt.Sprintf("- %s\n", truncate(a.Content, 200))
+			}
+		}
+		return out
 	}
 
 	var out string
@@ -834,13 +853,20 @@ func (r *SearchResult) Formatted() string {
 		}
 		out += "\n"
 	}
+	if len(r.Atoms) > 0 {
+		out += "=== Atomic Facts ===\n"
+		for _, a := range r.Atoms {
+			out += fmt.Sprintf("- %s\n", truncate(a.Content, 200))
+		}
+		out += "\n"
+	}
 	if len(r.Nodes) > 0 {
 		out += "=== Memory Tree ===\n"
 		for _, n := range r.Nodes {
 			out += fmt.Sprintf("- [%s] %s\n", n.ID, truncate(n.Content, 200))
 		}
 	}
-	if r.TotalResults() == 0 {
+	if r.TotalResults() == 0 && len(r.Atoms) == 0 {
 		out += "No results found.\n"
 	}
 	return out
