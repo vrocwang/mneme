@@ -657,6 +657,41 @@ func (r *CapabilityRegistry) DisposeSet(setID string) {
 	}
 }
 
+// RegisterInProcessSet registers a first-party (trusted) capability set that
+// lives in-process: its tools and agents are Go values implementing the seam
+// interfaces directly, with no subprocess or transport layer. This is the
+// in-process twin of RegisterExtension (process-isolated) — both produce the
+// same kind of registrations (set + tools + agents) and both return a
+// DisposeFunc, so consumers and unload paths treat them uniformly.
+func (r *CapabilityRegistry) RegisterInProcessSet(set *CapabilitySet, inTools []tools.Tool, inAgents []*tools.AgentDef) (dispose.Func, error) {
+	if set == nil {
+		return nil, fmt.Errorf("nil capability set")
+	}
+	r.mu.RLock()
+	_, exists := r.sets[set.ID]
+	r.mu.RUnlock()
+	if exists {
+		return nil, fmt.Errorf("set %q already registered", set.ID)
+	}
+
+	for _, t := range inTools {
+		r.RegisterTool(set.ID, t)
+	}
+	for _, a := range inAgents {
+		r.RegisterAgent(set.ID, a)
+	}
+	if err := r.AddSet(set); err != nil {
+		_ = r.removeSetInternal(set.ID)
+		return nil, err
+	}
+
+	unwind := dispose.Once(func() { _ = r.removeSetInternal(set.ID) })
+	r.mu.Lock()
+	r.disposes[set.ID] = unwind
+	r.mu.Unlock()
+	return unwind, nil
+}
+
 // removeSetInternal performs the full teardown for a set: unregister tools and
 // agents, cancel the health monitor, stop the process, and remove the set. It
 // is idempotent (missing entries are ignored) and is the shared implementation
