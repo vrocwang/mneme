@@ -77,8 +77,9 @@ func (a *regToolAdapter) InvokableRun(ctx context.Context, argumentsInJSON strin
 }
 
 // CollectRegistryTools returns eino tool.BaseTool adapters for every tool
-// currently registered in the CapabilityRegistry. Tools that already have an
-// eino-native adapter in CollectTools are skipped to avoid duplicates.
+// currently registered in the CapabilityRegistry. The registry is the single
+// source of truth for tools (builtin bundles, extensions, MCP, memory, and
+// config tools); the caller may pass skipNames to exclude specific tools.
 func CollectRegistryTools(reg *CapabilityRegistry, skipNames map[string]bool) []tool.BaseTool {
 	if reg == nil {
 		return nil
