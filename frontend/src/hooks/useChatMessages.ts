@@ -6,7 +6,6 @@ import { setThreads } from '../store/threadSlice';
 import {
   toolCallStarted, toolCallCompleted, toolCallFailed, commitToolCalls,
   appendStreamToken, appendThinkingToken, commitStreaming,
-  subagentSpawned, subagentCompleted, subagentFailed,
 } from '../store/chatRuntimeSlice';
 import * as api from '../services/wails';
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
@@ -23,8 +22,6 @@ const activeCleanups = new Set<() => void>();
 const CHAT_EVENTS = [
   'chat:token', 'chat:tool_call', 'chat:tool_result',
   'chat:done', 'chat:error', 'chat:thinking',
-  'chat:agent.subagent_spawned', 'chat:agent.subagent_completed',
-  'chat:agent.subagent_failed',
 ] as const;
 
 function cleanupAll() {
@@ -97,27 +94,6 @@ export function useChatMessages() {
       } else {
         dispatch(toolCallCompleted({ threadId, id, output: data.content || '' }));
       }
-    }));
-
-    // Subagent spawned.
-    unsubs.push(EventsOn('chat:agent.subagent_spawned', (data: any) => {
-      if (data.threadId !== threadId) return;
-      dispatch(subagentSpawned({
-        threadId, id: data.agent_id || '',
-        agentType: data.agent_type || '', task: data.task || '',
-      }));
-    }));
-
-    // Subagent completed.
-    unsubs.push(EventsOn('chat:agent.subagent_completed', (data: any) => {
-      if (data.threadId !== threadId) return;
-      dispatch(subagentCompleted({ threadId, id: data.agent_id || '', output: data.output || '' }));
-    }));
-
-    // Subagent failed.
-    unsubs.push(EventsOn('chat:agent.subagent_failed', (data: any) => {
-      if (data.threadId !== threadId) return;
-      dispatch(subagentFailed({ threadId, id: data.agent_id || '', error: data.error || 'subagent failed' }));
     }));
 
     // Turn complete.

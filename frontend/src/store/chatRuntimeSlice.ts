@@ -13,24 +13,11 @@ export interface ToolCallEntry {
   finishedAt?: string;
 }
 
-// ── Subagent ──────────────────────────────────────────────────────────────
-
-export interface SubagentEntry {
-  id: string;
-  agentType: string;
-  task: string;
-  status: 'running' | 'completed' | 'failed';
-  output?: string;
-  error?: string;
-  startedAt: string;
-}
-
 // ── State ───────────────────────────────────────────────────────────────
 
 interface ChatRuntimeState {
   toolCalls: Record<string, ToolCallEntry[]>;           // threadId → pending tool calls (current turn)
   toolCallsByMsg: Record<number, ToolCallEntry[]>;      // messageId → tool calls for that assistant message
-  subagents: Record<string, SubagentEntry[]>;            // threadId → subagents
   streaming: Record<string, string>;                     // threadId → streaming content
   streamingThinking: Record<string, string>;              // threadId → streaming thinking content
 }
@@ -38,7 +25,6 @@ interface ChatRuntimeState {
 const initialState: ChatRuntimeState = {
   toolCalls: {},
   toolCallsByMsg: {},
-  subagents: {},
   streaming: {},
   streamingThinking: {},
 };
@@ -99,40 +85,12 @@ const chatRuntimeSlice = createSlice({
       delete state.streaming[threadId];
       delete state.streamingThinking[threadId];
     },
-
-    // ── Subagents ────────────────────────────────────────────────────
-    subagentSpawned(state, action: PayloadAction<{ threadId: string; id: string; agentType: string; task: string }>) {
-      const { threadId, id, agentType, task } = action.payload;
-      if (!state.subagents[threadId]) state.subagents[threadId] = [];
-      state.subagents[threadId].push({
-        id, agentType, task,
-        status: 'running',
-        startedAt: new Date().toISOString(),
-      });
-    },
-    subagentCompleted(state, action: PayloadAction<{ threadId: string; id: string; output?: string }>) {
-      const agents = state.subagents[action.payload.threadId];
-      const entry = agents?.find(a => a.id === action.payload.id);
-      if (entry) {
-        entry.status = 'completed';
-        entry.output = action.payload.output;
-      }
-    },
-    subagentFailed(state, action: PayloadAction<{ threadId: string; id: string; error?: string }>) {
-      const agents = state.subagents[action.payload.threadId];
-      const entry = agents?.find(a => a.id === action.payload.id);
-      if (entry) {
-        entry.status = 'failed';
-        entry.error = action.payload.error;
-      }
-    },
   },
 });
 
 export const {
   toolCallStarted, toolCallCompleted, toolCallFailed, commitToolCalls,
   appendStreamToken, appendThinkingToken, commitStreaming,
-  subagentSpawned, subagentCompleted, subagentFailed,
 } = chatRuntimeSlice.actions;
 
 export default chatRuntimeSlice.reducer;

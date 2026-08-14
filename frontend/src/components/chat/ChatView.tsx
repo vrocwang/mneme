@@ -11,7 +11,6 @@ import { MessageBubble } from './MessageBubble';
 import { ApprovalCard } from './ApprovalCard';
 import { Composer } from './Composer';
 import { TodoPanel } from './TodoPanel';
-import { SubagentBlock } from './SubagentBlock';
 import { ToolCallItem } from './ToolTimeline';
 import type { ToolCallEntry } from '../../store/chatRuntimeSlice';
 
@@ -25,7 +24,6 @@ export function ChatView() {
   const { threads, activeThreadId, createNewThread, deleteSelectedThread, selectThread } = useThreads();
   const { pendingApprovals, decideApproval } = useApprovals();
   const { messages, streamingContent, streamingThinking, isStreaming, sendMessage } = useChatMessages();
-  const subagents = useSelector((s: RootState) => s.chatRuntime.subagents[activeThreadId || ''] || [], shallowEqual);
   const toolCallsByMsg = useSelector((s: RootState) => s.chatRuntime.toolCallsByMsg, shallowEqual);
   const pendingToolCalls = useSelector((s: RootState) => s.chatRuntime.toolCalls[activeThreadId || ''] || [], shallowEqual);
 
@@ -92,19 +90,6 @@ export function ChatView() {
           {/* Messages area */}
           <div className="flex-1 overflow-y-auto">
             <div className="max-w-3xl xl:max-w-5xl 2xl:max-w-6xl mx-auto px-6 py-6 space-y-6">
-              {subagents.length > 0 && (
-                <div className="space-y-2 px-6 py-3">
-                  <div className="flex items-center gap-2 text-xs text-white/30 font-medium uppercase tracking-wider">
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                    Sub-agents
-                  </div>
-                  {subagents.map(sa => (
-                    <SubagentBlock key={sa.id} subagent={sa} />
-                  ))}
-                </div>
-              )}
               {messages.length === 0 && !isStreaming ? (
                 <div className="text-center text-white/30 py-12 animate-fade-in">
                   <p className="text-lg">{t('chat.startConversation')}</p>
