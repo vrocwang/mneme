@@ -14,9 +14,15 @@ import (
 // Lives in boot (not config) so config doesn't have to import tools,
 // which would create an import cycle when tools imports config.
 func registerConfigTools(capReg *capability.CapabilityRegistry, cfg *config.Config) {
-	capReg.RegisterTool("builtin", &configSnapshotTool{cfg})
-	capReg.RegisterTool("builtin", &configAutonomyTool{cfg})
-	capReg.RegisterTool("builtin", &configDataPathsTool{cfg})
+	capReg.EnsureSet(&capability.CapabilitySet{
+		ID:      "config",
+		Name:    "Config Introspection",
+		Kind:    capability.KindBuiltin,
+		Enabled: true,
+	})
+	capReg.RegisterTool("config", &configSnapshotTool{cfg})
+	capReg.RegisterTool("config", &configAutonomyTool{cfg})
+	capReg.RegisterTool("config", &configDataPathsTool{cfg})
 }
 
 // ── config_snapshot ────────────────────────────────────────────────────

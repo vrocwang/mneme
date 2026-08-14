@@ -9,6 +9,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/simon/mneme/internal/agent"
+	"github.com/simon/mneme/internal/bundle"
 	"github.com/simon/mneme/internal/capability"
 	chancli "github.com/simon/mneme/internal/channels/cli"
 	chanweb "github.com/simon/mneme/internal/channels/web"
@@ -142,9 +143,12 @@ func NewPipeline(db *sql.DB, provider inference.Provider, cfg *config.Config, ca
 	pipeline.ApplyRetrievalProfile(cfg.Memory.RetrievalWeights.Profile)
 
 	if capReg != nil {
-		RegisterLateTools(capReg, convStore, pipeline, provider, cfg.Agent.DefaultModel)
-		if diffStore, err := diff.NewStore(db); err == nil {
-			diff.RegisterMemoryDiffTools(capReg, diffStore)
+		br := bundle.NewRegistry(cfg.Bundles.Disabled)
+		RegisterLateTools(capReg, convStore, pipeline, provider, cfg.Agent.DefaultModel, br)
+		if br.IsEnabled(bundle.BundleMemory) {
+			if diffStore, err := diff.NewStore(db); err == nil {
+				diff.RegisterMemoryDiffTools(capReg, diffStore)
+			}
 		}
 	}
 

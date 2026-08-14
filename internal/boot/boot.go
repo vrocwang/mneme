@@ -68,21 +68,36 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 		log.Error("builtin bundle registration failed", "error", err)
 	}
 
+	br := bundle.NewRegistry(cfg.Bundles.Disabled)
+
 	capability.Bootstrap(reg, workspace, mcpServers, log)
 
-	workflows.RegisterAll(reg, workspace, log)
+	if br.IsEnabled(bundle.BundleWorkflows) {
+		workflows.RegisterAll(reg, workspace, log)
+	}
 
 	// Skill installation tool (agent-callable, from chat).
-	reg.RegisterTool("builtin", capability.NewSkillInstallTool(filepath.Join(workspace, "skills"), reg))
+	if br.IsEnabled(bundle.BundleSkills) {
+		reg.EnsureSet(&capability.CapabilitySet{
+			ID: "skills", Name: "Skills", Kind: capability.KindBuiltin, Enabled: true,
+		})
+		reg.RegisterTool("skills", capability.NewSkillInstallTool(filepath.Join(workspace, "skills"), reg))
+	}
 
 	// Agent-accessible workflow discovery tools.
-	agent_workflows.RegisterTools(reg, filepath.Join(workspace, "workflows"), workspace)
+	if br.IsEnabled(bundle.BundleWorkflows) {
+		agent_workflows.RegisterTools(reg, filepath.Join(workspace, "workflows"), workspace)
+	}
 
 	// Config introspection tools (read-only: snapshot, autonomy, data paths).
-	registerConfigTools(reg, cfg)
+	if br.IsEnabled(bundle.BundleConfig) {
+		registerConfigTools(reg, cfg)
+	}
 
 	// Todo / task-board tools.
-	todos.RegisterTools(reg, todos.NewStore(workspace))
+	if br.IsEnabled(bundle.BundleTodos) {
+		todos.RegisterTools(reg, todos.NewStore(workspace))
+	}
 
 	// Load user-defined agent definitions from workspace/agents/*.toml.
 	// User agents override built-in ones with the same ID, and are grouped
@@ -131,18 +146,24 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 	// ── Wired modules (parallel OpenHuman's all.rs controller registry) ──
 
 	// MCP server management tools (agent-callable).
-	mcpRegistryClient := mcpregistry.NewClient(mcpStore)
-	mcptools.RegisterTools(reg, mcptools.Deps{
-		Reg:      reg,
-		Registry: mcpRegistryClient,
-		Log:      log,
-	})
+	if br.IsEnabled(bundle.BundleMCP) {
+		mcpRegistryClient := mcpregistry.NewClient(mcpStore)
+		mcptools.RegisterTools(reg, mcptools.Deps{
+			Reg:      reg,
+			Registry: mcpRegistryClient,
+			Log:      log,
+		})
+	}
 
 	// Doctor: workspace diagnostics tool.
-	doctor.RegisterTools(reg, workspace)
+	if br.IsEnabled(bundle.BundleDoctor) {
+		doctor.RegisterTools(reg, workspace)
+	}
 
 	// File state: snapshot and diff tools for workspace change tracking.
-	file_state.RegisterTools(reg)
+	if br.IsEnabled(bundle.BundleFileState) {
+		file_state.RegisterTools(reg)
+	}
 
 	// Connectivity: network diagnostics RPC.
 	connectivity.Register()
@@ -154,7 +175,7 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 	http_host.Register(log)
 
 	// DAG: lightweight multi-step automation engine.
-	if db != nil {
+	if db != nil && br.IsEnabled(bundle.BundleDAG) {
 		dagStore, err := dag.NewStore(db)
 		if err != nil {
 			log.Warn("dag store init failed, DAG tools unavailable", "error", err)
@@ -224,38 +245,51 @@ func WireIntegrations(capReg *capability.CapabilityRegistry, intReg integration.
 
 // RegisterLateTools registers tools that need runtime objects created after
 // BootstrapAll: threads (conversations.Store), memory (pipeline), and
-// SmartWalk (pipeline + provider).
-func RegisterLateTools(reg *capability.CapabilityRegistry, convStore *conversations.Store, pipeline *memory.Pipeline, provider inference.Provider, defaultModel string) {
-	if convStore != nil {
+// SmartWalk (pipeline + provider). br gates each domain bundle.
+func RegisterLateTools(reg *capability.CapabilityRegistry, convStore *conversations.Store, pipeline *memory.Pipeline, provider inference.Provider, defaultModel string, br *bundle.Registry) {
+	if convStore != nil && br.IsEnabled(bundle.BundleThreads) {
 		threads.RegisterTools(reg, threads.NewOps(convStore))
 	}
-	if pipeline != nil {
+	if pipeline != nil && br.IsEnabled(bundle.BundleMemory) {
 		capability.RegisterMemoryTools(reg, pipeline)
 		// MemoryDiffTool: checkpoint-based snapshot/diff for tracking
 		// memory changes between agent turns.
 		if s := pipeline.Store(); s != nil {
-			reg.RegisterTool("builtin", newMemoryDiffTool(memory.NewMemoryDiff(s)))
+			reg.EnsureSet(&capability.CapabilitySet{
+				ID: "memory", Name: "Memory", Kind: capability.KindBuiltin, Enabled: true,
+			})
+			reg.RegisterTool("memory", newMemoryDiffTool(memory.NewMemoryDiff(s)))
 		}
 	}
-	if pipeline != nil && provider != nil {
-		reg.RegisterTool("builtin", memtools.NewSmartWalkTool(pipeline, provider, defaultModel))
+	if pipeline != nil && provider != nil && br.IsEnabled(bundle.BundleMemory) {
+		reg.EnsureSet(&capability.CapabilitySet{
+			ID: "memory", Name: "Memory", Kind: capability.KindBuiltin, Enabled: true,
+		})
+		reg.RegisterTool("memory", memtools.NewSmartWalkTool(pipeline, provider, defaultModel))
 	}
 }
 
 // RegisterPostBootstrapTools registers tools that depend on objects created
 // late in the startup sequence (cron scheduler, desktop automator, monitor).
-func RegisterPostBootstrapTools(reg *capability.CapabilityRegistry, sched *cron.Scheduler, automator *desktop.Automator, mon *monitor.Manager) {
-	if sched != nil {
+// br gates each domain bundle.
+func RegisterPostBootstrapTools(reg *capability.CapabilityRegistry, sched *cron.Scheduler, automator *desktop.Automator, mon *monitor.Manager, br *bundle.Registry) {
+	if sched != nil && br.IsEnabled(bundle.BundleCron) {
 		cron.RegisterTools(reg, sched)
 	}
-	if automator != nil {
-		reg.RegisterTool("builtin", desktop.NewDesktopAutomateTool(automator))
+	if automator != nil && br.IsEnabled(bundle.BundleDesktop) {
+		reg.EnsureSet(&capability.CapabilitySet{
+			ID: "desktop", Name: "Desktop Automation", Kind: capability.KindBuiltin, Enabled: true,
+		})
+		reg.RegisterTool("desktop", desktop.NewDesktopAutomateTool(automator))
 	}
-	if mon != nil {
-		reg.RegisterTool("builtin", monitor.NewMonitorStartTool(mon))
-		reg.RegisterTool("builtin", monitor.NewMonitorListTool(mon))
-		reg.RegisterTool("builtin", monitor.NewMonitorReadTool(mon))
-		reg.RegisterTool("builtin", monitor.NewMonitorStopTool(mon))
+	if mon != nil && br.IsEnabled(bundle.BundleMonitor) {
+		reg.EnsureSet(&capability.CapabilitySet{
+			ID: "monitor", Name: "Monitor", Kind: capability.KindBuiltin, Enabled: true,
+		})
+		reg.RegisterTool("monitor", monitor.NewMonitorStartTool(mon))
+		reg.RegisterTool("monitor", monitor.NewMonitorListTool(mon))
+		reg.RegisterTool("monitor", monitor.NewMonitorReadTool(mon))
+		reg.RegisterTool("monitor", monitor.NewMonitorStopTool(mon))
 	}
 }
 

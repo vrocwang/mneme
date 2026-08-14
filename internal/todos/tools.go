@@ -9,14 +9,21 @@ import (
 	"github.com/simon/mneme/internal/tools"
 )
 
-// RegisterTools registers all todo/task-board tools into the given capability registry.
+// RegisterTools registers all todo/task-board tools into the given capability registry
+// under the "todos" set.
 func RegisterTools(capReg *capability.CapabilityRegistry, store *Store) {
-	capReg.RegisterTool("builtin", &todoListTool{store})
-	capReg.RegisterTool("builtin", &todoAddTool{store})
-	capReg.RegisterTool("builtin", &todoEditTool{store})
-	capReg.RegisterTool("builtin", &todoUpdateStatusTool{store})
-	capReg.RegisterTool("builtin", &todoRemoveTool{store})
-	capReg.RegisterTool("builtin", &todoClearTool{store})
+	capReg.EnsureSet(&capability.CapabilitySet{
+		ID:      "todos",
+		Name:    "Todos",
+		Kind:    capability.KindBuiltin,
+		Enabled: true,
+	})
+	capReg.RegisterTool("todos", &todoListTool{store})
+	capReg.RegisterTool("todos", &todoAddTool{store})
+	capReg.RegisterTool("todos", &todoEditTool{store})
+	capReg.RegisterTool("todos", &todoUpdateStatusTool{store})
+	capReg.RegisterTool("todos", &todoRemoveTool{store})
+	capReg.RegisterTool("todos", &todoClearTool{store})
 }
 
 // ── todo_list ──────────────────────────────────────────────────────────

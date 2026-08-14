@@ -24,6 +24,26 @@ func BuiltinBundles() []Bundle {
 	}
 }
 
+// Domain bundle IDs for the non-core tool groups that were previously
+// hardcoded into the Core set. Each corresponds to a named CapabilitySet and
+// can be disabled via [bundles] disabled.
+const (
+	BundleWorkflows  = "workflows"
+	BundleMCP        = "mcp"
+	BundleConfig     = "config"
+	BundleTodos      = "todos"
+	BundleDoctor     = "doctor"
+	BundleFileState  = "file-state"
+	BundleSkills     = "skills"
+	BundleThreads    = "threads"
+	BundleMemory     = "memory"
+	BundleGoals      = "goals"
+	BundleDAG        = "dag"
+	BundleCron       = "cron"
+	BundleMonitor    = "monitor"
+	BundleDesktop    = "desktop"
+)
+
 // RegisterBuiltin creates the shared builtin capability set, applies sandbox
 // config, and runs the enabled first-layer bundles. It must be called before
 // any user-agent override or late-tool registration that targets the builtin

@@ -340,12 +340,19 @@ func sanitizeDirName(name string) string {
 	return cleaned
 }
 
-// RegisterTools registers all agent workflow tools with the capability registry.
+// RegisterTools registers all agent workflow tools with the capability registry
+// under the "workflows" set.
 func RegisterTools(reg *capability.CapabilityRegistry, userWorkflowsDir, projectRoot string) {
 	listTool := NewListWorkflowsTool(userWorkflowsDir, projectRoot)
-	reg.RegisterTool("builtin", listTool)
-	reg.RegisterTool("builtin", NewReadWorkflowTool(listTool))
-	reg.RegisterTool("builtin", NewPhaseGuidanceTool(listTool))
-	reg.RegisterTool("builtin", NewCreateWorkflowTool(userWorkflowsDir))
-	reg.RegisterTool("builtin", NewBestMatchTool(listTool))
+	reg.EnsureSet(&capability.CapabilitySet{
+		ID:      "workflows",
+		Name:    "Workflows",
+		Kind:    capability.KindBuiltin,
+		Enabled: true,
+	})
+	reg.RegisterTool("workflows", listTool)
+	reg.RegisterTool("workflows", NewReadWorkflowTool(listTool))
+	reg.RegisterTool("workflows", NewPhaseGuidanceTool(listTool))
+	reg.RegisterTool("workflows", NewCreateWorkflowTool(userWorkflowsDir))
+	reg.RegisterTool("workflows", NewBestMatchTool(listTool))
 }

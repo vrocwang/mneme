@@ -251,7 +251,8 @@ func (r *Runner) RunCount() int {
 }
 
 // RegisterAll creates the workflow runner and registers all workflow tools
-// into the capability registry. Returns the runner for lifecycle management.
+// into the capability registry under the "workflows" set. Returns the runner
+// for lifecycle management.
 func RegisterAll(capReg *capability.CapabilityRegistry, workspaceRoot string, log *slog.Logger) (*Runner, error) {
 	userSkillsDir := filepath.Join(workspaceRoot, "skills")
 	wfLogsDir := filepath.Join(workspaceRoot, "workflow-logs")
@@ -262,13 +263,20 @@ func RegisterAll(capReg *capability.CapabilityRegistry, workspaceRoot string, lo
 		return nil, err
 	}
 
-	capReg.RegisterTool("builtin", &ListWorkflowsTool{UserDir: userSkillsDir, ProjectDir: workspaceRoot})
-	capReg.RegisterTool("builtin", &DescribeWorkflowTool{UserDir: userSkillsDir, ProjectDir: workspaceRoot})
-	capReg.RegisterTool("builtin", &RunWorkflowTool{Runner: runner, UserDir: userSkillsDir, ProjectDir: workspaceRoot})
-	capReg.RegisterTool("builtin", &CompleteWorkflowTool{Runner: runner})
-	capReg.RegisterTool("builtin", &AwaitWorkflowTool{Runner: runner})
-	capReg.RegisterTool("builtin", &ListWorkflowRunsTool{Runner: runner})
-	capReg.RegisterTool("builtin", &ReadWorkflowRunLogTool{Runner: runner})
+	capReg.EnsureSet(&capability.CapabilitySet{
+		ID:      "workflows",
+		Name:    "Workflows",
+		Kind:    capability.KindBuiltin,
+		Enabled: true,
+	})
+
+	capReg.RegisterTool("workflows", &ListWorkflowsTool{UserDir: userSkillsDir, ProjectDir: workspaceRoot})
+	capReg.RegisterTool("workflows", &DescribeWorkflowTool{UserDir: userSkillsDir, ProjectDir: workspaceRoot})
+	capReg.RegisterTool("workflows", &RunWorkflowTool{Runner: runner, UserDir: userSkillsDir, ProjectDir: workspaceRoot})
+	capReg.RegisterTool("workflows", &CompleteWorkflowTool{Runner: runner})
+	capReg.RegisterTool("workflows", &AwaitWorkflowTool{Runner: runner})
+	capReg.RegisterTool("workflows", &ListWorkflowRunsTool{Runner: runner})
+	capReg.RegisterTool("workflows", &ReadWorkflowRunLogTool{Runner: runner})
 
 	// Register Wails RPC for frontend workflow install/uninstall.
 	// Uses capability.RegisterWailsRPC to avoid import cycles.

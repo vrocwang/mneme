@@ -30,7 +30,14 @@ func (t *doctorTool) Execute(ctx context.Context, args map[string]interface{}) t
 	return tools.Result{Success: true, Output: string(b)}
 }
 
-// RegisterTools registers doctor tools into the capability registry.
+// RegisterTools registers doctor tools into the capability registry under the
+// "doctor" set.
 func RegisterTools(reg *capability.CapabilityRegistry, workspaceDir string) {
-	reg.RegisterTool("builtin", &doctorTool{workspace: workspaceDir})
+	reg.EnsureSet(&capability.CapabilitySet{
+		ID:      "doctor",
+		Name:    "Doctor",
+		Kind:    capability.KindBuiltin,
+		Enabled: true,
+	})
+	reg.RegisterTool("doctor", &doctorTool{workspace: workspaceDir})
 }

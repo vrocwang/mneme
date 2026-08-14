@@ -319,11 +319,18 @@ func slugify(s string) string {
 	return strings.Trim(b.String(), "_")
 }
 
-// RegisterTools registers all cron tools with the capability registry.
+// RegisterTools registers all cron tools with the capability registry under
+// the "cron" set.
 func RegisterTools(reg *capability.CapabilityRegistry, sched *Scheduler) {
-	reg.RegisterTool("builtin", NewCronListTool(sched))
-	reg.RegisterTool("builtin", NewCronAddTool(sched))
-	reg.RegisterTool("builtin", NewCronRemoveTool(sched))
-	reg.RegisterTool("builtin", NewCronRunTool(sched))
-	reg.RegisterTool("builtin", NewCronRunsTool(sched))
+	reg.EnsureSet(&capability.CapabilitySet{
+		ID:      "cron",
+		Name:    "Cron",
+		Kind:    capability.KindBuiltin,
+		Enabled: true,
+	})
+	reg.RegisterTool("cron", NewCronListTool(sched))
+	reg.RegisterTool("cron", NewCronAddTool(sched))
+	reg.RegisterTool("cron", NewCronRemoveTool(sched))
+	reg.RegisterTool("cron", NewCronRunTool(sched))
+	reg.RegisterTool("cron", NewCronRunsTool(sched))
 }

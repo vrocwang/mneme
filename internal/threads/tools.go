@@ -9,14 +9,21 @@ import (
 	"github.com/simon/mneme/internal/tools"
 )
 
-// RegisterTools registers all thread-management tools into the given capability registry.
+// RegisterTools registers all thread-management tools into the given capability registry
+// under the "threads" set.
 func RegisterTools(capReg *capability.CapabilityRegistry, ops *Ops) {
-	capReg.RegisterTool("builtin", &threadListTool{ops})
-	capReg.RegisterTool("builtin", &threadReadTool{ops})
-	capReg.RegisterTool("builtin", &threadCreateTool{ops})
-	capReg.RegisterTool("builtin", &threadMessageAppendTool{ops})
-	capReg.RegisterTool("builtin", &threadUpdateTitleTool{ops})
-	capReg.RegisterTool("builtin", &threadDeleteTool{ops})
+	capReg.EnsureSet(&capability.CapabilitySet{
+		ID:      "threads",
+		Name:    "Threads",
+		Kind:    capability.KindBuiltin,
+		Enabled: true,
+	})
+	capReg.RegisterTool("threads", &threadListTool{ops})
+	capReg.RegisterTool("threads", &threadReadTool{ops})
+	capReg.RegisterTool("threads", &threadCreateTool{ops})
+	capReg.RegisterTool("threads", &threadMessageAppendTool{ops})
+	capReg.RegisterTool("threads", &threadUpdateTitleTool{ops})
+	capReg.RegisterTool("threads", &threadDeleteTool{ops})
 }
 
 // ── thread_list ───────────────────────────────────────────────────────

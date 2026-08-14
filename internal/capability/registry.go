@@ -119,6 +119,31 @@ func (r *CapabilityRegistry) RemoveSet(id string) error {
 	return r.removeSetInternal(id)
 }
 
+// EnsureSet adds a capability set if it does not already exist, and returns
+// the (existing or newly-created) set. It is idempotent: registering tools
+// into a domain set across multiple boot phases (e.g. late tools) is safe.
+func (r *CapabilityRegistry) EnsureSet(set *CapabilitySet) (*CapabilitySet, error) {
+	if set == nil {
+		return nil, fmt.Errorf("nil capability set")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if existing, ok := r.sets[set.ID]; ok {
+		return existing, nil
+	}
+	if set.Tools == nil {
+		set.Tools = make([]ToolDescriptor, 0)
+	}
+	if set.Agents == nil {
+		set.Agents = make([]AgentDescriptor, 0)
+	}
+	if set.Health == "" {
+		set.Health = HealthUnknown
+	}
+	r.sets[set.ID] = set
+	return set, nil
+}
+
 func (r *CapabilityRegistry) GetSet(id string) (*CapabilitySet, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

@@ -501,14 +501,21 @@ func (t *disconnectTool) Execute(ctx context.Context, args map[string]interface{
 
 // ── Registration ────────────────────────────────────────────────────────────
 
-// RegisterTools registers all MCP management tools with the capability registry.
+// RegisterTools registers all MCP management tools with the capability registry
+// under the "mcp" set.
 func RegisterTools(reg *capability.CapabilityRegistry, deps Deps) {
-	reg.RegisterTool("builtin", &listServersTool{deps: deps})
-	reg.RegisterTool("builtin", &listToolsTool{deps: deps})
-	reg.RegisterTool("builtin", &searchTool{deps: deps})
-	reg.RegisterTool("builtin", &testConnTool{deps: deps})
-	reg.RegisterTool("builtin", &installTool{deps: deps})
-	reg.RegisterTool("builtin", &uninstallTool{deps: deps})
-	reg.RegisterTool("builtin", &connectTool{deps: deps})
-	reg.RegisterTool("builtin", &disconnectTool{deps: deps})
+	reg.EnsureSet(&capability.CapabilitySet{
+		ID:      "mcp",
+		Name:    "MCP Management",
+		Kind:    capability.KindBuiltin,
+		Enabled: true,
+	})
+	reg.RegisterTool("mcp", &listServersTool{deps: deps})
+	reg.RegisterTool("mcp", &listToolsTool{deps: deps})
+	reg.RegisterTool("mcp", &searchTool{deps: deps})
+	reg.RegisterTool("mcp", &testConnTool{deps: deps})
+	reg.RegisterTool("mcp", &installTool{deps: deps})
+	reg.RegisterTool("mcp", &uninstallTool{deps: deps})
+	reg.RegisterTool("mcp", &connectTool{deps: deps})
+	reg.RegisterTool("mcp", &disconnectTool{deps: deps})
 }

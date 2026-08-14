@@ -76,7 +76,7 @@ func (a *AgentRPC) UpsertAgent(id, name, description, systemPrompt string) error
 		}
 	}
 
-	a.reg.RegisterAgent("builtin", def)
+	a.reg.RegisterAgentSet("user-agents", capability.KindUserAgent, "User Agents", def)
 	return nil
 }
 

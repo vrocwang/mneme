@@ -5,20 +5,26 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/simon/mneme/internal/capability"
 	"github.com/simon/mneme/internal/tools"
 )
 
-// RegisterTools registers all goal management tools into the capability registry.
-func RegisterTools(reg interface {
-	RegisterTool(setID string, t tools.Tool)
-}, store *Store) {
+// RegisterTools registers all goal management tools into the capability registry
+// under the "goals" set.
+func RegisterTools(reg *capability.CapabilityRegistry, store *Store) {
 	if reg == nil || store == nil {
 		return
 	}
-	reg.RegisterTool("builtin", &listTool{store: store})
-	reg.RegisterTool("builtin", &addTool{store: store})
-	reg.RegisterTool("builtin", &editTool{store: store})
-	reg.RegisterTool("builtin", &deleteTool{store: store})
+	reg.EnsureSet(&capability.CapabilitySet{
+		ID:      "goals",
+		Name:    "Goals",
+		Kind:    capability.KindBuiltin,
+		Enabled: true,
+	})
+	reg.RegisterTool("goals", &listTool{store: store})
+	reg.RegisterTool("goals", &addTool{store: store})
+	reg.RegisterTool("goals", &editTool{store: store})
+	reg.RegisterTool("goals", &deleteTool{store: store})
 }
 
 // ── goals_list ───────────────────────────────────────────────────────────

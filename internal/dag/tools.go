@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/simon/mneme/internal/capability"
 	"github.com/simon/mneme/internal/tools"
 )
 
@@ -289,17 +290,21 @@ func (t *runStatusTool) PermissionLevel() tools.PermissionLevel { return tools.P
 
 // ── Registration ─────────────────────────────────────────────────────
 
-// RegisterTools registers all DAG tools into the capability registry.
-func RegisterTools(reg interface {
-	RegisterTool(setID string, t tools.Tool)
-}, runner *Runner, store *Store) {
+// RegisterTools registers all DAG tools into the capability registry under the
+// "dag" set.
+func RegisterTools(reg *capability.CapabilityRegistry, runner *Runner, store *Store) {
 	if reg == nil {
 		return
 	}
-
-	reg.RegisterTool("builtin", &listGraphsTool{store: store})
-	reg.RegisterTool("builtin", &describeGraphTool{store: store})
-	reg.RegisterTool("builtin", &saveGraphTool{store: store})
-	reg.RegisterTool("builtin", &runGraphTool{runner: runner, store: store})
-	reg.RegisterTool("builtin", &runStatusTool{store: store})
+	reg.EnsureSet(&capability.CapabilitySet{
+		ID:      "dag",
+		Name:    "DAG",
+		Kind:    capability.KindBuiltin,
+		Enabled: true,
+	})
+	reg.RegisterTool("dag", &listGraphsTool{store: store})
+	reg.RegisterTool("dag", &describeGraphTool{store: store})
+	reg.RegisterTool("dag", &saveGraphTool{store: store})
+	reg.RegisterTool("dag", &runGraphTool{runner: runner, store: store})
+	reg.RegisterTool("dag", &runStatusTool{store: store})
 }

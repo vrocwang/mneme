@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/simon/mneme/internal/agent"
+	"github.com/simon/mneme/internal/bundle"
 	"github.com/simon/mneme/internal/desktop"
 	"github.com/simon/mneme/internal/jsonrpc"
 	"github.com/simon/mneme/internal/voice"
@@ -106,7 +107,7 @@ func BootstrapGUI(core *AppCore, ctx context.Context, appMethods jsonrpc.AppMeth
 	}
 
 	// ── Post-bootstrap tools ──────────────────────────────────────────
-	RegisterPostBootstrapTools(core.CapReg, core.Cron, gui.Automator, core.MonitorMgr)
+	RegisterPostBootstrapTools(core.CapReg, core.Cron, gui.Automator, core.MonitorMgr, bundle.NewRegistry(core.Cfg.Bundles.Disabled))
 
 	log.Info("app startup complete")
 	return gui

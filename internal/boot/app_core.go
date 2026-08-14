@@ -218,14 +218,16 @@ func (a *AppCore) Init(headless bool) {
 
 	// Register late tools now that capReg is available.
 	if a.Pipeline != nil && a.CapReg != nil && a.ConvStore != nil {
-		RegisterLateTools(a.CapReg, a.ConvStore, a.Pipeline, a.Provider, a.Cfg.Agent.DefaultModel)
+		RegisterLateTools(a.CapReg, a.ConvStore, a.Pipeline, a.Provider, a.Cfg.Agent.DefaultModel, bundle.NewRegistry(a.Cfg.Bundles.Disabled))
 	}
 
 	// ── Goals store & tools ────────────────────────────────────────────
 	goalsPath := filepath.Join(a.Cfg.Workspace, "data", "MEMORY_GOALS.md")
 	if goalsStore, err := goals.NewStore(goalsPath); err == nil && a.CapReg != nil {
-		goals.RegisterTools(a.CapReg, goalsStore)
-		a.Log.Info("memory goals store initialized", "path", goalsPath)
+		if bundle.NewRegistry(a.Cfg.Bundles.Disabled).IsEnabled(bundle.BundleGoals) {
+			goals.RegisterTools(a.CapReg, goalsStore)
+			a.Log.Info("memory goals store initialized", "path", goalsPath)
+		}
 	} else if err != nil {
 		a.Log.Warn("memory goals store init failed", "error", err)
 	}

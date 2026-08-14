@@ -86,9 +86,16 @@ func (t *diffTool) Execute(ctx context.Context, args map[string]interface{}) too
 	return tools.Result{Success: true, Output: string(b)}
 }
 
-// RegisterTools registers file_state tools into the capability registry.
+// RegisterTools registers file_state tools into the capability registry under
+// the "file-state" set.
 func RegisterTools(reg *capability.CapabilityRegistry) {
 	tracker := NewTracker()
-	reg.RegisterTool("builtin", &snapshotTool{tracker: tracker})
-	reg.RegisterTool("builtin", &diffTool{tracker: tracker})
+	reg.EnsureSet(&capability.CapabilitySet{
+		ID:      "file-state",
+		Name:    "File State",
+		Kind:    capability.KindBuiltin,
+		Enabled: true,
+	})
+	reg.RegisterTool("file-state", &snapshotTool{tracker: tracker})
+	reg.RegisterTool("file-state", &diffTool{tracker: tracker})
 }

@@ -187,7 +187,7 @@ func (r *CapabilityRPC) CreateAgent(def map[string]interface{}) error {
 	if err := agenttoml.SaveAgentToFile(agentsDir, agentDef); err != nil {
 		return fmt.Errorf("save agent: %w", err)
 	}
-	r.reg.RegisterAgent("builtin", agentDef)
+	r.reg.RegisterAgentSet("user-agents", KindUserAgent, "User Agents", agentDef)
 	return nil
 }
 
@@ -212,7 +212,7 @@ func (r *CapabilityRPC) UpdateAgent(id string, def map[string]interface{}) error
 	if err := agenttoml.SaveAgentToFile(agentsDir, agentDef); err != nil {
 		return fmt.Errorf("save agent: %w", err)
 	}
-	r.reg.RegisterAgent("builtin", agentDef)
+	r.reg.RegisterAgentSet("user-agents", KindUserAgent, "User Agents", agentDef)
 	return nil
 }
 
