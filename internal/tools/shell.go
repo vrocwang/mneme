@@ -12,6 +12,7 @@ import (
 	"github.com/simon/mneme/internal/config"
 	"github.com/simon/mneme/internal/security"
 	"github.com/simon/mneme/internal/security/sandbox"
+	"github.com/simon/mneme/internal/subprocess"
 )
 
 // defaultSafeEnvVars lists environment variables that are safe to pass to
@@ -49,15 +50,24 @@ type Shell struct {
 	tier            security.Tier
 	sandbox         sandbox.Backend
 	sandboxRequired bool
+	runner          subprocess.Runner
 	maxOutputBytes  int
 	safeEnvVars     []string
 	timeoutSec      int
 }
 
 func NewShell(workspaceRoot string, tier security.Tier, toolsShellCfg config.ToolsShellConfig, sandboxCfg config.SandboxConfig) *Shell {
+	return NewShellWithRunner(workspaceRoot, tier, toolsShellCfg, sandboxCfg, subprocess.OS{})
+}
+
+// NewShellWithRunner constructs Shell with an explicit subprocess provider.
+// The default constructor uses the in-process OS provider; callers that need a
+// process-isolated or test provider use this variant.
+func NewShellWithRunner(workspaceRoot string, tier security.Tier, toolsShellCfg config.ToolsShellConfig, sandboxCfg config.SandboxConfig, runner subprocess.Runner) *Shell {
 	s := &Shell{
 		workspaceRoot:  workspaceRoot,
 		tier:           tier,
+		runner:         runner,
 		maxOutputBytes: toolsShellCfg.MaxOutputBytes,
 		safeEnvVars:    toolsShellCfg.SafeEnvVars,
 	}
@@ -150,11 +160,6 @@ func (t *Shell) Execute(ctx context.Context, args map[string]interface{}) Result
 		return Result{Error: fmt.Sprintf("sandbox wrap failed: %v", err)}
 	}
 
-	// Run the shell in its own process group so a timeout can kill the whole
-	// tree (children spawned by `sh -c` included) rather than only the direct
-	// child process.
-	setProcessGroup(cmd)
-
 	// Sanitize environment: clear all inherited vars and only pass safe ones.
 	// This prevents leakage of API keys and secrets to child processes.
 	cmd.Env = nil
@@ -164,22 +169,10 @@ func (t *Shell) Execute(ctx context.Context, args map[string]interface{}) Result
 		}
 	}
 
-	// Execute with timeout to prevent indefinite hangs (e.g. interactive commands).
-	type cmdResult struct {
-		output []byte
-		err    error
-	}
-	ch := make(chan cmdResult, 1)
-	go func() {
-		o, e := cmd.CombinedOutput()
-		ch <- cmdResult{o, e}
-	}()
-	var output []byte
-	select {
-	case r := <-ch:
-		output, err = r.output, r.err
-	case <-time.After(time.Duration(t.timeoutSec) * time.Second):
-		killProcessTree(cmd)
+	// Execute via the subprocess seam, which owns timeout handling and
+	// process-group termination of the whole command tree.
+	output, err := t.runner.Run(ctx, cmd, time.Duration(t.timeoutSec)*time.Second)
+	if err == subprocess.ErrTimeout {
 		return Result{Error: fmt.Sprintf("command timed out after %d seconds", t.timeoutSec)}
 	}
 	outStr := string(output)
