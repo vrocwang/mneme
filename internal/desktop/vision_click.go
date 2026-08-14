@@ -202,16 +202,17 @@ func macScreenPoints() (int, int, bool) {
 	return 0, 0, false
 }
 
-// guardFrontmostApp checks that a sensitive target description is not pointing
-// at the host application itself. Returns an error if the frontmost app is
-// likely the automation host.
-func guardFrontmostApp(description string) error {
+// guardFrontmostApp refuses to click when the actual frontmost application is
+// in the sensitive denylist. It checks the real frontmost app name, not the
+// LLM-supplied description (which the model controls and could use to mask a
+// sensitive target).
+func guardFrontmostApp(_ string) error {
 	appName := frontmostAppName()
 	if appName == "" {
 		return nil // can't determine, allow
 	}
-	denied, match := IsSensitiveApp(description)
-	if denied && strings.Contains(strings.ToLower(appName), match) {
+	denied, match := IsSensitiveApp(appName)
+	if denied {
 		return fmt.Errorf("vision_click: refusing — frontmost app %q matches denylist %q", appName, match)
 	}
 	return nil

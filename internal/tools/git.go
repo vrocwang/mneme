@@ -84,7 +84,10 @@ func (t *GitOps) Execute(ctx context.Context, args map[string]interface{}) Resul
 		}
 	}
 
-	cmd := sandboxCmd(ctx, t.workspaceRoot, "git", cmdArgs...)
+	cmd, err := sandboxCmd(ctx, t.workspaceRoot, "git", cmdArgs...)
+	if err != nil {
+		return Result{Error: fmt.Sprintf("sandbox unavailable: %v", err)}
+	}
 	cmd.Dir = t.workspaceRoot
 
 	output, err := cmd.CombinedOutput()

@@ -3,10 +3,17 @@ package tools
 import (
 	"context"
 	"fmt"
-	"os/exec"
+	"io"
+	"net/http"
+	"strings"
+	"time"
 
 	"github.com/simon/mneme/internal/config"
 )
+
+// maxCurlTimeoutSecs caps the user-supplied timeout so the tool cannot be used
+// to hold connections open indefinitely.
+const maxCurlTimeoutSecs = 120
 
 // Curl performs HTTP requests with full control over method, headers, and body.
 type Curl struct {
@@ -76,54 +83,66 @@ func (t *Curl) Execute(ctx context.Context, args map[string]interface{}) Result 
 	}
 
 	method, _ := args["method"].(string)
-
-	cmdArgs := []string{"-s", "-S"}
-
-	// Proxy: if HTTPProxy is configured, pass --proxy to curl.
-	if t.proxyConfig.HTTPProxy != "" {
-		cmdArgs = append(cmdArgs, "--proxy", t.proxyConfig.HTTPProxy)
+	if method == "" {
+		method = http.MethodGet
 	}
 
-	// Follow redirects by default.
-	followRedirects := true
-	if v, ok := args["follow_redirects"].(bool); ok {
-		followRedirects = v
-	}
-	if followRedirects {
-		cmdArgs = append(cmdArgs, "-L")
+	var bodyReader io.Reader
+	if body, ok := args["body"].(string); ok && body != "" {
+		bodyReader = strings.NewReader(body)
 	}
 
-	// Timeout.
-	if v, ok := args["timeout_secs"].(float64); ok && v > 0 {
-		cmdArgs = append(cmdArgs, "--max-time", fmt.Sprintf("%.0f", v))
-	} else {
-		cmdArgs = append(cmdArgs, "--max-time", "30")
-	}
-
-	if method != "" {
-		cmdArgs = append(cmdArgs, "-X", method)
+	req, err := http.NewRequestWithContext(ctx, method, rawURL, bodyReader)
+	if err != nil {
+		return Result{Error: fmt.Sprintf("create request: %v", err)}
 	}
 
 	// Headers (only string values).
 	if hdrs, ok := args["headers"].(map[string]interface{}); ok {
 		for k, v := range hdrs {
 			if vs, ok := v.(string); ok {
-				cmdArgs = append(cmdArgs, "-H", fmt.Sprintf("%s: %s", k, vs))
+				req.Header.Set(k, vs)
 			}
 		}
 	}
 
-	// Body.
-	if body, ok := args["body"].(string); ok && body != "" {
-		cmdArgs = append(cmdArgs, "-d", body)
+	// Build an SSRF-safe client: it re-validates the resolved IP at dial time
+	// (defeating DNS rebinding) and re-validates every redirect hop. It also
+	// applies the configured proxy settings.
+	client := buildHTTPClient(t.proxyConfig)
+
+	// Follow redirects by default; the SSRF-safe client re-validates each hop.
+	followRedirects := true
+	if v, ok := args["follow_redirects"].(bool); ok {
+		followRedirects = v
+	}
+	if !followRedirects {
+		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
 	}
 
-	cmdArgs = append(cmdArgs, rawURL)
-	cmd := exec.CommandContext(ctx, "curl", cmdArgs...)
-	out, err := cmd.CombinedOutput()
+	// Clamp the timeout to a bounded value.
+	timeoutSecs := 30
+	if v, ok := args["timeout_secs"].(float64); ok && v > 0 {
+		timeoutSecs = int(v)
+	}
+	if timeoutSecs > maxCurlTimeoutSecs {
+		timeoutSecs = maxCurlTimeoutSecs
+	}
+	client.Timeout = time.Duration(timeoutSecs) * time.Second
+
+	resp, err := client.Do(req)
 	if err != nil {
-		return Result{Error: fmt.Sprintf("curl failed: %v — %s", err, safeTruncate(string(out), 1000))}
+		return Result{Error: fmt.Sprintf("curl failed: %v", err)}
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1MB limit
+	if err != nil {
+		return Result{Error: fmt.Sprintf("read response: %v", err)}
 	}
 
-	return Result{Success: true, Output: safeTruncate(string(out), 100000)}
+	out := fmt.Sprintf("Status: %d\n%s", resp.StatusCode, string(bodyBytes))
+	return Result{Success: true, Output: safeTruncate(out, 100000)}
 }

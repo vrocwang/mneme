@@ -5,6 +5,7 @@ package sandbox
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"runtime"
@@ -183,11 +184,25 @@ func (n *noop) Name() string { return "noop" }
 func (n *noop) Available() bool { return true }
 
 func (n *noop) WrapCommand(ctx context.Context, workspaceRoot string, cmd string, args ...string) (*exec.Cmd, error) {
-	// On platforms without sandbox support, run the command directly.
+	// On platforms without sandbox support, run the command directly. This is
+	// NOT a sandbox — emit a warning so operators are not given a false sense
+	// of security. Callers that require sandboxing (sandboxRequired) fail
+	// closed before reaching this path.
+	slog.Warn("sandbox: no sandbox backend available — command will run unrestricted",
+		"backend", "noop",
+		"cmd", cmd,
+	)
 	all := append([]string{cmd}, args...)
 	c := exec.CommandContext(ctx, all[0], all[1:]...)
 	c.Dir = workspaceRoot
 	return c, nil
+}
+
+// IsNoop reports whether the backend is a noop passthrough that provides no
+// isolation. Callers use this to fail closed when sandboxing was requested but
+// cannot be provided on the current platform.
+func IsNoop(b Backend) bool {
+	return b == nil || b.Name() == "noop"
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────

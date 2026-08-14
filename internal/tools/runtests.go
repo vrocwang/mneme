@@ -110,13 +110,16 @@ func (t *runTestsTool) Execute(ctx context.Context, args map[string]interface{})
 		return Result{Success: false, Error: fmt.Sprintf("unsupported framework: %s", framework)}
 	}
 
-	cmd := sandboxCmd(ctx, t.workspaceRoot, cmdArgs[0], cmdArgs[1:]...)
+	cmd, err := sandboxCmd(ctx, t.workspaceRoot, cmdArgs[0], cmdArgs[1:]...)
+	if err != nil {
+		return Result{Error: fmt.Sprintf("sandbox unavailable: %v", err)}
+	}
 	cmd.Dir = t.workspaceRoot
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 
-	err := cmd.Run()
+	err = cmd.Run()
 	outStr := strings.TrimSpace(buf.String())
 	if outStr == "" && err != nil {
 		return Result{Success: false, Error: fmt.Sprintf("%s: %v", framework, err)}

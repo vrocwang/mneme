@@ -24,6 +24,12 @@ func Bootstrap(cfg *config.Config, tm *TunnelManager, triage *agent.TriagePipeli
 		port = 9500
 	}
 
+	// Fail closed: without a shared secret no webhook can be verified, so the
+	// server will reject every request. Warn the operator loudly.
+	if cfg.Webhook.Secret == "" {
+		log.Error("webhook enabled without a secret; all requests will be rejected. Set webhook.secret to accept inbound events.")
+	}
+
 	// Wire the tunnel manager to publish lifecycle events.
 	if bus != nil {
 		tm.SetEventBus(bus)
