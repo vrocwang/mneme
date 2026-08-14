@@ -119,10 +119,21 @@ func NewAgentSet(ctx context.Context, cfg *AgentSetConfig, registry AgentRegistr
 	// subset (see filterToolsByAllowlist).
 	wrappedTools := einomw.WrapAllTools(cfg.AllTools, cfg.SecurityMW, cfg.BreakerMW)
 
+	// generalDef captures the registry's "general" agent definition (if any),
+	// so the general agent is created from the registry like every other agent
+	// rather than hardcoded. It defaults to a built-in fallback below.
+	generalDef := AgentDef{
+		ID:            "general",
+		Name:          "General",
+		Description:   "General-purpose orchestrator agent that coordinates specialists and handles conversations.",
+		ToolAllowlist: []string{"*"},
+	}
+
 	// Phase 1 - create sub-agents dynamically from the registry.
 	if registry != nil {
 		for _, def := range registry.AgentDefs() {
 			if def.ID == "general" {
+				generalDef = def
 				continue // General is created in Phase 3
 			}
 			if def.Hidden {
@@ -155,15 +166,21 @@ func NewAgentSet(ctx context.Context, cfg *AgentSetConfig, registry AgentRegistr
 	}
 	wrappedSubAgentTools := einomw.WrapAllTools(subAgentTools, cfg.SecurityMW, cfg.BreakerMW)
 
-	// Phase 3 — create general agent with core tools + sub-agent tools.
+	// Phase 3 — create general agent with core tools + sub-agent tools. The
+	// definition comes from the registry (so workspace/agents/general.toml can
+	// override it); the tool set is always the full core + sub-agent set.
 	generalTools := make([]tool.BaseTool, 0, len(wrappedTools)+len(wrappedSubAgentTools))
 	generalTools = append(generalTools, wrappedTools...)
 	generalTools = append(generalTools, wrappedSubAgentTools...)
 
+	if generalDef.Name == "" {
+		generalDef.Name = generalDef.ID
+	}
 	agents.General, err = newAgent(ctx, agentCfg{
-		Name:            "General",
-		Description:     "General-purpose orchestrator agent that coordinates specialists and handles conversations.",
-		PromptName:      prompts.AgentGeneral,
+		Name:            generalDef.Name,
+		Description:     generalDef.Description,
+		PromptName:      prompts.NameFromAgentID(generalDef.ID),
+		SystemPrompt:    generalDef.SystemPrompt,
 		Tools:           generalTools,
 		MessageModifier: cfg.MessageModifier,
 	}, cfg)
