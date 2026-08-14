@@ -29,7 +29,8 @@ type AtomRef struct {
 }
 
 // Atom is a single atomic fact (L1). It carries a refs slice for traceability
-// back to the L0 conversation that produced it.
+// back to the L0 conversation that produced it, and a ScenarioID that is
+// non-zero once the atom has been aggregated into an L2 scenario.
 type Atom struct {
 	ID             int64
 	Content        string
@@ -37,6 +38,7 @@ type Atom struct {
 	Source         string
 	Taint          MemoryTaint
 	Refs           []AtomRef
+	ScenarioID     int64
 	Vector         []float32
 	EmbeddingModel string
 	CreatedAt      string
@@ -104,6 +106,13 @@ func NewLayeredStore(db *sql.DB) (*LayeredStore, error) {
 	if _, err := db.Exec(schema); err != nil {
 		return nil, fmt.Errorf("layered store schema: %w", err)
 	}
+
+	// Add the scenario_id column to mem_l1_atom for L1→L2 aggregation
+	// tracking, when migrating a DB created before this column existed. A NULL
+	// scenario_id means "not yet aggregated into a scenario".
+	if err := ensureColumn(db, "mem_l1_atom", "scenario_id", "INTEGER"); err != nil {
+		return nil, fmt.Errorf("layered store scenario_id migration: %w", err)
+	}
 	return &LayeredStore{db: db}, nil
 }
 
@@ -136,7 +145,7 @@ func (s *LayeredStore) InsertAtom(ctx context.Context, a Atom) (int64, error) {
 // ListAtomsRecent returns the most recent atoms.
 func (s *LayeredStore) ListAtomsRecent(ctx context.Context, limit int) ([]Atom, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, content, summary, source, taint, refs, vector, embedding_model, created_at
+		`SELECT id, content, summary, source, taint, refs, scenario_id, vector, embedding_model, created_at
 		 FROM mem_l1_atom ORDER BY id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -149,7 +158,7 @@ func (s *LayeredStore) ListAtomsRecent(ctx context.Context, limit int) ([]Atom, 
 func (s *LayeredStore) SearchAtoms(ctx context.Context, query string, limit int) ([]Atom, error) {
 	ftsQuery := escapeFTS5Query(query)
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT a.id, a.content, a.summary, a.source, a.taint, a.refs, a.vector, a.embedding_model, a.created_at
+		`SELECT a.id, a.content, a.summary, a.source, a.taint, a.refs, a.scenario_id, a.vector, a.embedding_model, a.created_at
 		 FROM mem_l1_atom a
 		 JOIN mem_l1_atom_fts f ON a.id = f.rowid
 		 WHERE mem_l1_atom_fts MATCH ?
@@ -168,7 +177,7 @@ func (s *LayeredStore) ListAtomsByIDs(ctx context.Context, ids []int64) ([]Atom,
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	query := `SELECT id, content, summary, source, taint, refs, vector, embedding_model, created_at
+	query := `SELECT id, content, summary, source, taint, refs, scenario_id, vector, embedding_model, created_at
 		 FROM mem_l1_atom WHERE id IN (` + placeholders(len(ids)) + `)`
 	args := make([]interface{}, len(ids))
 	for i, id := range ids {
@@ -232,6 +241,98 @@ func (s *LayeredStore) ListScenariosRecent(ctx context.Context, limit int) ([]Sc
 	}
 	defer rows.Close()
 	return scanScenarios(rows)
+}
+
+// ListAtomsUnaggregated returns atoms that have not yet been grouped into a
+// scenario (scenario_id IS NULL), oldest first. This is the L1→L2 aggregation
+// candidate set.
+func (s *LayeredStore) ListAtomsUnaggregated(ctx context.Context, limit int) ([]Atom, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, content, summary, source, taint, refs, scenario_id, vector, embedding_model, created_at
+		 FROM mem_l1_atom WHERE scenario_id IS NULL ORDER BY id ASC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAtoms(rows)
+}
+
+// MarkAtomsInScenario assigns the given atom IDs to a scenario and returns the
+// number of rows updated.
+func (s *LayeredStore) MarkAtomsInScenario(ctx context.Context, atomIDs []int64, scenarioID int64) (int64, error) {
+	if len(atomIDs) == 0 || scenarioID <= 0 {
+		return 0, nil
+	}
+	query := `UPDATE mem_l1_atom SET scenario_id = ? WHERE id IN (` + placeholders(len(atomIDs)) + `)`
+	args := make([]interface{}, 0, len(atomIDs)+1)
+	args = append(args, scenarioID)
+	for _, id := range atomIDs {
+		args = append(args, id)
+	}
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+// FindAtomByContent returns the newest atom whose content contains the given
+// text, or nil when no match exists. Used for dedup checks before inserting.
+func (s *LayeredStore) FindAtomByContent(ctx context.Context, text string) (*Atom, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, content, summary, source, taint, refs, scenario_id, vector, embedding_model, created_at
+		 FROM mem_l1_atom WHERE content LIKE ? ORDER BY id DESC LIMIT 1`, "%"+text+"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	atoms, err := scanAtoms(rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(atoms) == 0 {
+		return nil, nil
+	}
+	a := atoms[0]
+	return &a, nil
+}
+
+// DeleteAtomsOlderThan removes atoms (and their FTS5 entries via trigger) whose
+// created_at is before the cutoff time. This is the L1 retention/forgetting
+// mechanism. Returns the number of rows deleted.
+func (s *LayeredStore) DeleteAtomsOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM mem_l1_atom WHERE created_at < ?`, cutoff.UTC().Format(time.RFC3339))
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// GetScenario returns a single scenario by ID. This is the L1→L2 upward
+// drill-down path: an atom's ScenarioID points directly at its scenario, so no
+// fuzzy atom_ids matching is needed.
+func (s *LayeredStore) GetScenario(ctx context.Context, id int64) (*Scenario, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, content, atom_ids, vector, embedding_model, created_at
+		 FROM mem_l2_scenario WHERE id = ?`, id)
+	var sc Scenario
+	var atomIDsJSON string
+	var vectorBlob []byte
+	if err := row.Scan(&sc.ID, &sc.Content, &atomIDsJSON, &vectorBlob, &sc.EmbeddingModel, &sc.CreatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if atomIDsJSON != "" {
+		_ = json.Unmarshal([]byte(atomIDsJSON), &sc.AtomIDs)
+	}
+	if len(vectorBlob) > 0 {
+		sc.Vector, _ = DecodeVector(vectorBlob)
+	}
+	return &sc, nil
 }
 
 // ── Migration ──────────────────────────────────────────────────────────
@@ -300,10 +401,14 @@ func scanAtoms(rows *sql.Rows) ([]Atom, error) {
 		var a Atom
 		var refsJSON string
 		var vectorBlob []byte
-		if err := rows.Scan(&a.ID, &a.Content, &a.Summary, &a.Source, &a.Taint, &refsJSON, &vectorBlob, &a.EmbeddingModel, &a.CreatedAt); err != nil {
+		var scenarioID sql.NullInt64
+		if err := rows.Scan(&a.ID, &a.Content, &a.Summary, &a.Source, &a.Taint, &refsJSON, &scenarioID, &vectorBlob, &a.EmbeddingModel, &a.CreatedAt); err != nil {
 			return nil, err
 		}
 		a.Taint = normalizeTaint(string(a.Taint))
+		if scenarioID.Valid {
+			a.ScenarioID = scenarioID.Int64
+		}
 		if refsJSON != "" {
 			_ = json.Unmarshal([]byte(refsJSON), &a.Refs)
 		}
@@ -370,6 +475,31 @@ func placeholders(n int) string {
 		b = append(b, '?')
 	}
 	return string(b)
+}
+
+// ensureColumn adds a column to a table when it does not already exist. It is
+// idempotent and used for lightweight schema migrations on existing databases.
+func ensureColumn(db *sql.DB, table, column, columnType string) error {
+	rows, err := db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt interface{}
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == column {
+			return nil // already present
+		}
+	}
+	_, err = db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, columnType))
+	return err
 }
 
 var _ = time.Now // keep time import for future retention TTL
