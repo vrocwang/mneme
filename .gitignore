@@ -26,3 +26,6 @@ extensions/model-council/model-council
 
 # Local tooling state
 .codewhale/
+
+# ZCode agent state
+.zcode/

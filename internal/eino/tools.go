@@ -97,9 +97,10 @@ func CollectTools(cfg *ToolConfig) []tool.BaseTool {
 
 	// ── Instantiate all core tools ───────────────────────────────────────
 
-	// Search
+	// Search. The `browser` tool is provided by the browser-cdp extension
+	// (real rendering) rather than a core in-process HTTP fetcher, to avoid a
+	// same-name tool collision with different capabilities.
 	webSearch := tools.NewWebSearch(cfg.BraveAPIKey, cfg.TavilyAPIKey, cfg.SearxngURL)
-	browser := tools.NewBrowser(30)
 
 	// System
 	currentTime := tools.NewCurrentTime()
@@ -135,7 +136,6 @@ func CollectTools(cfg *ToolConfig) []tool.BaseTool {
 	adapters := []func() tool.BaseTool{
 		// ── search ───────────────────────────────────────────────────
 		func() tool.BaseTool { return adaptWebSearch(webSearch) },
-		func() tool.BaseTool { return adaptBrowser(browser) },
 
 		// ── system ──────────────────────────────────────────────────
 		func() tool.BaseTool { return adaptCurrentTime(currentTime) },
@@ -200,25 +200,6 @@ func adaptWebSearch(t *tools.WebSearch) tool.BaseTool {
 		})
 	if err != nil {
 		slog.Warn("eino: failed to adapt web_search", "err", err)
-		return nil
-	}
-	return tool
-}
-
-type browserInput struct {
-	URL string `json:"url" jsonschema:"description=URL to open and read"`
-}
-
-func adaptBrowser(t *tools.Browser) tool.BaseTool {
-	tool, err := utils.InferTool("browser",
-		"Open a URL and read its content as readable text.",
-		func(ctx context.Context, in browserInput) (string, error) {
-			return toResult(t.Execute(ctx, map[string]interface{}{
-				"url": in.URL,
-			}))
-		})
-	if err != nil {
-		slog.Warn("eino: failed to adapt browser", "err", err)
 		return nil
 	}
 	return tool
