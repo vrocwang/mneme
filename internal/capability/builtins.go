@@ -11,6 +11,11 @@ import (
 // registerBuiltins registers all core tools and built-in agents.
 // Non-core tools are registered via registerOptionalTools() which is
 // config-driven, enabling future migration to extensions.
+//
+// Core tools are registered as an in-process capability set via
+// RegisterInProcessSet, the same effect-style entry point used by
+// process-isolated extensions. This is the first step toward a
+// "no privileged core": built-ins are just another registered set.
 func registerBuiltins(reg *CapabilityRegistry, workspace string, securityTier string, braveAPIKey, tavilyAPIKey, searxngURL string, proxyConfig config.ProxyConfig, cfg *config.Config, log *slog.Logger) {
 	set := &CapabilitySet{
 		ID:          "builtin",
@@ -26,8 +31,10 @@ func registerBuiltins(reg *CapabilityRegistry, workspace string, securityTier st
 	// Apply sandbox config before registering any tools that use sandboxCmd.
 	tools.SetSandboxConfig(cfg.Sandbox)
 
+	var coreTools []tools.Tool
+
 	// Phase 1: Core tools (always registered - essential for agent operation)
-	for _, t := range []tools.Tool{
+	coreTools = append(coreTools,
 		tools.NewReadFile(workspace),
 		tools.NewWriteFile(workspace),
 		tools.NewListDir(workspace),
@@ -36,41 +43,34 @@ func registerBuiltins(reg *CapabilityRegistry, workspace string, securityTier st
 		tools.NewHTTPPost(proxyConfig),
 		tools.NewWebSearch(braveAPIKey, tavilyAPIKey, searxngURL),
 		tools.NewGitOps(workspace),
-	} {
-		reg.RegisterTool("builtin", t)
-	}
+	)
 
 	// Phase 2: Core dev tools (always registered - commonly needed by coder agent)
-	for _, t := range []tools.Tool{
+	coreTools = append(coreTools,
 		tools.NewApplyPatch(workspace),
 		tools.NewURLGuard(),
 		tools.NewReadDiff(workspace),
 		tools.NewRunTests(workspace),
-	} {
-		reg.RegisterTool("builtin", t)
-	}
+	)
 
 	// Phase 3: Core filesystem/system tools (always registered)
-	for _, t := range []tools.Tool{
+	coreTools = append(coreTools,
 		tools.NewEditFile(workspace),
 		tools.NewGlob(workspace),
 		tools.NewGrep(workspace),
 		tools.NewCurrentTime(),
 		tools.NewAskUser(),
 		tools.NewWait(),
-	} {
-		reg.RegisterTool("builtin", t)
-	}
+	)
 
 	// Phase 4: Optional tools (config-driven, candidates for extension migration)
-	registerOptionalTools(reg, workspace, cfg, log)
+	optionalTools := collectOptionalTools(workspace, cfg, log)
+	coreTools = append(coreTools, optionalTools...)
 
-	// Built-in agents
-	for _, def := range builtinAgentDefs {
-		reg.RegisterAgent("builtin", def)
+	if _, err := reg.RegisterInProcessSet(set, coreTools, builtinAgentDefs); err != nil {
+		log.Error("builtin capabilities registration failed", "error", err)
+		return
 	}
-
-	reg.AddSet(set)
 	log.Info("builtin capabilities registered", "tools", set.ToolCount, "agents", set.AgentCount)
 }
 
@@ -92,37 +92,39 @@ var optionalToolFactories = map[string]func(workspace string) tools.Tool{
 	"image_info":       func(ws string) tools.Tool { return tools.NewImageInfo(ws) },
 }
 
-// registerOptionalTools registers non-core tools based on configuration.
-// Default behavior (empty OptionalTools): all optional tools registered (backward compatible).
-// ["none"]: no optional tools registered.
-// ["tool1", "tool2"]: only the listed tools registered.
-func registerOptionalTools(reg *CapabilityRegistry, workspace string, cfg *config.Config, log *slog.Logger) {
+// collectOptionalTools returns the optional (config-driven) tools to register,
+// based on [tools] optional_tools. It no longer registers directly; the caller
+// adds the returned tools to the core set.
+func collectOptionalTools(workspace string, cfg *config.Config, log *slog.Logger) []tools.Tool {
 	requested := cfg.Tools.OptionalTools
 
 	// Check for explicit disable.
 	if len(requested) == 1 && requested[0] == "none" {
 		log.Info("optional tools disabled by config")
-		return
+		return nil
 	}
 
 	// Default: register all optional tools (backward compatible).
 	if len(requested) == 0 {
+		out := make([]tools.Tool, 0, len(optionalToolFactories))
 		for _, factory := range optionalToolFactories {
-			reg.RegisterTool("builtin", factory(workspace))
+			out = append(out, factory(workspace))
 		}
-		return
+		return out
 	}
 
 	// Selective registration.
+	var out []tools.Tool
 	for _, name := range requested {
 		factory, ok := optionalToolFactories[name]
 		if !ok {
 			log.Warn("unknown optional tool in config, skipping", "tool", name)
 			continue
 		}
-		reg.RegisterTool("builtin", factory(workspace))
+		out = append(out, factory(workspace))
 		log.Info("optional tool registered", "tool", name)
 	}
+	return out
 }
 
 // builtinAgentDefs moved from agent/registry.go.
