@@ -727,6 +727,33 @@ func (p *Pipeline) SearchCrossSession(query string, excludeThreadID string, limi
 	}
 	return p.convStore.SearchEpisodic(query, excludeThreadID, limit)
 }
+
+// SearchAtoms performs FTS5 full-text search over L1 atomic facts and returns
+// the matching atoms, newest first. This is the layered-model retrieval entry:
+// it returns the fine-grained facts extracted from conversations rather than
+// the legacy flat chunks. A nil/disabled layered store yields nil, nil.
+func (p *Pipeline) SearchAtoms(ctx context.Context, query string, limit int) ([]store.Atom, error) {
+	if p.layered == nil {
+		return nil, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return p.layered.SearchAtoms(ctx, query, limit)
+}
+
+// ListRecentAtoms returns the most recent L1 atomic facts. A nil/disabled
+// layered store yields nil, nil.
+func (p *Pipeline) ListRecentAtoms(ctx context.Context, limit int) ([]store.Atom, error) {
+	if p.layered == nil {
+		return nil, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return p.layered.ListAtomsRecent(ctx, limit)
+}
+
 func (p *Pipeline) Search(ctx context.Context, query string, limit int) (*SearchResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
