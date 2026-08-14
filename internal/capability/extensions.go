@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/simon/mneme/internal/tools"
 )
@@ -68,16 +70,31 @@ func discoverExtensions(reg *CapabilityRegistry, dirs []string, log *slog.Logger
 			// (relative to the extension dir) or an interpreter command.
 			binaryPath := resolveExtensionBinary(extDir, mf.Binary)
 
-			// Runtime discovery only loads pre-built binaries. Building is a
-			// separate pre-compile step (cmd/build-extensions or the extension
-			// installer), so a missing binary is skipped rather than built here.
+			// Runtime discovery loads pre-built binaries. In a development
+			// source tree (the extension dir contains a go.mod and a build
+			// command), we auto-build once so `wails dev` works without a
+			// separate pre-compile step. Production binaries are already
+			// present, so the build is never triggered there.
 			if !binaryExists(binaryPath) {
-				if mf.Build != "" {
-					log.Warn("extension binary not found; build it via cmd/build-extensions before loading",
-						"name", mf.Name, "binary", binaryPath)
+				if mf.Build != "" && fileExists(filepath.Join(extDir, "go.mod")) {
+					log.Info("building extension from source", "name", mf.Name, "command", mf.Build)
+					if err := buildExtension(extDir, mf.Build, log); err != nil {
+						log.Warn("extension build failed", "name", mf.Name, "error", err)
+						continue
+					}
+					binaryPath = resolveExtensionBinary(extDir, mf.Binary)
 				} else {
-					log.Warn("extension binary not found", "name", mf.Name, "binary", binaryPath)
+					if mf.Build != "" {
+						log.Warn("extension binary not found; build it via cmd/build-extensions before loading",
+							"name", mf.Name, "binary", binaryPath)
+					} else {
+						log.Warn("extension binary not found", "name", mf.Name, "binary", binaryPath)
+					}
 				}
+			}
+
+			if !binaryExists(binaryPath) {
+				log.Warn("extension binary not found", "name", mf.Name, "binary", binaryPath)
 				continue
 			}
 
@@ -199,6 +216,37 @@ func binaryExists(path string) bool {
 		return err == nil && !info.IsDir()
 	}
 	return false
+}
+
+// fileExists reports whether the path exists and is a regular file.
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+// buildExtension runs the extension's build command inside its directory. It
+// is only invoked for development source trees (go.mod present) where the
+// binary is missing; production never reaches this path because binaries are
+// pre-built and present. The command is executed through the platform shell so
+// quoted flags (e.g. -ldflags="-s -w") are parsed correctly.
+func buildExtension(extDir, buildCmd string, log *slog.Logger) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.CommandContext(ctx, "cmd", "/c", buildCmd)
+	} else {
+		cmd = exec.CommandContext(ctx, "sh", "-c", buildCmd)
+	}
+	cmd.Dir = extDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	return nil
 }
 
 // DefaultExtensionDirs returns the standard extension search paths for the
