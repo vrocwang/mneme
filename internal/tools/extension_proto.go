@@ -127,8 +127,11 @@ func StartProtoFromCommand(ctx context.Context, command string, log *slog.Logger
 }
 
 // isNativeBinary returns true if path points to a compiled native binary
-// (Go, C, Rust, etc.). Detects by magic number regardless of file extension,
-// so it works on Windows systems where Go may not append .exe.
+// (Go, C, Rust, etc.). Detection trusts the file mode and extension rather
+// than sniffing magic numbers: the manifest's binary field already declares
+// the path, and binaries built by the extension tooling carry an execute bit
+// (Unix) or a .exe extension (Windows). Scripts are detected separately via
+// shebang/extension in resolveInterpreter.
 func isNativeBinary(path string) bool {
 	// Check the path as-is first.
 	if isNativeBinaryFile(path) {
@@ -152,74 +155,12 @@ func isNativeBinaryFile(path string) bool {
 	if info.IsDir() {
 		return false
 	}
-	// Known executable extensions.
-	ext := strings.ToLower(filepath.Ext(path))
-	if ext == ".exe" {
+	// Known executable extension.
+	if strings.EqualFold(filepath.Ext(path), ".exe") {
 		return true
 	}
 	// Unix execute bit.
-	if info.Mode()&0111 != 0 {
-		return true
-	}
-	// No execute bit, no known extension — check magic number.
-	// PE (Windows): MZ, ELF (Linux): \x7fELF, Mach-O (macOS): feedface/cafebabe/cfafed00
-	return hasBinaryMagic(path)
-}
-
-// isScriptFile returns true if the file extension suggests a script.
-func isScriptFile(path string) bool {
-	ext := strings.ToLower(filepath.Ext(path))
-	switch ext {
-	case ".py", ".js", ".mjs", ".ts", ".rb", ".sh", ".bash", ".lua", ".pl", ".php":
-		return true
-	}
-	return false
-}
-
-// hasBinaryMagic reads the first 4 bytes of a file and checks for known
-// native binary magic numbers: PE (MZ), ELF (\x7fELF), Mach-O variants.
-func hasBinaryMagic(path string) bool {
-	// Only check files without a script extension.
-	if isScriptFile(path) {
-		return false
-	}
-	// Require a minimum file size (skip tiny files).
-	info, err := os.Stat(path)
-	if err != nil || info.Size() < 2048 {
-		return false
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-	var magic [4]byte
-	if _, err := f.Read(magic[:]); err != nil {
-		return false
-	}
-	// PE: MZ (0x4D 0x5A)
-	if magic[0] == 0x4D && magic[1] == 0x5A {
-		return true
-	}
-	// ELF: \x7f E L F
-	if magic[0] == 0x7F && magic[1] == 'E' && magic[2] == 'L' && magic[3] == 'F' {
-		return true
-	}
-	// Mach-O 32-bit: CE FA ED FE or FE ED FA CE
-	if magic[0] == 0xCE && magic[1] == 0xFA && magic[2] == 0xED && magic[3] == 0xFE {
-		return true
-	}
-	if magic[0] == 0xFE && magic[1] == 0xED && magic[2] == 0xFA && magic[3] == 0xCE {
-		return true
-	}
-	// Mach-O 64-bit: CF FA ED FE or FE ED FA CF
-	if magic[0] == 0xCF && magic[1] == 0xFA && magic[2] == 0xED && magic[3] == 0xFE {
-		return true
-	}
-	if magic[0] == 0xFE && magic[1] == 0xED && magic[2] == 0xFA && magic[3] == 0xCF {
-		return true
-	}
-	return false
+	return info.Mode()&0111 != 0
 }
 
 // resolveInterpreter reads the shebang line or falls back to extension mapping.

@@ -3,14 +3,11 @@ package capability
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
 
 	"github.com/simon/mneme/internal/tools"
 )
@@ -71,21 +68,16 @@ func discoverExtensions(reg *CapabilityRegistry, dirs []string, log *slog.Logger
 			// (relative to the extension dir) or an interpreter command.
 			binaryPath := resolveExtensionBinary(extDir, mf.Binary)
 
-			// Build if the binary doesn't exist and a build command is provided.
-			// In dev mode, this auto-compiles Go extensions. In production,
-			// pre-compiled binaries are embedded and no build is needed.
-			if !binaryExists(binaryPath) && mf.Build != "" {
-				log.Info("building extension", "name", mf.Name, "command", mf.Build)
-				if err := buildExtension(extDir, mf.Build, log); err != nil {
-					log.Warn("extension build failed", "name", mf.Name, "error", err)
-					cleanPartialBinary(binaryPath)
-					continue
-				}
-				binaryPath = resolveExtensionBinary(extDir, mf.Binary)
-			}
-
+			// Runtime discovery only loads pre-built binaries. Building is a
+			// separate pre-compile step (cmd/build-extensions or the extension
+			// installer), so a missing binary is skipped rather than built here.
 			if !binaryExists(binaryPath) {
-				log.Warn("extension binary not found", "name", mf.Name, "binary", binaryPath)
+				if mf.Build != "" {
+					log.Warn("extension binary not found; build it via cmd/build-extensions before loading",
+						"name", mf.Name, "binary", binaryPath)
+				} else {
+					log.Warn("extension binary not found", "name", mf.Name, "binary", binaryPath)
+				}
 				continue
 			}
 
@@ -207,137 +199,6 @@ func binaryExists(path string) bool {
 	if runtime.GOOS == "windows" && filepath.Ext(path) == "" {
 		info, err := os.Stat(path + ".exe")
 		return err == nil && !info.IsDir()
-	}
-	return false
-}
-
-// buildExtension runs the build command inside the extension directory.
-// Simple commands (no shell metacharacters) are executed directly for
-// portability. Commands with pipes, redirects, or variable expansions use
-// the platform shell. A timeout prevents stuck builds from blocking startup.
-func buildExtension(extDir, buildCmd string, log *slog.Logger) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	args, needsShell := parseBuildCommand(buildCmd)
-	if len(args) == 0 {
-		return fmt.Errorf("build command is empty or whitespace-only")
-	}
-	var cmd *exec.Cmd
-	if needsShell {
-		shell, shellArg := buildShell()
-		cmd = exec.CommandContext(ctx, shell, shellArg, buildCmd)
-	} else {
-		cmd = exec.CommandContext(ctx, args[0], args[1:]...)
-	}
-	cmd.Dir = extDir
-	cmd.Stderr = os.Stderr
-	cmd.Stdout = os.Stdout
-	cmd.Env = buildEnv(os.Environ())
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("build command failed: %w", err)
-	}
-	return nil
-}
-
-// parseBuildCommand splits a build command into argv. Returns needsShell=true
-// when the command contains shell metacharacters (|, >, <, &, ;, $, `, *).
-// Handles single-quoted and double-quoted strings.
-func parseBuildCommand(cmd string) ([]string, bool) {
-	var args []string
-	var current strings.Builder
-	inSingle, inDouble := false, false
-	hasMeta := false
-
-	for i := 0; i < len(cmd); i++ {
-		ch := cmd[i]
-		// Handle backslash escape sequences inside quotes.
-		if ch == '\\' && (inSingle || inDouble) && i+1 < len(cmd) {
-			next := cmd[i+1]
-			if next == '"' || next == '\'' || next == '\\' {
-				current.WriteByte(next)
-				i++
-				continue
-			}
-		}
-		switch {
-		case ch == '\'' && !inDouble:
-			inSingle = !inSingle
-		case ch == '"' && !inSingle:
-			inDouble = !inDouble
-		case !inSingle && !inDouble && (ch == '|' || ch == '>' || ch == '<' ||
-			ch == '&' || ch == ';' || ch == '$' || ch == '`' || ch == '*'):
-			hasMeta = true
-			current.WriteByte(ch)
-		case ch == ' ' && !inSingle && !inDouble:
-			if current.Len() > 0 {
-				args = append(args, current.String())
-				current.Reset()
-			}
-		default:
-			current.WriteByte(ch)
-		}
-	}
-	if current.Len() > 0 {
-		args = append(args, current.String())
-	}
-	return args, hasMeta
-}
-
-// buildShell returns the platform-appropriate shell and the flag that
-// accepts a command string (usually "-c" on Unix, "/c" on Windows).
-func buildShell() (shell, cmdFlag string) {
-	if runtime.GOOS == "windows" {
-		// Prefer PowerShell on Windows; fall back to cmd.
-		if _, err := exec.LookPath("powershell"); err == nil {
-			return "powershell", "-Command"
-		}
-		return "cmd", "/c"
-	}
-	return "sh", "-c"
-}
-
-// buildEnv returns the environment slice for extension builds. It clears
-// GOFLAGS (which can interfere with go build flags) while preserving the
-// module cache and toolchain paths. On Windows, GOPATH may be empty —
-// that's fine; go build uses the default module cache location.
-func buildEnv(parent []string) []string {
-	env := make([]string, 0, len(parent)+3)
-	for _, kv := range parent {
-		if strings.HasPrefix(kv, "GOFLAGS=") {
-			continue // drop global GOFLAGS
-		}
-		env = append(env, kv)
-	}
-	// Re-add cleared vars with safe values.
-	env = append(env, "GOFLAGS=")
-	// Ensure toolchain env vars are present (even if empty — go build
-	// uses defaults when they're unset).
-	for _, key := range []string{"GOPATH", "GOROOT", "HOME", "USERPROFILE"} {
-		if !hasEnvKey(parent, key) {
-			if v := os.Getenv(key); v != "" {
-				env = append(env, key+"="+v)
-			}
-		}
-	}
-	return env
-}
-
-// cleanPartialBinary removes a binary that may be a failed/partial build.
-func cleanPartialBinary(path string) {
-	os.Remove(path)
-	if runtime.GOOS == "windows" || filepath.Ext(path) == "" {
-		os.Remove(path + ".exe")
-	}
-}
-
-func hasEnvKey(env []string, key string) bool {
-	prefix := key + "="
-	for _, kv := range env {
-		if strings.HasPrefix(kv, prefix) {
-			return true
-		}
 	}
 	return false
 }
