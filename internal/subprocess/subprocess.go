@@ -20,6 +20,11 @@ import (
 // The command's process tree has already been terminated when this is returned.
 var ErrTimeout = errors.New("subprocess: command timed out")
 
+// ErrCanceled is returned by Runner.Run when the parent context is canceled
+// before the command completes. The command's process tree has already been
+// terminated when this is returned.
+var ErrCanceled = errors.New("subprocess: command canceled")
+
 // Runner executes a prepared *exec.Cmd with a timeout. The caller owns the
 // command's configuration (path, args, dir, env); Run only adds execution
 // control: it places the process in its own group so a timeout can kill the
@@ -51,10 +56,14 @@ func (OS) Run(ctx context.Context, cmd *exec.Cmd, timeout time.Duration) ([]byte
 
 	select {
 	case r := <-ch:
+		// The command finished. If the parent context was canceled, the
+		// sandbox's exec.CommandContext has already killed the process; report
+		// a uniform ErrCanceled instead of the transport-specific "signal:
+		// killed" / "context canceled" so the error surface is deterministic.
+		if ctx.Err() != nil {
+			return nil, ErrCanceled
+		}
 		return r.output, r.err
-	case <-ctx.Done():
-		killProcessTree(cmd)
-		return nil, ctx.Err()
 	case <-time.After(timeout):
 		killProcessTree(cmd)
 		return nil, ErrTimeout

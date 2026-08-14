@@ -50,29 +50,29 @@ func discoverLegacyExtensions(reg *CapabilityRegistry, legacyExtensionsDir strin
 			Enabled:     true,
 		}
 
-		// Register tools.
-		extTools, err := proc.ListTools(context.Background())
-		if err != nil {
+		// Collect tools and agents up front so the whole extension can be
+		// registered as a single effect (RegisterExtension reserves the set ID
+		// first and returns a dispose func for clean unwinding).
+		var extTools []tools.Tool
+		if ts, err := proc.ListTools(context.Background()); err == nil {
+			extTools = ts
+		} else {
 			log.Warn("extension list tools failed", "extension", proc.Manifest.Name, "error", err)
 		}
-		for _, t := range extTools {
-			reg.RegisterTool(setID, t)
-		}
-
-		// Register agents.
-		extAgents, err := proc.ListAgents(context.Background())
-		if err != nil {
+		var extAgents []*tools.AgentDef
+		if as, err := proc.ListAgents(context.Background()); err == nil {
+			for _, a := range as {
+				aCopy := a
+				extAgents = append(extAgents, &aCopy)
+			}
+		} else {
 			log.Warn("extension list agents failed", "extension", proc.Manifest.Name, "error", err)
 		}
-		for _, a := range extAgents {
-			aCopy := a
-			reg.RegisterAgent(setID, &aCopy)
-		}
 
-		// Track the process for lifecycle management.
-		reg.TrackExtension(setID, proc)
-
-		if err := reg.AddSet(set); err != nil {
+		// Register as a single effect. On a duplicate set ID RegisterExtension
+		// fails closed without mutating state; on success the process is tracked
+		// for Shutdown/dispose and the dispose is stored in the registry.
+		if _, err := reg.RegisterExtension(setID, set, proc, extTools, extAgents); err != nil {
 			log.Warn("extension set registration failed", "name", proc.Manifest.Name, "error", err)
 			proc.Stop()
 			continue

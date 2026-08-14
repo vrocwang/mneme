@@ -610,21 +610,26 @@ func loadExtension(reg *CapabilityRegistry, ext *tools.DiscoveredExtension, work
 	}
 
 	setID := "extension:" + ext.Manifest.Name
-	// Register tools.
-	if tools, err := proc.ListTools(context.Background()); err == nil {
-		for _, t := range tools {
-			reg.RegisterTool(setID, t)
-		}
+
+	// Collect tools and agents up front so the whole extension can be
+	// registered as a single effect (RegisterExtension reserves the set ID
+	// first and returns a dispose func for clean unwinding).
+	var extTools []tools.Tool
+	if ts, err := proc.ListTools(context.Background()); err == nil {
+		extTools = ts
+	} else {
+		log.Warn("extension list tools failed", "name", ext.Manifest.Name, "error", err)
 	}
-	// Register agents.
-	if agents, err := proc.ListAgents(context.Background()); err == nil {
-		for _, a := range agents {
+	var extAgents []*tools.AgentDef
+	if as, err := proc.ListAgents(context.Background()); err == nil {
+		for _, a := range as {
 			aCopy := a
-			reg.RegisterAgent(setID, &aCopy)
+			extAgents = append(extAgents, &aCopy)
 		}
+	} else {
+		log.Warn("extension list agents failed", "name", ext.Manifest.Name, "error", err)
 	}
 
-	reg.TrackExtension(setID, proc)
 	set := &CapabilitySet{
 		ID:          setID,
 		Name:        ext.Manifest.Name,
@@ -633,5 +638,11 @@ func loadExtension(reg *CapabilityRegistry, ext *tools.DiscoveredExtension, work
 		Health:      HealthOK,
 		Enabled:     true,
 	}
-	return reg.AddSet(set)
+	// RegisterExtension fails closed: on a duplicate set ID it returns before
+	// mutating any state, and it tracks the process for Shutdown/dispose.
+	if _, err := reg.RegisterExtension(setID, set, proc, extTools, extAgents); err != nil {
+		proc.Stop()
+		return err
+	}
+	return nil
 }
