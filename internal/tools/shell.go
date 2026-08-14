@@ -117,7 +117,8 @@ func (t *Shell) Execute(ctx context.Context, args map[string]interface{}) Result
 	// routing through the ApprovalGate. When called directly through the raw
 	// registry (no such signal), Prompt-class commands are conservatively
 	// blocked.
-	_, decision, err := security.CheckGatedCommand(command, t.tier, true, true)
+	blockHighRisk, requireMediumApproval := security.CommandPolicy()
+	_, decision, err := security.CheckGatedCommand(command, t.tier, blockHighRisk, requireMediumApproval)
 	if err != nil {
 		return Result{Error: err.Error()}
 	}

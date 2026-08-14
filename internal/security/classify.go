@@ -3,6 +3,7 @@ package security
 import (
 	"path/filepath"
 	"strings"
+	"sync"
 	"unicode"
 )
 
@@ -15,6 +16,41 @@ const (
 	Install     CommandClass = "install"
 	Destructive CommandClass = "destructive"
 )
+
+// ── User-configured classification overrides ───────────────────────
+
+// extraCommandLists holds the config-driven command classification lists
+// (security.commands.extra_*). They are merged into the hardcoded base lists
+// at classification time, so users can extend each class without recompiling.
+var (
+	extraCommandListsMu sync.RWMutex
+	extraReadOnly       []string
+	extraNetwork        []string
+	extraDestructive    []string
+	extraInstall        []string
+	extraExecutors      []string
+	extraDangerousEnv   []string
+)
+
+// SetCommandOverrides installs the config-driven command classification lists.
+// Each slice is optional; nil/empty leaves the hardcoded list unchanged.
+func SetCommandOverrides(readOnly, network, destructive, install, executors, dangerousEnv []string) {
+	extraCommandListsMu.Lock()
+	defer extraCommandListsMu.Unlock()
+	extraReadOnly = append([]string(nil), readOnly...)
+	extraNetwork = append([]string(nil), network...)
+	extraDestructive = append([]string(nil), destructive...)
+	extraInstall = append([]string(nil), install...)
+	extraExecutors = append([]string(nil), executors...)
+	extraDangerousEnv = append([]string(nil), dangerousEnv...)
+}
+
+// extraList returns a snapshot of the requested extra list.
+func extraList(which func() []string) []string {
+	extraCommandListsMu.RLock()
+	defer extraCommandListsMu.RUnlock()
+	return which()
+}
 
 // ── Quoting-aware segment splitting ───────────────────────────────
 
@@ -171,6 +207,11 @@ func hasDangerousEnvPrefix(s string) bool {
 				return true
 			}
 		}
+		for _, d := range extraList(func() []string { return extraDangerousEnv }) {
+			if name == strings.ToUpper(d) {
+				return true
+			}
+		}
 		rest = strings.TrimSpace(rest[len(word):])
 	}
 }
@@ -264,6 +305,11 @@ var commandExecutors = []string{
 func isCommandExecutor(base string) bool {
 	for _, e := range commandExecutors {
 		if base == e {
+			return true
+		}
+	}
+	for _, e := range extraList(func() []string { return extraExecutors }) {
+		if base == strings.ToLower(e) {
 			return true
 		}
 	}
@@ -454,6 +500,12 @@ func classifySegment(segment string) CommandClass {
 			return Destructive
 		}
 	}
+	for _, d := range extraList(func() []string { return extraDestructive }) {
+		dl := strings.ToLower(d)
+		if base == dl || strings.HasPrefix(base, dl+".") {
+			return Destructive
+		}
+	}
 
 	// mkfs.* variants (mkfs.ext4, mkfs.xfs, etc.)
 	if strings.HasPrefix(base, "mkfs") {
@@ -501,6 +553,11 @@ func classifySegment(segment string) CommandClass {
 	// Network commands
 	for _, n := range networkBases {
 		if base == n {
+			return Network
+		}
+	}
+	for _, n := range extraList(func() []string { return extraNetwork }) {
+		if base == strings.ToLower(n) {
 			return Network
 		}
 	}
@@ -554,6 +611,11 @@ func classifySegment(segment string) CommandClass {
 			return Read
 		}
 	}
+	for _, r := range extraList(func() []string { return extraReadOnly }) {
+		if base == strings.ToLower(r) {
+			return Read
+		}
+	}
 
 	// Fail-closed: unknown = Write
 	return Write
@@ -574,7 +636,17 @@ func verbClass(args []string, readVerbs []string) CommandClass {
 
 // ── Install detection ─────────────────────────────────────────────
 
+// isInstallCommand detects whether a base command is a package manager
+// performing an install-like operation.
 func isInstallCommand(base string, args []string) bool {
+	// Config-driven install bases: any invocation of these commands is
+	// treated as Install (host-modifying).
+	for _, extra := range extraList(func() []string { return extraInstall }) {
+		if base == strings.ToLower(extra) {
+			return true
+		}
+	}
+
 	has := func(needle string) bool {
 		for _, a := range args {
 			if a == needle {

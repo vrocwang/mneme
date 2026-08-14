@@ -31,7 +31,10 @@ func ReloadConfig(
 		return
 	}
 	setProvider(newProvider)
-	security.SetExtraAllowedCommands(cfg.Security.Commands.ExtraAllowedCommands)
+	sc := cfg.Security.Commands
+	security.SetExtraAllowedCommands(sc.ExtraAllowedCommands)
+	security.SetCommandPolicy(sc.BlockHighRisk, sc.RequireMediumApproval)
+	security.SetCommandOverrides(sc.ExtraReadOnly, sc.ExtraNetwork, sc.ExtraDestructive, sc.ExtraInstall, sc.ExtraExecutors, sc.ExtraDangerousEnv)
 	log.Info("config reload: provider updated", "name", newProvider.Name())
 
 	if learn != nil {

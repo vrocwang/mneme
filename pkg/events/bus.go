@@ -4,8 +4,6 @@ import (
 	"log"
 	"runtime/debug"
 	"sync"
-	"sync/atomic"
-	"time"
 )
 
 // Domain categorizes events for filtered subscription.
@@ -204,8 +202,6 @@ type DomainHandler struct {
 	Domains []Domain // empty = all domains
 }
 
-const maxAsyncHandlers = 100 // cap concurrent PublishAsync goroutines
-
 // Bus is a typed pub/sub event bus with domain filtering.
 type Bus struct {
 	mu          sync.RWMutex
@@ -213,45 +209,15 @@ type Bus struct {
 	domainSubs  map[Domain]map[int]Handler // domain -> id -> handler
 	allSubs     map[int]Handler            // global subscribers
 	nextID      int
-	sem         chan struct{} // limits concurrent async handler goroutines
-
-	// Lag detection (since startup).
-	totalAsyncPublished  atomic.Int64
-	totalAsyncDropped    atomic.Int64 // events dropped due to full semaphore
-	slowHandlerWarn      func(event Event, handlerID int, duration time.Duration)
-	slowHandlerThreshold time.Duration // handlers exceeding this trigger a warning
 }
 
 // NewBus creates an event bus with the given channel capacity (unused, kept for API compat).
 func NewBus(capacity int) *Bus {
 	return &Bus{
-		subscribers:          make(map[string]map[int]Handler),
-		domainSubs:           make(map[Domain]map[int]Handler),
-		allSubs:              make(map[int]Handler),
-		sem:                  make(chan struct{}, maxAsyncHandlers),
-		slowHandlerThreshold: 5 * time.Second,
+		subscribers: make(map[string]map[int]Handler),
+		domainSubs:  make(map[Domain]map[int]Handler),
+		allSubs:     make(map[int]Handler),
 	}
-}
-
-// SetSlowHandlerWarn sets a callback invoked when a handler exceeds the slow threshold.
-// The callback receives the event, handler ID, and actual duration. It must be
-// non-blocking (publish to a buffered channel or log asynchronously).
-func (b *Bus) SetSlowHandlerWarn(cb func(Event, int, time.Duration)) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.slowHandlerWarn = cb
-}
-
-// SetSlowHandlerThreshold sets the duration after which a handler is considered slow.
-func (b *Bus) SetSlowHandlerThreshold(d time.Duration) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.slowHandlerThreshold = d
-}
-
-// LagStats returns async publish statistics for monitoring.
-func (b *Bus) LagStats() (total, dropped int64) {
-	return b.totalAsyncPublished.Load(), b.totalAsyncDropped.Load()
 }
 
 // Subscribe adds a handler for a specific topic.
@@ -292,49 +258,11 @@ func (b *Bus) SubscribeDomain(h Handler, domains ...Domain) *Subscription {
 
 // Publish sends an event to all matching subscribers.
 // Handlers are invoked synchronously with panic recovery — subscribers that
-// perform I/O or long-running work should use PublishAsync or spawn their own
-// goroutine internally.
+// perform I/O or long-running work should spawn their own goroutine internally.
 func (b *Bus) Publish(e Event) {
 	handlers := b.collectHandlers(e)
 	for _, ih := range handlers {
 		invokeSafe(ih.handler, e)
-	}
-}
-
-// PublishAsync sends an event to all matching subscribers, dispatching each
-// handler in its own goroutine. Prefer this for subscribers that perform I/O
-// (audit logging, notification delivery, etc.). Ordering between handlers is
-// not guaranteed. A semaphore caps concurrent handler goroutines to prevent
-// unbounded growth under rapid-fire event sequences.
-func (b *Bus) PublishAsync(e Event) {
-	handlers := b.collectHandlers(e)
-	for _, ih := range handlers {
-		h := ih.handler
-		id := ih.id
-		// Non-blocking semaphore: if all slots are busy, drop the event
-		// rather than blocking the publisher. This prevents a slow
-		// subscriber from stalling the entire system.
-		select {
-		case b.sem <- struct{}{}:
-			b.totalAsyncPublished.Add(1)
-			go func() {
-				defer func() { <-b.sem }()
-				start := time.Now()
-				invokeSafe(h, e)
-				elapsed := time.Since(start)
-				b.mu.RLock()
-				threshold := b.slowHandlerThreshold
-				warn := b.slowHandlerWarn
-				b.mu.RUnlock()
-				if elapsed > threshold && warn != nil {
-					warn(e, id, elapsed)
-				}
-			}()
-		default:
-			b.totalAsyncDropped.Add(1)
-			log.Printf("[event-bus] event dropped (backpressure): domain=%s kind=%s",
-				e.Domain, e.Kind)
-		}
 	}
 }
 

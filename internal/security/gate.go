@@ -196,6 +196,29 @@ func SetExtraAllowedCommands(cmds []string) {
 	extraAllowedCommands = cmds
 }
 
+// commandPolicy holds the two gate toggles previously hardcoded by the shell
+// tool: whether high-risk commands are always blocked and whether medium-risk
+// commands require approval in supervised mode.
+var (
+	commandPolicy   = struct{ blockHighRisk, requireMediumApproval bool }{blockHighRisk: true, requireMediumApproval: true}
+	commandPolicyMu sync.RWMutex
+)
+
+// SetCommandPolicy updates the high/medium risk gate toggles from config.
+func SetCommandPolicy(blockHighRisk, requireMediumApproval bool) {
+	commandPolicyMu.Lock()
+	defer commandPolicyMu.Unlock()
+	commandPolicy.blockHighRisk = blockHighRisk
+	commandPolicy.requireMediumApproval = requireMediumApproval
+}
+
+// CommandPolicy returns the current high/medium risk gate toggles.
+func CommandPolicy() (blockHighRisk, requireMediumApproval bool) {
+	commandPolicyMu.RLock()
+	defer commandPolicyMu.RUnlock()
+	return commandPolicy.blockHighRisk, commandPolicy.requireMediumApproval
+}
+
 // IsCommandAllowed checks whether a command base is in the supervised allowlist.
 // Only enforced in TierSupervised; Full tier bypasses the allowlist entirely.
 // Unknown commands are blocked (fail-closed) in supervised mode.

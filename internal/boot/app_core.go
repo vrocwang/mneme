@@ -41,6 +41,7 @@ import (
 	"github.com/simon/mneme/internal/security"
 	"github.com/simon/mneme/internal/skills"
 	"github.com/simon/mneme/internal/subconscious"
+	"github.com/simon/mneme/internal/tools"
 	"github.com/simon/mneme/internal/workspace"
 	"github.com/simon/mneme/pkg/events"
 )
@@ -270,7 +271,11 @@ func (a *AppCore) Init(headless bool) {
 	// ── Security policy ──────────────────────────────────────────────
 	a.SecurityPolicy = a.Cfg.BuildSecurityPolicy()
 	security.ReloadLivePolicy(a.SecurityPolicy)
-	security.SetExtraAllowedCommands(a.Cfg.Security.Commands.ExtraAllowedCommands)
+	sc := a.Cfg.Security.Commands
+	security.SetExtraAllowedCommands(sc.ExtraAllowedCommands)
+	security.SetCommandPolicy(sc.BlockHighRisk, sc.RequireMediumApproval)
+	security.SetCommandOverrides(sc.ExtraReadOnly, sc.ExtraNetwork, sc.ExtraDestructive, sc.ExtraInstall, sc.ExtraExecutors, sc.ExtraDangerousEnv)
+	tools.SetToolTimeoutSecs(a.Cfg.Agent.Limits.DefaultToolTimeout)
 
 	// ── Chat service ─────────────────────────────────────────────────
 	a.ChatService = agent.NewChatService(agent.ChatServiceConfig{

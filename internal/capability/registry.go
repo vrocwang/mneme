@@ -36,8 +36,8 @@ type CapabilityRegistry struct {
 	mcpToolServer     map[string]string             // toolName → setID
 	scopedTools       map[string]bool               // non-nil when this is a ScopedView
 	mcpAudit          MCPAuditLogger
-	channels          map[string]*channelEntry      // registered channel providers
-	disposes          map[string]dispose.Func       // setID → teardown (effect-style unwind)
+	channels          map[string]*channelEntry // registered channel providers
+	disposes          map[string]dispose.Func  // setID → teardown (effect-style unwind)
 }
 
 func NewCapabilityRegistry() *CapabilityRegistry {
@@ -357,7 +357,7 @@ func (r *CapabilityRegistry) Execute(ctx context.Context, name string, args map[
 		return resultToToolsResult(result)
 	}
 	if ok {
-		return t.Execute(ctx, args)
+		return tools.ExecuteWithTimeout(ctx, t, args, nil)
 	}
 	return tools.Result{Error: fmt.Sprintf("tool not found: %s", name)}
 }
@@ -844,18 +844,18 @@ func (r *CapabilityRegistry) TrackExtension(setID string, proc *tools.ProtoProce
 					if delay > maxDelay {
 						delay = maxDelay
 					}
-				slog.Warn("extension health check failed, attempting restart",
-					"set_id", setID, "extension", proc.Manifest.Name,
-					"attempt", consecutiveFailures, "delay", delay)
-				// Sleep interruptibly: teardown (removeSetInternal) cancels
-				// healthCtx and must be able to stop this goroutine before it
-				// calls Restart and resurrects an already-unloaded process.
-				select {
-				case <-healthCtx.Done():
-					return
-				case <-time.After(delay):
-				}
-				if err := proc.Restart(healthCtx); err != nil {
+					slog.Warn("extension health check failed, attempting restart",
+						"set_id", setID, "extension", proc.Manifest.Name,
+						"attempt", consecutiveFailures, "delay", delay)
+					// Sleep interruptibly: teardown (removeSetInternal) cancels
+					// healthCtx and must be able to stop this goroutine before it
+					// calls Restart and resurrects an already-unloaded process.
+					select {
+					case <-healthCtx.Done():
+						return
+					case <-time.After(delay):
+					}
+					if err := proc.Restart(healthCtx); err != nil {
 						slog.Error("extension auto-restart failed",
 							"set_id", setID, "extension", proc.Manifest.Name, "error", err)
 						r.UpdateSetHealth(setID, HealthDown)
