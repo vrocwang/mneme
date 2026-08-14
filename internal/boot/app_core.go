@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/simon/mneme/internal/agent"
 	"github.com/simon/mneme/internal/approval"
@@ -331,7 +330,7 @@ func (a *AppCore) Init(headless bool) {
 	// Evaluators are registered by the "subconscious" event bundle.
 
 	// ── Heartbeat ────────────────────────────────────────────────────
-	a.Heartbeat = heartbeat.New(a.Log, 30*time.Second)
+	a.Heartbeat = heartbeat.New(a.Log, bundle.HeartbeatInterval)
 	// The heartbeat handler is registered and started by the "heartbeat" event
 	// bundle after all dependencies exist.
 
@@ -444,39 +443,14 @@ func (a *AppCore) Init(headless bool) {
 			a.Log.Info("eino: failover models available",
 				"count", len(failoverModels))
 		}
-		toolCfg := &eino.ToolConfig{
-			Workspace:      a.Cfg.Workspace,
-			Tier:           security.Tier(a.Cfg.Security.Tier),
-			ProxyConfig:    a.Cfg.Proxy,
-			ShellConfig:    a.Cfg.Tools.Shell,
-			SandboxConfig:  a.Cfg.Sandbox,
-			BraveAPIKey:    a.Cfg.Search.BraveAPIKey,
-			TavilyAPIKey:   a.Cfg.Search.TavilyAPIKey,
-			SearxngURL:     a.Cfg.Search.SearxNGURL,
-			MemoryPipeline: a.Pipeline,
-		}
-		// Collect tools: CapabilityRegistry is the single source of truth.
-		// Registry tools (builtins + extensions + MCP) take precedence;
-		// eino.CollectTools only supplements tools not in the registry
-		// (e.g. browser).
+		// The CapabilityRegistry is the single source of truth for tools:
+		// builtin bundles, extensions, MCP, memory, and config tools are all
+		// registered there. The agent set adapts every registry tool directly,
+		// so [bundles] disabled is honored and there is no second hardcoded
+		// tool list to drift out of sync.
 		allTools := capability.CollectRegistryTools(a.CapReg, nil)
-		regNames := make(map[string]bool)
-		for _, t := range allTools {
-			if info, err := t.Info(context.Background()); err == nil {
-				regNames[info.Name] = true
-			}
-		}
 		if len(allTools) > 0 {
 			a.Log.Info("eino: using registry tools", "count", len(allTools))
-		}
-		// Supplement with eino-native tools not in the registry.
-		einoTools := eino.CollectTools(toolCfg)
-		for _, t := range einoTools {
-			if info, err := t.Info(context.Background()); err == nil {
-				if !regNames[info.Name] {
-					allTools = append(allTools, t)
-				}
-			}
 		}
 
 		secMW := &einomw.SecurityMiddleware{

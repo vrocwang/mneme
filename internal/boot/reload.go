@@ -73,28 +73,10 @@ func ReloadEino(a *AppCore) {
 	primaryPC := a.Cfg.FindProviderForModel(a.Cfg.Agent.DefaultModel)
 	failoverModels, _ := eino.CollectFailoverModels(context.Background(), a.Cfg, primaryPC)
 
-	toolCfg := &eino.ToolConfig{
-		Workspace:      a.Cfg.Workspace,
-		Tier:           security.Tier(a.Cfg.Security.Tier),
-		ProxyConfig:    a.Cfg.Proxy,
-		ShellConfig:    a.Cfg.Tools.Shell,
-		SandboxConfig:  a.Cfg.Sandbox,
-		BraveAPIKey:    a.Cfg.Search.BraveAPIKey,
-		TavilyAPIKey:   a.Cfg.Search.TavilyAPIKey,
-		SearxngURL:     a.Cfg.Search.SearxNGURL,
-		MemoryPipeline: a.Pipeline,
-	}
-	allTools := eino.CollectTools(toolCfg)
-	if a.CapReg != nil {
-		einoNames := make(map[string]bool)
-		for _, t := range allTools {
-			if info, err := t.Info(context.Background()); err == nil {
-				einoNames[info.Name] = true
-			}
-		}
-		regTools := capability.CollectRegistryTools(a.CapReg, einoNames)
-		allTools = append(allTools, regTools...)
-	}
+	// The CapabilityRegistry is the single source of truth for tools; the
+	// agent set adapts every registry tool directly so [bundles] disabled is
+	// honored on reload too.
+	allTools := capability.CollectRegistryTools(a.CapReg, nil)
 
 	secMW := &einomw.SecurityMiddleware{
 		Policy:       a.SecurityPolicy,

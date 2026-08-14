@@ -209,6 +209,7 @@ func heartbeatBundle() Bundle {
 	})
 }
 
-// heartbeatInterval is the default heartbeat cadence; kept in one place so the
-// boot layer's Heartbeat construction and this bundle stay consistent.
-const heartbeatInterval = 30 * time.Second
+// HeartbeatInterval is the default heartbeat cadence used by the boot layer
+// when constructing the heartbeat engine. Exported so the cadence stays in a
+// single place rather than being hardcoded in boot.
+const HeartbeatInterval = 30 * time.Second

@@ -28,7 +28,7 @@ func BuiltinBundles() []Bundle {
 // config, and runs the enabled first-layer bundles. It must be called before
 // any user-agent override or late-tool registration that targets the builtin
 // set. Returns a composed dispose for unwinding on shutdown.
-func RegisterBuiltin(ctx context.Context, d *Deps) (disposeFunc func(), err error) {
+func RegisterBuiltin(ctx context.Context, d *Deps) (dispose.Func, error) {
 	if d == nil || d.Reg == nil || d.Cfg == nil {
 		return nil, nil
 	}
