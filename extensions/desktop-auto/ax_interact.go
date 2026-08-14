@@ -6,13 +6,15 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
 // axInteractTool interacts with UI elements via the accessibility tree.
-func axInteractTool(_ context.Context, args map[string]interface{}) callToolResult {
+func axInteractTool(_ context.Context, args map[string]interface{}) extsdk.Result {
 	action, _ := args["action"].(string)
 	if action == "" {
-		return callToolResult{Error: "action is required: list, get, press, focus"}
+		return extsdk.Result{Error: "action is required: list, get, press, focus"}
 	}
 
 	appName, _ := args["appName"].(string)
@@ -27,11 +29,11 @@ func axInteractTool(_ context.Context, args map[string]interface{}) callToolResu
 	case "darwin":
 		return axMacOS(action, appName, args, maxItems)
 	default:
-		return callToolResult{Error: fmt.Sprintf("accessibility tree not supported on %s", runtime.GOOS)}
+		return extsdk.Result{Error: fmt.Sprintf("accessibility tree not supported on %s", runtime.GOOS)}
 	}
 }
 
-func axLinux(action, appName string, args map[string]interface{}, maxItems int) callToolResult {
+func axLinux(action, appName string, args map[string]interface{}, maxItems int) extsdk.Result {
 	// Use AT-SPI via dbus-send or accerciser/at-spi-bus-launcher
 	switch action {
 	case "list":
@@ -43,14 +45,14 @@ func axLinux(action, appName string, args map[string]interface{}, maxItems int) 
 			"org.a11y.Status", "IsEnabled")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			return callToolResult{Error: fmt.Sprintf("AT-SPI not available: %v", err)}
+			return extsdk.Result{Error: fmt.Sprintf("AT-SPI not available: %v", err)}
 		}
-		return callToolResult{Success: true, Output: fmt.Sprintf("AT-SPI status: %s\n\nAccessibility tree listing requires at-spi tools. Install: sudo apt install at-spi2-core accerciser", string(out))}
+		return extsdk.Result{Success: true, Output: fmt.Sprintf("AT-SPI status: %s\n\nAccessibility tree listing requires at-spi tools. Install: sudo apt install at-spi2-core accerciser", string(out))}
 
 	case "get":
 		target, _ := args["target"].(string)
 		if target == "" {
-			return callToolResult{Error: "target is required for get action"}
+			return extsdk.Result{Error: "target is required for get action"}
 		}
 		// Use at-spi-bus-launcher to query element
 		cmd := exec.Command("gdbus", "introspect", "--session",
@@ -58,16 +60,16 @@ func axLinux(action, appName string, args map[string]interface{}, maxItems int) 
 			"--object-path", "/org/a11y/bus")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			return callToolResult{Error: fmt.Sprintf("a11y query: %v", err)}
+			return extsdk.Result{Error: fmt.Sprintf("a11y query: %v", err)}
 		}
-		return callToolResult{Success: true, Output: fmt.Sprintf("Accessibility tree for %s:\n%s", target, string(out))}
+		return extsdk.Result{Success: true, Output: fmt.Sprintf("Accessibility tree for %s:\n%s", target, string(out))}
 
 	default:
-		return callToolResult{Success: true, Output: fmt.Sprintf("%s action: accessibility interaction via AT-SPI requires dedicated a11y tools. Install at-spi2-core for full support.", action)}
+		return extsdk.Result{Success: true, Output: fmt.Sprintf("%s action: accessibility interaction via AT-SPI requires dedicated a11y tools. Install at-spi2-core for full support.", action)}
 	}
 }
 
-func axMacOS(action, appName string, args map[string]interface{}, maxItems int) callToolResult {
+func axMacOS(action, appName string, args map[string]interface{}, maxItems int) extsdk.Result {
 	target, _ := args["target"].(string)
 	escapedApp := escapeAppleScript(appName)
 	escapedTarget := escapeAppleScript(target)
@@ -100,13 +102,13 @@ end tell`
 		cmd := exec.Command("osascript", "-e", script)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			return callToolResult{Error: fmt.Sprintf("a11y list: %v (%s)", err, string(out))}
+			return extsdk.Result{Error: fmt.Sprintf("a11y list: %v (%s)", err, string(out))}
 		}
-		return callToolResult{Success: true, Output: truncate(string(out), 5000)}
+		return extsdk.Result{Success: true, Output: truncate(string(out), 5000)}
 
 	case "press":
 		if target == "" {
-			return callToolResult{Error: "target is required for press"}
+			return extsdk.Result{Error: "target is required for press"}
 		}
 		script := fmt.Sprintf(`
 tell application "System Events"
@@ -117,24 +119,24 @@ end tell`, escapedApp, escapedTarget)
 		cmd := exec.Command("osascript", "-e", script)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			return callToolResult{Error: fmt.Sprintf("a11y press: %v (%s)", err, string(out))}
+			return extsdk.Result{Error: fmt.Sprintf("a11y press: %v (%s)", err, string(out))}
 		}
-		return callToolResult{Success: true, Output: fmt.Sprintf("Pressed: %s\n%s", target, string(out))}
+		return extsdk.Result{Success: true, Output: fmt.Sprintf("Pressed: %s\n%s", target, string(out))}
 
 	case "focus":
 		if appName == "" {
-			return callToolResult{Error: "appName is required for focus"}
+			return extsdk.Result{Error: "appName is required for focus"}
 		}
 		script := fmt.Sprintf(`tell application "%s" to activate`, escapedApp)
 		cmd := exec.Command("osascript", "-e", script)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			return callToolResult{Error: fmt.Sprintf("a11y focus: %v (%s)", err, string(out))}
+			return extsdk.Result{Error: fmt.Sprintf("a11y focus: %v (%s)", err, string(out))}
 		}
-		return callToolResult{Success: true, Output: fmt.Sprintf("Focused: %s\n%s", appName, string(out))}
+		return extsdk.Result{Success: true, Output: fmt.Sprintf("Focused: %s\n%s", appName, string(out))}
 
 	default:
-		return callToolResult{Error: fmt.Sprintf("unknown action: %s (valid: list, get, press, focus)", action)}
+		return extsdk.Result{Error: fmt.Sprintf("unknown action: %s (valid: list, get, press, focus)", action)}
 	}
 }
 

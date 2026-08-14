@@ -5,75 +5,44 @@
 //   - irc_send: send a message to a channel or user
 //   - irc_join: join a channel
 //
-// Protocol: stdin/stdout JSON-RPC 2.0 (one message per line).
+// Protocol plumbing (JSON-RPC over stdio) is provided by pkg/extsdk.
 package main
 
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"log/slog"
 	"net"
 	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
-type rpcRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-type rpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
-}
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-type manifest struct {
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Description string   `json:"description"`
-	Tools       []string `json:"tools"`
-	AgentDefs   []string `json:"agent_defs"`
-	ProtocolMin int      `json:"protocol_min"`
-}
-type toolDef struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Permission  string                 `json:"permission"`
-	HasEffects  bool                   `json:"has_effects"`
-}
-type callToolParams struct {
-	Name string                 `json:"name"`
-	Args map[string]interface{} `json:"args"`
-}
-type callToolResult struct {
-	Success bool   `json:"success"`
-	Output  string `json:"output"`
-	Error   string `json:"error,omitempty"`
+type ircConn struct {
+	ID     string
+	Conn   net.Conn
+	Nick   string
+	mu     sync.Mutex
+	reader *bufio.Reader
 }
 
-var extManifest = manifest{
-	Name:        "channel-irc",
-	Version:     "0.1.0",
-	Description: "IRC channel: connect, send messages, join channels",
-	Tools:       []string{"irc_connect", "irc_send", "irc_join"},
-	AgentDefs:   []string{},
-	ProtocolMin: 1,
-}
+var (
+	connections   = make(map[string]*ircConn)
+	connectionsMu sync.Mutex
+	connSeq       int64
+)
 
-var toolDefs = []toolDef{
-	{
+func main() {
+	srv := extsdk.NewServer(extsdk.Manifest{
+		Name:        "channel-irc",
+		Version:     "0.1.0",
+		Description: "IRC channel: connect, send messages, join channels",
+	})
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "irc_connect",
 		Description: "Connect to an IRC server. Returns a connection ID for use with irc_send and irc_join.",
 		Parameters: map[string]interface{}{
@@ -91,8 +60,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "execute",
 		HasEffects: true,
-	},
-	{
+	}, ircConnect)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "irc_send",
 		Description: "Send a message to an IRC channel or user",
 		Parameters: map[string]interface{}{
@@ -106,8 +76,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "execute",
 		HasEffects: true,
-	},
-	{
+	}, ircSend)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "irc_join",
 		Description: "Join an IRC channel",
 		Parameters: map[string]interface{}{
@@ -120,84 +91,15 @@ var toolDefs = []toolDef{
 		},
 		Permission: "execute",
 		HasEffects: true,
-	},
-}
+	}, ircJoin)
 
-type ircConn struct {
-	ID     string
-	Conn   net.Conn
-	Nick   string
-	mu     sync.Mutex
-	reader *bufio.Reader
-}
-
-var (
-	connections   = make(map[string]*ircConn)
-	connectionsMu sync.Mutex
-	connSeq       int64
-)
-
-func main() {
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	log.Info("channel-irc extension starting")
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				return
-			}
-			return
-		}
-		var req rpcRequest
-		json.Unmarshal(line, &req)
-		resp := handleRequest(&req)
-		respBytes, _ := json.Marshal(resp)
-		fmt.Fprintf(os.Stdout, "%s\n", respBytes)
+	if err := srv.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "channel-irc: %v\n", err)
+		os.Exit(1)
 	}
 }
 
-func handleRequest(req *rpcRequest) *rpcResponse {
-	switch req.Method {
-	case "extension.describe":
-		result, _ := json.Marshal(extManifest)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_tools":
-		type listResult struct {
-			Tools []toolDef `json:"tools"`
-		}
-		result, _ := json.Marshal(listResult{Tools: toolDefs})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_agents":
-		type listAgentsResult struct {
-			Agents []interface{} `json:"agents"`
-		}
-		result, _ := json.Marshal(listAgentsResult{Agents: []interface{}{}})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.call_tool":
-		var params callToolParams
-		json.Unmarshal(req.Params, &params)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		var result callToolResult
-		switch params.Name {
-		case "irc_connect":
-			result = ircConnect(ctx, params.Args)
-		case "irc_send":
-			result = ircSend(params.Args)
-		case "irc_join":
-			result = ircJoin(params.Args)
-		default:
-			result = callToolResult{Error: fmt.Sprintf("unknown: %s", params.Name)}
-		}
-		resultBytes, _ := json.Marshal(result)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: resultBytes}
-	default:
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: fmt.Sprintf("unknown: %s", req.Method)}}
-	}
-}
-
-func ircConnect(ctx context.Context, args map[string]interface{}) callToolResult {
+func ircConnect(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	host, _ := args["host"].(string)
 	nick, _ := args["nick"].(string)
 	port := 6667
@@ -227,7 +129,7 @@ func ircConnect(ctx context.Context, args map[string]interface{}) callToolResult
 	addr := fmt.Sprintf("%s:%d", host, port)
 	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("connect: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("connect: %v", err)}
 	}
 
 	connectionsMu.Lock()
@@ -249,10 +151,10 @@ func ircConnect(ctx context.Context, args map[string]interface{}) callToolResult
 	for i := 0; i < 10; i++ {
 		line, err := irc.reader.ReadString('\n')
 		if err != nil {
-			return callToolResult{Error: fmt.Sprintf("read welcome: %v", err)}
+			return extsdk.Result{Error: fmt.Sprintf("read welcome: %v", err)}
 		}
 		if strings.Contains(line, " 001 ") {
-			return callToolResult{Success: true, Output: fmt.Sprintf("Connected to %s as %s\nID: %s", host, nick, id)}
+			return extsdk.Result{Success: true, Output: fmt.Sprintf("Connected to %s as %s\nID: %s", host, nick, id)}
 		}
 		if strings.Contains(line, " 433 ") {
 			// Remove from map before closing to avoid leaked entry
@@ -260,18 +162,19 @@ func ircConnect(ctx context.Context, args map[string]interface{}) callToolResult
 			delete(connections, id)
 			connectionsMu.Unlock()
 			conn.Close()
-			return callToolResult{Error: fmt.Sprintf("Nickname %s is already in use", nick)}
+			return extsdk.Result{Error: fmt.Sprintf("Nickname %s is already in use", nick)}
 		}
 	}
-	return callToolResult{Success: true, Output: fmt.Sprintf("Connected to %s as %s\nID: %s", host, nick, id)}
+	return extsdk.Result{Success: true, Output: fmt.Sprintf("Connected to %s as %s\nID: %s", host, nick, id)}
 }
 
-func ircSend(args map[string]interface{}) callToolResult {
+func ircSend(ctx context.Context, args map[string]interface{}) extsdk.Result {
+	_ = ctx
 	connID, _ := args["connId"].(string)
 	target, _ := args["target"].(string)
 	message, _ := args["message"].(string)
 	if connID == "" || target == "" || message == "" {
-		return callToolResult{Error: "connId, target, and message are required"}
+		return extsdk.Result{Error: "connId, target, and message are required"}
 	}
 
 	target = sanitizeIRC(target)
@@ -281,20 +184,21 @@ func ircSend(args map[string]interface{}) callToolResult {
 	irc, ok := connections[connID]
 	connectionsMu.Unlock()
 	if !ok {
-		return callToolResult{Error: fmt.Sprintf("connection not found: %s", connID)}
+		return extsdk.Result{Error: fmt.Sprintf("connection not found: %s", connID)}
 	}
 
 	irc.mu.Lock()
 	defer irc.mu.Unlock()
 	fmt.Fprintf(irc.Conn, "PRIVMSG %s :%s\r\n", target, message)
-	return callToolResult{Success: true, Output: fmt.Sprintf("Sent to %s: %s", target, message)}
+	return extsdk.Result{Success: true, Output: fmt.Sprintf("Sent to %s: %s", target, message)}
 }
 
-func ircJoin(args map[string]interface{}) callToolResult {
+func ircJoin(ctx context.Context, args map[string]interface{}) extsdk.Result {
+	_ = ctx
 	connID, _ := args["connId"].(string)
 	channel, _ := args["channel"].(string)
 	if connID == "" || channel == "" {
-		return callToolResult{Error: "connId and channel are required"}
+		return extsdk.Result{Error: "connId and channel are required"}
 	}
 	if !strings.HasPrefix(channel, "#") {
 		channel = "#" + channel
@@ -306,13 +210,13 @@ func ircJoin(args map[string]interface{}) callToolResult {
 	irc, ok := connections[connID]
 	connectionsMu.Unlock()
 	if !ok {
-		return callToolResult{Error: fmt.Sprintf("connection not found: %s", connID)}
+		return extsdk.Result{Error: fmt.Sprintf("connection not found: %s", connID)}
 	}
 
 	irc.mu.Lock()
 	defer irc.mu.Unlock()
 	fmt.Fprintf(irc.Conn, "JOIN %s\r\n", channel)
-	return callToolResult{Success: true, Output: fmt.Sprintf("Joining %s", channel)}
+	return extsdk.Result{Success: true, Output: fmt.Sprintf("Joining %s", channel)}
 }
 
 func sanitizeIRC(s string) string {

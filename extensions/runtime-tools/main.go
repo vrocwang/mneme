@@ -6,76 +6,31 @@
 //   - python_exec: execute Python code
 //   - python_venv: manage Python virtual environments
 //
-// Protocol: stdin/stdout JSON-RPC 2.0 (one message per line).
+// Protocol plumbing (JSON-RPC over stdio) is provided by pkg/extsdk.
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
-type rpcRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-type rpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
-}
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-type manifest struct {
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Description string   `json:"description"`
-	Tools       []string `json:"tools"`
-	AgentDefs   []string `json:"agent_defs"`
-	ProtocolMin int      `json:"protocol_min"`
-}
-type toolDef struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Permission  string                 `json:"permission"`
-	HasEffects  bool                   `json:"has_effects"`
-}
-type callToolParams struct {
-	Name string                 `json:"name"`
-	Args map[string]interface{} `json:"args"`
-}
-type callToolResult struct {
-	Success bool   `json:"success"`
-	Output  string `json:"output"`
-	Error   string `json:"error,omitempty"`
-}
+func main() {
+	srv := extsdk.NewServer(extsdk.Manifest{
+		Name:        "runtime-tools",
+		Version:     "0.1.0",
+		Description: "Language runtime tools: node_exec, npm_exec, python_exec, python_venv",
+	})
 
-var extManifest = manifest{
-	Name:        "runtime-tools",
-	Version:     "0.1.0",
-	Description: "Language runtime tools: node_exec, npm_exec, python_exec, python_venv",
-	Tools:       []string{"node_exec", "npm_exec", "python_exec", "python_venv"},
-	AgentDefs:   []string{},
-	ProtocolMin: 1,
-}
-
-var toolDefs = []toolDef{
-	{
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "node_exec",
 		Description: "Execute JavaScript/TypeScript code using Node.js. The code is written to a temp file and executed.",
 		Parameters: map[string]interface{}{
@@ -89,8 +44,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "execute",
 		HasEffects: true,
-	},
-	{
+	}, nodeExec)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "npm_exec",
 		Description: "Execute an npm command (install, run, test, etc.)",
 		Parameters: map[string]interface{}{
@@ -104,8 +60,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "execute",
 		HasEffects: true,
-	},
-	{
+	}, npmExec)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "python_exec",
 		Description: "Execute Python code. Writes code to a temp file and runs it with python3.",
 		Parameters: map[string]interface{}{
@@ -120,8 +77,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "execute",
 		HasEffects: true,
-	},
-	{
+	}, pythonExec)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "python_venv",
 		Description: "Create or manage a Python virtual environment",
 		Parameters: map[string]interface{}{
@@ -135,70 +93,18 @@ var toolDefs = []toolDef{
 		},
 		Permission: "execute",
 		HasEffects: true,
-	},
-}
+	}, pythonVenv)
 
-func main() {
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	log.Info("runtime-tools extension starting")
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				return
-			}
-			return
-		}
-		var req rpcRequest
-		json.Unmarshal(line, &req)
-		resp := handleRequest(&req)
-		respBytes, _ := json.Marshal(resp)
-		fmt.Fprintf(os.Stdout, "%s\n", respBytes)
+	if err := srv.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "runtime-tools: %v\n", err)
+		os.Exit(1)
 	}
 }
 
-func handleRequest(req *rpcRequest) *rpcResponse {
-	switch req.Method {
-	case "extension.describe":
-		result, _ := json.Marshal(extManifest)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_tools":
-		type lr struct{ Tools []toolDef }
-		result, _ := json.Marshal(lr{Tools: toolDefs})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_agents":
-		result, _ := json.Marshal(map[string]interface{}{"agents": []interface{}{}})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.call_tool":
-		var params callToolParams
-		json.Unmarshal(req.Params, &params)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		var result callToolResult
-		switch params.Name {
-		case "node_exec":
-			result = nodeExec(ctx, params.Args)
-		case "npm_exec":
-			result = npmExec(ctx, params.Args)
-		case "python_exec":
-			result = pythonExec(ctx, params.Args)
-		case "python_venv":
-			result = pythonVenv(ctx, params.Args)
-		default:
-			result = callToolResult{Error: fmt.Sprintf("unknown: %s", params.Name)}
-		}
-		resultBytes, _ := json.Marshal(result)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: resultBytes}
-	default:
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: fmt.Sprintf("unknown: %s", req.Method)}}
-	}
-}
-
-func nodeExec(ctx context.Context, args map[string]interface{}) callToolResult {
+func nodeExec(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	code, _ := args["code"].(string)
 	if code == "" {
-		return callToolResult{Error: "code is required"}
+		return extsdk.Result{Error: "code is required"}
 	}
 	workDir, _ := args["workDir"].(string)
 	if workDir == "" {
@@ -206,7 +112,7 @@ func nodeExec(ctx context.Context, args map[string]interface{}) callToolResult {
 	}
 
 	if _, err := exec.LookPath("node"); err != nil {
-		return callToolResult{Error: "node not found. Install Node.js: https://nodejs.org"}
+		return extsdk.Result{Error: "node not found. Install Node.js: https://nodejs.org"}
 	}
 
 	timeout := 30
@@ -225,15 +131,15 @@ func nodeExec(ctx context.Context, args map[string]interface{}) callToolResult {
 	out, err := cmd.CombinedOutput()
 
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("node: %v\n%s", err, string(out))}
+		return extsdk.Result{Error: fmt.Sprintf("node: %v\n%s", err, string(out))}
 	}
-	return callToolResult{Success: true, Output: string(out)}
+	return extsdk.Result{Success: true, Output: string(out)}
 }
 
-func npmExec(ctx context.Context, args map[string]interface{}) callToolResult {
+func npmExec(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	command, _ := args["command"].(string)
 	if command == "" {
-		return callToolResult{Error: "command is required"}
+		return extsdk.Result{Error: "command is required"}
 	}
 	workDir, _ := args["workDir"].(string)
 	if workDir == "" {
@@ -245,7 +151,7 @@ func npmExec(ctx context.Context, args map[string]interface{}) callToolResult {
 		npmPath = "npm.cmd"
 	}
 	if _, err := exec.LookPath(npmPath); err != nil {
-		return callToolResult{Error: "npm not found. Install Node.js: https://nodejs.org"}
+		return extsdk.Result{Error: "npm not found. Install Node.js: https://nodejs.org"}
 	}
 
 	timeout := 120
@@ -261,15 +167,15 @@ func npmExec(ctx context.Context, args map[string]interface{}) callToolResult {
 	out, err := cmd.CombinedOutput()
 
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("npm: %v\n%s", err, string(out))}
+		return extsdk.Result{Error: fmt.Sprintf("npm: %v\n%s", err, string(out))}
 	}
-	return callToolResult{Success: true, Output: string(out)}
+	return extsdk.Result{Success: true, Output: string(out)}
 }
 
-func pythonExec(ctx context.Context, args map[string]interface{}) callToolResult {
+func pythonExec(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	code, _ := args["code"].(string)
 	if code == "" {
-		return callToolResult{Error: "code is required"}
+		return extsdk.Result{Error: "code is required"}
 	}
 	workDir, _ := args["workDir"].(string)
 	if workDir == "" {
@@ -282,7 +188,7 @@ func pythonExec(ctx context.Context, args map[string]interface{}) callToolResult
 			python = "python"
 		}
 		if python == "python3" {
-			return callToolResult{Error: "python3 not found"}
+			return extsdk.Result{Error: "python3 not found"}
 		}
 	}
 
@@ -307,15 +213,15 @@ func pythonExec(ctx context.Context, args map[string]interface{}) callToolResult
 	out, err := cmd.CombinedOutput()
 
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("python: %v\n%s", err, string(out))}
+		return extsdk.Result{Error: fmt.Sprintf("python: %v\n%s", err, string(out))}
 	}
-	return callToolResult{Success: true, Output: string(out)}
+	return extsdk.Result{Success: true, Output: string(out)}
 }
 
-func pythonVenv(ctx context.Context, args map[string]interface{}) callToolResult {
+func pythonVenv(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	action, _ := args["action"].(string)
 	if action == "" {
-		return callToolResult{Error: "action is required"}
+		return extsdk.Result{Error: "action is required"}
 	}
 
 	python := "python3"
@@ -334,18 +240,18 @@ func pythonVenv(ctx context.Context, args map[string]interface{}) callToolResult
 		cmd := exec.CommandContext(ctx, python, "-m", "venv", venvPath)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			return callToolResult{Error: fmt.Sprintf("venv create: %v\n%s", err, string(out))}
+			return extsdk.Result{Error: fmt.Sprintf("venv create: %v\n%s", err, string(out))}
 		}
-		return callToolResult{Success: true, Output: fmt.Sprintf("Virtual environment created: %s", venvPath)}
+		return extsdk.Result{Success: true, Output: fmt.Sprintf("Virtual environment created: %s", venvPath)}
 
 	case "install":
 		venvPath, _ := args["path"].(string)
 		if venvPath == "" {
-			return callToolResult{Error: "path is required for install action"}
+			return extsdk.Result{Error: "path is required for install action"}
 		}
 		packages := getStrSlice(args, "packages")
 		if len(packages) == 0 {
-			return callToolResult{Error: "packages array is required for install"}
+			return extsdk.Result{Error: "packages array is required for install"}
 		}
 
 		pipPath := filepath.Join(venvPath, "bin", "pip3")
@@ -357,9 +263,9 @@ func pythonVenv(ctx context.Context, args map[string]interface{}) callToolResult
 		cmd := exec.CommandContext(ctx, pipPath, pipArgs...)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			return callToolResult{Error: fmt.Sprintf("pip install: %v\n%s", err, string(out))}
+			return extsdk.Result{Error: fmt.Sprintf("pip install: %v\n%s", err, string(out))}
 		}
-		return callToolResult{Success: true, Output: string(out)}
+		return extsdk.Result{Success: true, Output: string(out)}
 
 	case "list":
 		entries, _ := os.ReadDir(os.TempDir())
@@ -370,13 +276,13 @@ func pythonVenv(ctx context.Context, args map[string]interface{}) callToolResult
 			}
 		}
 		if len(venvs) == 0 {
-			return callToolResult{Success: true, Output: "No virtual environments found."}
+			return extsdk.Result{Success: true, Output: "No virtual environments found."}
 		}
 		b, _ := json.MarshalIndent(venvs, "", "  ")
-		return callToolResult{Success: true, Output: string(b)}
+		return extsdk.Result{Success: true, Output: string(b)}
 
 	default:
-		return callToolResult{Error: fmt.Sprintf("unknown action: %s (valid: create, list, install)", action)}
+		return extsdk.Result{Error: fmt.Sprintf("unknown action: %s (valid: create, list, install)", action)}
 	}
 }
 

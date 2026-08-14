@@ -8,13 +8,14 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
 // screenshotTool takes a screenshot of a URL using headless Chrome.
-func screenshotTool(ctx context.Context, args map[string]interface{}) callToolResult {
+func screenshotTool(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	rawURL, _ := args["url"].(string)
 	if rawURL == "" {
-		return callToolResult{Error: "url is required"}
+		return extsdk.Result{Error: "url is required"}
 	}
 
 	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
@@ -22,11 +23,11 @@ func screenshotTool(ctx context.Context, args map[string]interface{}) callToolRe
 	}
 
 	if err := validateSafeURL(rawURL); err != nil {
-		return callToolResult{Error: fmt.Sprintf("URL rejected: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("URL rejected: %v", err)}
 	}
 
 	if !hasChrome() {
-		return callToolResult{Error: "Chrome/Chromium not found. Set MNEME_CHROME_PATH or install chromium-browser."}
+		return extsdk.Result{Error: "Chrome/Chromium not found. Set MNEME_CHROME_PATH or install chromium-browser."}
 	}
 
 	width := 1280
@@ -75,7 +76,7 @@ func screenshotTool(ctx context.Context, args map[string]interface{}) callToolRe
 	}
 
 	if err := chromedp.Run(tabCtx, actions...); err != nil {
-		return callToolResult{Error: fmt.Sprintf("screenshot: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("screenshot: %v", err)}
 	}
 
 	b64 := base64.StdEncoding.EncodeToString(screenshot)
@@ -87,7 +88,7 @@ func screenshotTool(ctx context.Context, args map[string]interface{}) callToolRe
 	out.WriteString(fmt.Sprintf("Format: %s\n\n", "image/png;base64"))
 	out.WriteString(b64)
 
-	return callToolResult{Success: true, Output: out.String()}
+	return extsdk.Result{Success: true, Output: out.String()}
 }
 
 func intFromArgs(args map[string]interface{}, key string) (int, bool) {

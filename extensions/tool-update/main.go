@@ -4,22 +4,22 @@
 //   - update_check: check current version against latest release
 //   - update_apply: download and apply the latest update
 //
-// Protocol: stdin/stdout JSON-RPC 2.0 (one message per line).
+// Protocol plumbing (JSON-RPC over stdio) is provided by pkg/extsdk.
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
 // dataDir returns the host workspace directory.
@@ -28,58 +28,19 @@ func dataDir() string {
 	return filepath.Join(filepath.Dir(exe), "data")
 }
 
-type rpcRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-type rpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
-}
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-type manifest struct {
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Description string   `json:"description"`
-	Tools       []string `json:"tools"`
-	AgentDefs   []string `json:"agent_defs"`
-	ProtocolMin int      `json:"protocol_min"`
-}
-type toolDef struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Permission  string                 `json:"permission"`
-	HasEffects  bool                   `json:"has_effects"`
-}
-type callToolParams struct {
-	Name string                 `json:"name"`
-	Args map[string]interface{} `json:"args"`
-}
-type callToolResult struct {
-	Success bool   `json:"success"`
-	Output  string `json:"output"`
-	Error   string `json:"error,omitempty"`
-}
+var httpClient = &http.Client{Timeout: 30 * time.Second}
 
-var extManifest = manifest{
-	Name:        "tool-update",
-	Version:     "0.1.0",
-	Description: "Check for and apply Mneme updates from GitHub releases",
-	Tools:       []string{"update_check", "update_apply"},
-	AgentDefs:   []string{},
-	ProtocolMin: 1,
-}
+// Current version — can be overridden at build time with ldflags
+var currentVersion = "0.1.0"
 
-var toolDefs = []toolDef{
-	{
+func main() {
+	srv := extsdk.NewServer(extsdk.Manifest{
+		Name:        "tool-update",
+		Version:     "0.1.0",
+		Description: "Check for and apply Mneme updates from GitHub releases",
+	})
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "update_check",
 		Description: "Check current Mneme version against the latest GitHub release",
 		Parameters: map[string]interface{}{
@@ -91,8 +52,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "read_only",
 		HasEffects: false,
-	},
-	{
+	}, updateCheck)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "update_apply",
 		Description: "Download and apply the latest Mneme update from GitHub releases",
 		Parameters: map[string]interface{}{
@@ -105,64 +67,11 @@ var toolDefs = []toolDef{
 		},
 		Permission: "execute",
 		HasEffects: true,
-	},
-}
+	}, updateApply)
 
-var httpClient = &http.Client{Timeout: 30 * time.Second}
-
-// Current version — can be overridden at build time with ldflags
-var currentVersion = "0.1.0"
-
-func main() {
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	log.Info("tool-update extension starting")
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				return
-			}
-			return
-		}
-		var req rpcRequest
-		json.Unmarshal(line, &req)
-		resp := handleRequest(&req)
-		respBytes, _ := json.Marshal(resp)
-		fmt.Fprintf(os.Stdout, "%s\n", respBytes)
-	}
-}
-
-func handleRequest(req *rpcRequest) *rpcResponse {
-	switch req.Method {
-	case "extension.describe":
-		result, _ := json.Marshal(extManifest)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_tools":
-		type lr struct{ Tools []toolDef }
-		result, _ := json.Marshal(lr{Tools: toolDefs})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_agents":
-		result, _ := json.Marshal(map[string]interface{}{"agents": []interface{}{}})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.call_tool":
-		var params callToolParams
-		json.Unmarshal(req.Params, &params)
-		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-		defer cancel()
-		var result callToolResult
-		switch params.Name {
-		case "update_check":
-			result = updateCheck(ctx, params.Args)
-		case "update_apply":
-			result = updateApply(ctx, params.Args)
-		default:
-			result = callToolResult{Error: fmt.Sprintf("unknown: %s", params.Name)}
-		}
-		resultBytes, _ := json.Marshal(result)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: resultBytes}
-	default:
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: fmt.Sprintf("unknown: %s", req.Method)}}
+	if err := srv.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "tool-update: %v\n", err)
+		os.Exit(1)
 	}
 }
 
@@ -174,13 +83,13 @@ func getRepo(args map[string]interface{}) string {
 	return repo
 }
 
-func updateCheck(ctx context.Context, args map[string]interface{}) callToolResult {
+func updateCheck(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	repo := getRepo(args)
 	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("request: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("request: %v", err)}
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 
@@ -190,13 +99,13 @@ func updateCheck(ctx context.Context, args map[string]interface{}) callToolResul
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("GitHub API: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("GitHub API: %v", err)}
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
-		return callToolResult{Error: fmt.Sprintf("GitHub API error %d: %s", resp.StatusCode, truncate(string(body), 300))}
+		return extsdk.Result{Error: fmt.Sprintf("GitHub API error %d: %s", resp.StatusCode, truncate(string(body), 300))}
 	}
 
 	var release struct {
@@ -206,7 +115,7 @@ func updateCheck(ctx context.Context, args map[string]interface{}) callToolResul
 		HTMLURL     string `json:"html_url"`
 	}
 	if err := json.Unmarshal(body, &release); err != nil {
-		return callToolResult{Error: fmt.Sprintf("parse: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("parse: %v", err)}
 	}
 
 	latestVersion := strings.TrimPrefix(release.TagName, "v")
@@ -223,10 +132,10 @@ func updateCheck(ctx context.Context, args map[string]interface{}) callToolResul
 		"arch":             runtime.GOARCH,
 	}
 	b, _ := json.MarshalIndent(result, "", "  ")
-	return callToolResult{Success: true, Output: string(b)}
+	return extsdk.Result{Success: true, Output: string(b)}
 }
 
-func updateApply(ctx context.Context, args map[string]interface{}) callToolResult {
+func updateApply(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	repo := getRepo(args)
 	targetVersion, _ := args["version"].(string)
 
@@ -238,7 +147,7 @@ func updateApply(ctx context.Context, args map[string]interface{}) callToolResul
 	case "darwin":
 		assetSuffix = "darwin_amd64"
 	default:
-		return callToolResult{Error: fmt.Sprintf("unsupported OS: %s", runtime.GOOS)}
+		return extsdk.Result{Error: fmt.Sprintf("unsupported OS: %s", runtime.GOOS)}
 	}
 
 	if runtime.GOARCH == "arm64" {
@@ -260,13 +169,13 @@ func updateApply(ctx context.Context, args map[string]interface{}) callToolResul
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("GitHub API: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("GitHub API: %v", err)}
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
-		return callToolResult{Error: fmt.Sprintf("GitHub API error %d", resp.StatusCode)}
+		return extsdk.Result{Error: fmt.Sprintf("GitHub API error %d", resp.StatusCode)}
 	}
 
 	var release struct {
@@ -277,7 +186,7 @@ func updateApply(ctx context.Context, args map[string]interface{}) callToolResul
 		} `json:"assets"`
 	}
 	if err := json.Unmarshal(body, &release); err != nil {
-		return callToolResult{Error: fmt.Sprintf("parse: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("parse: %v", err)}
 	}
 
 	// Find matching asset
@@ -289,7 +198,7 @@ func updateApply(ctx context.Context, args map[string]interface{}) callToolResul
 		}
 	}
 	if downloadURL == "" {
-		return callToolResult{Error: fmt.Sprintf("no asset found for %s (available: %d assets)", assetSuffix, len(release.Assets))}
+		return extsdk.Result{Error: fmt.Sprintf("no asset found for %s (available: %d assets)", assetSuffix, len(release.Assets))}
 	}
 
 	// Download the asset
@@ -299,40 +208,40 @@ func updateApply(ctx context.Context, args map[string]interface{}) callToolResul
 
 	dlReq, reqErr := http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
 	if reqErr != nil {
-		return callToolResult{Error: fmt.Sprintf("create download request: %v", reqErr)}
+		return extsdk.Result{Error: fmt.Sprintf("create download request: %v", reqErr)}
 	}
 	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
 		dlReq.Header.Set("Authorization", "Bearer "+token)
 	}
 	dlResp, err := httpClient.Do(dlReq)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("download: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("download: %v", err)}
 	}
 	defer dlResp.Body.Close()
 
 	if dlResp.StatusCode >= 400 {
-		return callToolResult{Error: fmt.Sprintf("download failed: HTTP %d", dlResp.StatusCode)}
+		return extsdk.Result{Error: fmt.Sprintf("download failed: HTTP %d", dlResp.StatusCode)}
 	}
 
 	f, err := os.Create(destPath)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("create file: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("create file: %v", err)}
 	}
 	defer f.Close()
 
 	written, copyErr := io.Copy(f, dlResp.Body)
 	if copyErr != nil {
-		return callToolResult{Error: fmt.Sprintf("download incomplete: %v", copyErr)}
+		return extsdk.Result{Error: fmt.Sprintf("download incomplete: %v", copyErr)}
 	}
 	os.Chmod(destPath, 0755)
 
 	// Verify downloaded binary is non-empty.
 	data, readErr := os.ReadFile(destPath)
 	if readErr != nil {
-		return callToolResult{Error: fmt.Sprintf("read downloaded binary: %v", readErr)}
+		return extsdk.Result{Error: fmt.Sprintf("read downloaded binary: %v", readErr)}
 	}
 	if len(data) == 0 {
-		return callToolResult{Error: "downloaded binary is empty — update aborted"}
+		return extsdk.Result{Error: "downloaded binary is empty — update aborted"}
 	}
 
 	// Try to install: use atomic rename pattern (write to temp, then rename).
@@ -362,7 +271,7 @@ func updateApply(ctx context.Context, args map[string]interface{}) callToolResul
 		"status":   installMsg,
 	}
 	b, _ := json.MarshalIndent(result, "", "  ")
-	return callToolResult{Success: true, Output: string(b)}
+	return extsdk.Result{Success: true, Output: string(b)}
 }
 
 func truncate(s string, n int) string {

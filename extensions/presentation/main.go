@@ -3,104 +3,30 @@
 // Provides presentation generation tools:
 //   - generate_presentation: create a .pptx file from structured content
 //
-// Protocol: stdin/stdout JSON-RPC 2.0 (one message per line).
+// Protocol plumbing (JSON-RPC over stdio) is provided by pkg/extsdk.
 package main
 
 import (
 	"archive/zip"
-	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
-type rpcRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-type rpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
-}
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-type manifest struct {
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Description string   `json:"description"`
-	Tools       []string `json:"tools"`
-	AgentDefs   []string `json:"agent_defs"`
-	ProtocolMin int      `json:"protocol_min"`
-}
-type toolDef struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Permission  string                 `json:"permission"`
-	HasEffects  bool                   `json:"has_effects"`
-}
-type callToolParams struct {
-	Name string
-	Args map[string]interface{}
-}
-type callToolResult struct {
-	Success bool   `json:"success"`
-	Output  string `json:"output"`
-	Error   string `json:"error,omitempty"`
-}
+func main() {
+	srv := extsdk.NewServer(extsdk.Manifest{
+		Name:        "presentation",
+		Version:     "0.1.0",
+		Description: "Presentation generation: create .pptx from markdown",
+	})
 
-var extManifest = manifest{
-	Name:        "presentation",
-	Version:     "0.1.0",
-	Description: "Presentation generation: create .pptx from markdown",
-	Tools:       []string{"generate_presentation"},
-	AgentDefs:   []string{"presentation_agent"},
-	ProtocolMin: 1,
-}
-
-var agentDefs = []struct {
-	ID            string   `json:"id"`
-	Name          string   `json:"name"`
-	Description   string   `json:"description"`
-	Tier          string   `json:"tier"`
-	SystemPrompt  string   `json:"systemPrompt"`
-	ToolAllowlist []string `json:"toolAllowlist"`
-	MaxIterations int      `json:"maxIterations"`
-	Hidden        bool     `json:"hidden"`
-}{
-	{
-		ID: "presentation_agent", Name: "Presentation Creator",
-		Description: "Creates presentation slides from structured content",
-		Tier:        "worker",
-		SystemPrompt: `You are a presentation creation specialist. Create well-structured slide decks from content.
-- Each slide should have a clear title and bullet points
-- Use the generate_presentation tool to produce .pptx files
-- Keep slides concise and visually balanced`,
-		ToolAllowlist: []string{"generate_presentation", "write_file", "read_file", "memory_search"},
-		MaxIterations: 10, Hidden: false,
-	},
-}
-
-type slide struct {
-	Title   string   `json:"title"`
-	Bullets []string `json:"bullets"`
-}
-
-var toolDefs = []toolDef{
-	{
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "generate_presentation",
 		Description: "Generate a .pptx presentation file from structured content (JSON format with title, author, and slides array). Each slide has a title and bullet points.",
 		Parameters: map[string]interface{}{
@@ -116,64 +42,37 @@ var toolDefs = []toolDef{
 		},
 		Permission: "write",
 		HasEffects: true,
-	},
-}
+	}, generatePresentation)
 
-func main() {
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	log.Info("presentation extension starting")
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				return
-			}
-			return
-		}
-		var req rpcRequest
-		json.Unmarshal(line, &req)
-		resp := handleRequest(&req)
-		respBytes, _ := json.Marshal(resp)
-		fmt.Fprintf(os.Stdout, "%s\n", respBytes)
+	srv.RegisterAgent(extsdk.AgentDef{
+		ID:          "presentation_agent",
+		Name:        "Presentation Creator",
+		Description: "Creates presentation slides from structured content",
+		Tier:        "worker",
+		SystemPrompt: `You are a presentation creation specialist. Create well-structured slide decks from content.
+- Each slide should have a clear title and bullet points
+- Use the generate_presentation tool to produce .pptx files
+- Keep slides concise and visually balanced`,
+		ToolAllowlist: []string{"generate_presentation", "write_file", "read_file", "memory_search"},
+		MaxIterations: 10,
+		Hidden:        false,
+	})
+
+	if err := srv.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "presentation: %v\n", err)
+		os.Exit(1)
 	}
 }
 
-func handleRequest(req *rpcRequest) *rpcResponse {
-	switch req.Method {
-	case "extension.describe":
-		result, _ := json.Marshal(extManifest)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_tools":
-		type lr struct{ Tools []toolDef }
-		result, _ := json.Marshal(lr{Tools: toolDefs})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_agents":
-		result, _ := json.Marshal(map[string]interface{}{"agents": agentDefs})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.call_tool":
-		var params callToolParams
-		json.Unmarshal(req.Params, &params)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		var result callToolResult
-		switch params.Name {
-		case "generate_presentation":
-			result = generatePresentation(ctx, params.Args)
-		default:
-			result = callToolResult{Error: fmt.Sprintf("unknown: %s", params.Name)}
-		}
-		resultBytes, _ := json.Marshal(result)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: resultBytes}
-	default:
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: fmt.Sprintf("unknown: %s", req.Method)}}
-	}
+type slide struct {
+	Title   string   `json:"title"`
+	Bullets []string `json:"bullets"`
 }
 
-func generatePresentation(ctx context.Context, args map[string]interface{}) callToolResult {
+func generatePresentation(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	title, _ := args["title"].(string)
 	if title == "" {
-		return callToolResult{Error: "title is required"}
+		return extsdk.Result{Error: "title is required"}
 	}
 	author, _ := args["author"].(string)
 	if author == "" {
@@ -186,7 +85,7 @@ func generatePresentation(ctx context.Context, args map[string]interface{}) call
 
 	slidesRaw, ok := args["slides"].([]interface{})
 	if !ok || len(slidesRaw) == 0 {
-		return callToolResult{Error: "slides array is required with at least one slide"}
+		return extsdk.Result{Error: "slides array is required with at least one slide"}
 	}
 
 	var slides []slide
@@ -211,14 +110,14 @@ func generatePresentation(ctx context.Context, args map[string]interface{}) call
 	filename := filepath.Join(outputDir, sanitizeFilename(title)+".pptx")
 
 	if err := writePPTX(filename, title, author, slides); err != nil {
-		return callToolResult{Error: fmt.Sprintf("generate pptx: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("generate pptx: %v", err)}
 	}
 
 	abs, err := filepath.Abs(filename)
 	if err != nil {
 		abs = filename
 	}
-	return callToolResult{Success: true, Output: fmt.Sprintf("Presentation generated: %s\nTitle: %s\nSlides: %d", abs, title, len(slides))}
+	return extsdk.Result{Success: true, Output: fmt.Sprintf("Presentation generated: %s\nTitle: %s\nSlides: %d", abs, title, len(slides))}
 }
 
 // writePPTX creates a minimal .pptx file using the Open XML format.

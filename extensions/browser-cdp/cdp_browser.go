@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
 var (
@@ -73,10 +74,10 @@ func hasChrome() bool {
 }
 
 // browserTool navigates to a URL and extracts the rendered page content.
-func browserTool(ctx context.Context, args map[string]interface{}) callToolResult {
+func browserTool(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	rawURL, _ := args["url"].(string)
 	if rawURL == "" {
-		return callToolResult{Error: "url is required"}
+		return extsdk.Result{Error: "url is required"}
 	}
 
 	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
@@ -84,11 +85,11 @@ func browserTool(ctx context.Context, args map[string]interface{}) callToolResul
 	}
 
 	if err := validateSafeURL(rawURL); err != nil {
-		return callToolResult{Error: fmt.Sprintf("URL rejected: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("URL rejected: %v", err)}
 	}
 
 	if !hasChrome() {
-		return callToolResult{Error: "Chrome/Chromium not found. Set MNEME_CHROME_PATH or install chromium-browser."}
+		return extsdk.Result{Error: "Chrome/Chromium not found. Set MNEME_CHROME_PATH or install chromium-browser."}
 	}
 
 	timeout := 15.0
@@ -110,7 +111,7 @@ func browserTool(ctx context.Context, args map[string]interface{}) callToolResul
 		chromedp.OuterHTML("html", &body),
 	)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("browser navigation: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("browser navigation: %v", err)}
 	}
 
 	text := extractReadableText(body)
@@ -119,7 +120,7 @@ func browserTool(ctx context.Context, args map[string]interface{}) callToolResul
 		out += fmt.Sprintf("\n\n[Content truncated: %d total characters]", len(text))
 	}
 
-	return callToolResult{Success: true, Output: out}
+	return extsdk.Result{Success: true, Output: out}
 }
 
 func floatFromArgs(args map[string]interface{}, key string) (float64, bool) {

@@ -5,76 +5,31 @@
 //   - audio_email: convert email text to audio summary
 //   - audio_status: check TTS engine availability
 //
-// Protocol: stdin/stdout JSON-RPC 2.0 (one message per line).
+// Protocol plumbing (JSON-RPC over stdio) is provided by pkg/extsdk.
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
-type rpcRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-type rpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
-}
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-type manifest struct {
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Description string   `json:"description"`
-	Tools       []string `json:"tools"`
-	AgentDefs   []string `json:"agent_defs"`
-	ProtocolMin int      `json:"protocol_min"`
-}
-type toolDef struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Permission  string                 `json:"permission"`
-	HasEffects  bool                   `json:"has_effects"`
-}
-type callToolParams struct {
-	Name string
-	Args map[string]interface{}
-}
-type callToolResult struct {
-	Success bool   `json:"success"`
-	Output  string `json:"output"`
-	Error   string `json:"error,omitempty"`
-}
+func main() {
+	srv := extsdk.NewServer(extsdk.Manifest{
+		Name:        "audio",
+		Version:     "0.1.0",
+		Description: "Audio generation: podcast, email-to-audio, TTS status",
+	})
 
-var extManifest = manifest{
-	Name:        "audio",
-	Version:     "0.1.0",
-	Description: "Audio generation: podcast, email-to-audio, TTS status",
-	Tools:       []string{"audio_generate_podcast", "audio_email", "audio_status"},
-	AgentDefs:   []string{},
-	ProtocolMin: 1,
-}
-
-var toolDefs = []toolDef{
-	{
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "audio_generate_podcast",
 		Description: "Generate a podcast-style audio file from text. Uses the system TTS engine (say on macOS, espeak/festival on Linux).",
 		Parameters: map[string]interface{}{
@@ -90,8 +45,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "write",
 		HasEffects: true,
-	},
-	{
+	}, generatePodcast)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "audio_email",
 		Description: "Convert an email body to a spoken audio summary",
 		Parameters: map[string]interface{}{
@@ -105,68 +61,21 @@ var toolDefs = []toolDef{
 		},
 		Permission: "write",
 		HasEffects: true,
-	},
-	{
+	}, generateEmailAudio)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "audio_status",
 		Description: "Check available TTS engines and voices on the current system",
 		Parameters:  map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
 		Permission:  "read_only",
 		HasEffects:  false,
-	},
-}
+	}, func(ctx context.Context, args map[string]interface{}) extsdk.Result {
+		return audioStatus()
+	})
 
-func main() {
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	log.Info("audio extension starting")
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				return
-			}
-			return
-		}
-		var req rpcRequest
-		json.Unmarshal(line, &req)
-		resp := handleRequest(&req)
-		respBytes, _ := json.Marshal(resp)
-		fmt.Fprintf(os.Stdout, "%s\n", respBytes)
-	}
-}
-
-func handleRequest(req *rpcRequest) *rpcResponse {
-	switch req.Method {
-	case "extension.describe":
-		result, _ := json.Marshal(extManifest)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_tools":
-		type lr struct{ Tools []toolDef }
-		result, _ := json.Marshal(lr{Tools: toolDefs})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_agents":
-		result, _ := json.Marshal(map[string]interface{}{"agents": []interface{}{}})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.call_tool":
-		var params callToolParams
-		json.Unmarshal(req.Params, &params)
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		var result callToolResult
-		switch params.Name {
-		case "audio_generate_podcast":
-			result = generatePodcast(ctx, params.Args)
-		case "audio_email":
-			result = generateEmailAudio(ctx, params.Args)
-		case "audio_status":
-			result = audioStatus()
-		default:
-			result = callToolResult{Error: fmt.Sprintf("unknown: %s", params.Name)}
-		}
-		resultBytes, _ := json.Marshal(result)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: resultBytes}
-	default:
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: fmt.Sprintf("unknown: %s", req.Method)}}
+	if err := srv.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "audio: %v\n", err)
+		os.Exit(1)
 	}
 }
 
@@ -188,15 +97,15 @@ func ttsEngine() (string, []string) {
 	return "", nil
 }
 
-func generatePodcast(ctx context.Context, args map[string]interface{}) callToolResult {
+func generatePodcast(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	text, _ := args["text"].(string)
 	if text == "" {
-		return callToolResult{Error: "text is required"}
+		return extsdk.Result{Error: "text is required"}
 	}
 
 	engine, extraArgs := ttsEngine()
 	if engine == "" {
-		return callToolResult{Error: "No TTS engine found. Install espeak (sudo apt install espeak) or festival."}
+		return extsdk.Result{Error: "No TTS engine found. Install espeak (sudo apt install espeak) or festival."}
 	}
 
 	outputDir := os.TempDir()
@@ -204,7 +113,7 @@ func generatePodcast(ctx context.Context, args map[string]interface{}) callToolR
 		outputDir = d
 	}
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return callToolResult{Error: fmt.Sprintf("mkdir output dir: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("mkdir output dir: %v", err)}
 	}
 
 	format := "wav"
@@ -232,18 +141,18 @@ func generatePodcast(ctx context.Context, args map[string]interface{}) callToolR
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("TTS generation: %v (%s)", err, string(out))}
+		return extsdk.Result{Error: fmt.Sprintf("TTS generation: %v (%s)", err, string(out))}
 	}
 
 	abs, _ := filepath.Abs(outPath)
-	return callToolResult{Success: true, Output: fmt.Sprintf("Podcast audio generated: %s\nEngine: %s\nSize: check file", abs, engine)}
+	return extsdk.Result{Success: true, Output: fmt.Sprintf("Podcast audio generated: %s\nEngine: %s\nSize: check file", abs, engine)}
 }
 
-func generateEmailAudio(ctx context.Context, args map[string]interface{}) callToolResult {
+func generateEmailAudio(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	subject, _ := args["subject"].(string)
 	body, _ := args["body"].(string)
 	if body == "" {
-		return callToolResult{Error: "body is required"}
+		return extsdk.Result{Error: "body is required"}
 	}
 
 	summary := fmt.Sprintf("Email received. Subject: %s. Body: %s", subject, body)
@@ -256,7 +165,7 @@ func generateEmailAudio(ctx context.Context, args map[string]interface{}) callTo
 	})
 }
 
-func audioStatus() callToolResult {
+func audioStatus() extsdk.Result {
 	engine, args := ttsEngine()
 	status := map[string]interface{}{
 		"platform":   runtime.GOOS,
@@ -275,7 +184,7 @@ func audioStatus() callToolResult {
 	status["installed_engines"] = engines
 
 	b, _ := json.MarshalIndent(status, "", "  ")
-	return callToolResult{Success: true, Output: string(b)}
+	return extsdk.Result{Success: true, Output: string(b)}
 }
 
 func truncateRunes(s string, maxRunes int) string {

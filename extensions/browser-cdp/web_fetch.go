@@ -9,14 +9,16 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
 // webFetchTool fetches and cleans content from a web page.
 // Falls back to http.Get if Chrome is not available, but prefers CDP for JS-rendered content.
-func webFetchTool(ctx context.Context, args map[string]interface{}) callToolResult {
+func webFetchTool(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	rawURL, _ := args["url"].(string)
 	if rawURL == "" {
-		return callToolResult{Error: "url is required"}
+		return extsdk.Result{Error: "url is required"}
 	}
 
 	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
@@ -24,7 +26,7 @@ func webFetchTool(ctx context.Context, args map[string]interface{}) callToolResu
 	}
 
 	if err := validateSafeURL(rawURL); err != nil {
-		return callToolResult{Error: fmt.Sprintf("URL rejected: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("URL rejected: %v", err)}
 	}
 
 	maxChars := 10000
@@ -45,7 +47,7 @@ func webFetchTool(ctx context.Context, args map[string]interface{}) callToolResu
 }
 
 // webFetchCDP uses Chrome to fetch and render the page, then extracts clean content.
-func webFetchCDP(ctx context.Context, rawURL string, maxChars int, includeHTML bool) callToolResult {
+func webFetchCDP(ctx context.Context, rawURL string, maxChars int, includeHTML bool) extsdk.Result {
 	// Simplified: use the browser tool and reformat output.
 	result := browserTool(ctx, map[string]interface{}{"url": rawURL})
 	if !result.Success {
@@ -58,33 +60,33 @@ func webFetchCDP(ctx context.Context, rawURL string, maxChars int, includeHTML b
 		out = out[:maxChars] + fmt.Sprintf("\n\n[Truncated at %d chars]", maxChars)
 	}
 
-	return callToolResult{Success: true, Output: out}
+	return extsdk.Result{Success: true, Output: out}
 }
 
 // webFetchHTTP fetches a URL via plain HTTP with readability extraction.
-func webFetchHTTP(ctx context.Context, rawURL string, maxChars int, includeHTML bool) callToolResult {
+func webFetchHTTP(ctx context.Context, rawURL string, maxChars int, includeHTML bool) extsdk.Result {
 	if err := validateSafeURL(rawURL); err != nil {
-		return callToolResult{Error: fmt.Sprintf("URL rejected: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("URL rejected: %v", err)}
 	}
 
 	client := newSafeHTTPClient(30 * time.Second)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("create request: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("create request: %v", err)}
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Mneme/1.0)")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("fetch: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("fetch: %v", err)}
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 5<<20)) // 5MB limit
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("read body: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("read body: %v", err)}
 	}
 
 	text := extractReadableText(string(body))
@@ -110,7 +112,7 @@ func webFetchHTTP(ctx context.Context, rawURL string, maxChars int, includeHTML 
 		out.WriteString(truncateStr(htmlStr, 2000))
 	}
 
-	return callToolResult{Success: true, Output: out.String()}
+	return extsdk.Result{Success: true, Output: out.String()}
 }
 
 // ── SSRF-safe HTTP client ───────────────────────────────────────────────

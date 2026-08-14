@@ -6,17 +6,19 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
 // launchAppTool launches a desktop application.
-func launchAppTool(ctx context.Context, args map[string]interface{}) callToolResult {
+func launchAppTool(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	name, _ := args["name"].(string)
 	path, _ := args["path"].(string)
 	appArgs := strSliceFromArgs(args, "args")
 	wait, _ := args["wait"].(bool)
 
 	if name == "" && path == "" {
-		return callToolResult{Error: "either name or path is required"}
+		return extsdk.Result{Error: "either name or path is required"}
 	}
 
 	execPath := path
@@ -24,7 +26,7 @@ func launchAppTool(ctx context.Context, args map[string]interface{}) callToolRes
 		execPath = resolveAppPath(name)
 	}
 	if execPath == "" {
-		return callToolResult{Error: fmt.Sprintf("could not find application: %s", name)}
+		return extsdk.Result{Error: fmt.Sprintf("could not find application: %s", name)}
 	}
 
 	var cmd *exec.Cmd
@@ -37,18 +39,18 @@ func launchAppTool(ctx context.Context, args map[string]interface{}) callToolRes
 	if wait {
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			return callToolResult{Error: fmt.Sprintf("launch %s: %v (%s)", name, err, string(out))}
+			return extsdk.Result{Error: fmt.Sprintf("launch %s: %v (%s)", name, err, string(out))}
 		}
-		return callToolResult{Success: true, Output: fmt.Sprintf("Launched %s (completed)\n%s", name, string(out))}
+		return extsdk.Result{Success: true, Output: fmt.Sprintf("Launched %s (completed)\n%s", name, string(out))}
 	}
 
 	if err := cmd.Start(); err != nil {
-		return callToolResult{Error: fmt.Sprintf("launch %s: %v", name, err)}
+		return extsdk.Result{Error: fmt.Sprintf("launch %s: %v", name, err)}
 	}
 	// Don't wait — release the process
 	go cmd.Wait()
 
-	return callToolResult{Success: true, Output: fmt.Sprintf("Launched: %s (pid: %d)", name, cmd.Process.Pid)}
+	return extsdk.Result{Success: true, Output: fmt.Sprintf("Launched: %s (pid: %d)", name, cmd.Process.Pid)}
 }
 
 func resolveAppPath(name string) string {

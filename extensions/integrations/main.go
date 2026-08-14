@@ -8,76 +8,32 @@
 //   - stocks_lookup: get stock quote
 //   - twilio_send_sms: send SMS via Twilio
 //
-// Protocol: stdin/stdout JSON-RPC 2.0 (one message per line).
+// Protocol plumbing (JSON-RPC over stdio) is provided by pkg/extsdk.
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	neturl "net/url"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
-type rpcRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-type rpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
-}
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-type manifest struct {
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Description string   `json:"description"`
-	Tools       []string `json:"tools"`
-	AgentDefs   []string `json:"agent_defs"`
-	ProtocolMin int      `json:"protocol_min"`
-}
-type toolDef struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Permission  string                 `json:"permission"`
-	HasEffects  bool                   `json:"has_effects"`
-}
-type callToolParams struct {
-	Name string                 `json:"name"`
-	Args map[string]interface{} `json:"args"`
-}
-type callToolResult struct {
-	Success bool   `json:"success"`
-	Output  string `json:"output"`
-	Error   string `json:"error,omitempty"`
-}
+func main() {
+	srv := extsdk.NewServer(extsdk.Manifest{
+		Name:        "integrations",
+		Version:     "0.1.0",
+		Description: "Third-party integrations: Composio, Apify, Google Places, Stocks, Twilio",
+	})
 
-var extManifest = manifest{
-	Name:        "integrations",
-	Version:     "0.1.0",
-	Description: "Third-party integrations: Composio, Apify, Google Places, Stocks, Twilio",
-	Tools:       []string{"composio_list_actions", "composio_execute", "apify_run", "apify_get_run_status", "apify_get_run_results", "google_places_search", "stocks_lookup", "twilio_send_sms"},
-	AgentDefs:   []string{"integrations_agent"},
-	ProtocolMin: 1,
-}
-
-var toolDefs = []toolDef{
-	{
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "composio_list_actions",
 		Description: "List available actions from Composio (a tool/action registry). Requires COMPOSIO_API_KEY.",
 		Parameters: map[string]interface{}{
@@ -90,8 +46,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "read_only",
 		HasEffects: false,
-	},
-	{
+	}, composioList)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "composio_execute",
 		Description: "Execute a Composio action. Requires COMPOSIO_API_KEY.",
 		Parameters: map[string]interface{}{
@@ -105,8 +62,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "execute",
 		HasEffects: true,
-	},
-	{
+	}, composioExecute)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "apify_run",
 		Description: "Run an Apify actor. Requires APIFY_API_TOKEN.",
 		Parameters: map[string]interface{}{
@@ -121,8 +79,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "execute",
 		HasEffects: true,
-	},
-	{
+	}, apifyRun)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "apify_get_run_status",
 		Description: "Check the status of a running Apify actor. Requires APIFY_API_TOKEN.",
 		Parameters: map[string]interface{}{
@@ -134,8 +93,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "read_only",
 		HasEffects: false,
-	},
-	{
+	}, apifyGetRunStatus)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "apify_get_run_results",
 		Description: "Fetch results from a completed Apify actor run. Requires APIFY_API_TOKEN.",
 		Parameters: map[string]interface{}{
@@ -148,8 +108,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "read_only",
 		HasEffects: false,
-	},
-	{
+	}, apifyGetRunResults)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "google_places_search",
 		Description: "Search for places using Google Places API. Requires GOOGLE_PLACES_API_KEY.",
 		Parameters: map[string]interface{}{
@@ -164,8 +125,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "read_only",
 		HasEffects: false,
-	},
-	{
+	}, googlePlaces)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "stocks_lookup",
 		Description: "Look up current stock price and basic info by ticker symbol",
 		Parameters: map[string]interface{}{
@@ -177,8 +139,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "read_only",
 		HasEffects: false,
-	},
-	{
+	}, stocksLookup)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "twilio_send_sms",
 		Description: "Send an SMS message via Twilio. Requires TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER env vars.",
 		Parameters: map[string]interface{}{
@@ -191,85 +154,24 @@ var toolDefs = []toolDef{
 		},
 		Permission: "execute",
 		HasEffects: true,
-	},
+	}, twilioSMS)
+
+	if err := srv.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "integrations: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 var httpClient = &http.Client{Timeout: 30 * time.Second}
-
-func main() {
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	log.Info("integrations extension starting")
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				return
-			}
-			return
-		}
-		var req rpcRequest
-		json.Unmarshal(line, &req)
-		resp := handleRequest(&req)
-		respBytes, _ := json.Marshal(resp)
-		fmt.Fprintf(os.Stdout, "%s\n", respBytes)
-	}
-}
-
-func handleRequest(req *rpcRequest) *rpcResponse {
-	switch req.Method {
-	case "extension.describe":
-		result, _ := json.Marshal(extManifest)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_tools":
-		type lr struct{ Tools []toolDef }
-		result, _ := json.Marshal(lr{Tools: toolDefs})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_agents":
-		type lar struct{ Agents []interface{} }
-		result, _ := json.Marshal(lar{Agents: []interface{}{}})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.call_tool":
-		var params callToolParams
-		json.Unmarshal(req.Params, &params)
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		var result callToolResult
-		switch params.Name {
-		case "composio_list_actions":
-			result = composioList(ctx, params.Args)
-		case "composio_execute":
-			result = composioExecute(ctx, params.Args)
-		case "apify_run":
-			result = apifyRun(ctx, params.Args)
-		case "apify_get_run_status":
-			result = apifyGetRunStatus(ctx, params.Args)
-		case "apify_get_run_results":
-			result = apifyGetRunResults(ctx, params.Args)
-		case "google_places_search":
-			result = googlePlaces(ctx, params.Args)
-		case "stocks_lookup":
-			result = stocksLookup(ctx, params.Args)
-		case "twilio_send_sms":
-			result = twilioSMS(ctx, params.Args)
-		default:
-			result = callToolResult{Error: fmt.Sprintf("unknown: %s", params.Name)}
-		}
-		resultBytes, _ := json.Marshal(result)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: resultBytes}
-	default:
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: fmt.Sprintf("unknown: %s", req.Method)}}
-	}
-}
 
 // ── Composio ──────────────────────────────────────────────────────
 
 const composioAPI = "https://backend.composio.dev/api/v2"
 
-func composioList(ctx context.Context, args map[string]interface{}) callToolResult {
+func composioList(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	apiKey := os.Getenv("COMPOSIO_API_KEY")
 	if apiKey == "" {
-		return callToolResult{Error: "COMPOSIO_API_KEY not set"}
+		return extsdk.Result{Error: "COMPOSIO_API_KEY not set"}
 	}
 	appName, _ := args["appName"].(string)
 	url := composioAPI + "/actions"
@@ -280,17 +182,17 @@ func composioList(ctx context.Context, args map[string]interface{}) callToolResu
 	req.Header.Set("X-API-Key", apiKey)
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("composio: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("composio: %v", err)}
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	return callToolResult{Success: resp.StatusCode < 400, Output: formatJSON(string(body))}
+	return extsdk.Result{Success: resp.StatusCode < 400, Output: formatJSON(string(body))}
 }
 
-func composioExecute(ctx context.Context, args map[string]interface{}) callToolResult {
+func composioExecute(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	apiKey := os.Getenv("COMPOSIO_API_KEY")
 	if apiKey == "" {
-		return callToolResult{Error: "COMPOSIO_API_KEY not set"}
+		return extsdk.Result{Error: "COMPOSIO_API_KEY not set"}
 	}
 	actionID, _ := args["actionId"].(string)
 	params, _ := args["params"].(map[string]interface{})
@@ -306,19 +208,19 @@ func composioExecute(ctx context.Context, args map[string]interface{}) callToolR
 	req.Header.Set("X-API-Key", apiKey)
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("composio execute: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("composio execute: %v", err)}
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	return callToolResult{Success: resp.StatusCode < 400, Output: formatJSON(string(body))}
+	return extsdk.Result{Success: resp.StatusCode < 400, Output: formatJSON(string(body))}
 }
 
 // ── Apify ─────────────────────────────────────────────────────────
 
-func apifyRun(ctx context.Context, args map[string]interface{}) callToolResult {
+func apifyRun(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	apiToken := os.Getenv("APIFY_API_TOKEN")
 	if apiToken == "" {
-		return callToolResult{Error: "APIFY_API_TOKEN not set"}
+		return extsdk.Result{Error: "APIFY_API_TOKEN not set"}
 	}
 	actorID, _ := args["actorId"].(string)
 	input, _ := args["input"].(map[string]interface{})
@@ -333,41 +235,41 @@ func apifyRun(ctx context.Context, args map[string]interface{}) callToolResult {
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("apify: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("apify: %v", err)}
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	return callToolResult{Success: resp.StatusCode < 400, Output: formatJSON(string(body))}
+	return extsdk.Result{Success: resp.StatusCode < 400, Output: formatJSON(string(body))}
 }
 
-func apifyGetRunStatus(ctx context.Context, args map[string]interface{}) callToolResult {
+func apifyGetRunStatus(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	apiToken := os.Getenv("APIFY_API_TOKEN")
 	if apiToken == "" {
-		return callToolResult{Error: "APIFY_API_TOKEN not set"}
+		return extsdk.Result{Error: "APIFY_API_TOKEN not set"}
 	}
 	runID, _ := args["runId"].(string)
 	if runID == "" {
-		return callToolResult{Error: "runId is required"}
+		return extsdk.Result{Error: "runId is required"}
 	}
 	req, _ := http.NewRequestWithContext(ctx, "GET",
 		fmt.Sprintf("https://api.apify.com/v2/actor-runs/%s?token=%s", neturl.PathEscape(runID), neturl.QueryEscape(apiToken)), nil)
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("apify status: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("apify status: %v", err)}
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	return callToolResult{Success: resp.StatusCode < 400, Output: formatJSON(string(body))}
+	return extsdk.Result{Success: resp.StatusCode < 400, Output: formatJSON(string(body))}
 }
 
-func apifyGetRunResults(ctx context.Context, args map[string]interface{}) callToolResult {
+func apifyGetRunResults(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	apiToken := os.Getenv("APIFY_API_TOKEN")
 	if apiToken == "" {
-		return callToolResult{Error: "APIFY_API_TOKEN not set"}
+		return extsdk.Result{Error: "APIFY_API_TOKEN not set"}
 	}
 	runID, _ := args["runId"].(string)
 	if runID == "" {
-		return callToolResult{Error: "runId is required"}
+		return extsdk.Result{Error: "runId is required"}
 	}
 	limit := 100
 	if l, ok := intFrom(args, "limit"); ok && l > 0 {
@@ -377,23 +279,23 @@ func apifyGetRunResults(ctx context.Context, args map[string]interface{}) callTo
 		fmt.Sprintf("https://api.apify.com/v2/actor-runs/%s/dataset/items?token=%s&limit=%d", neturl.PathEscape(runID), neturl.QueryEscape(apiToken), limit), nil)
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("apify results: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("apify results: %v", err)}
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	return callToolResult{Success: resp.StatusCode < 400, Output: formatJSON(string(body))}
+	return extsdk.Result{Success: resp.StatusCode < 400, Output: formatJSON(string(body))}
 }
 
 // ── Google Places ─────────────────────────────────────────────────
 
-func googlePlaces(ctx context.Context, args map[string]interface{}) callToolResult {
+func googlePlaces(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	apiKey := os.Getenv("GOOGLE_PLACES_API_KEY")
 	if apiKey == "" {
-		return callToolResult{Error: "GOOGLE_PLACES_API_KEY not set"}
+		return extsdk.Result{Error: "GOOGLE_PLACES_API_KEY not set"}
 	}
 	query, _ := args["query"].(string)
 	if query == "" {
-		return callToolResult{Error: "query is required"}
+		return extsdk.Result{Error: "query is required"}
 	}
 	url := fmt.Sprintf("https://maps.googleapis.com/maps/api/place/textsearch/json?query=%s&key=%s",
 		strings.ReplaceAll(query, " ", "+"), apiKey)
@@ -407,19 +309,19 @@ func googlePlaces(ctx context.Context, args map[string]interface{}) callToolResu
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("places: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("places: %v", err)}
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	return callToolResult{Success: resp.StatusCode < 400, Output: formatJSON(string(body))}
+	return extsdk.Result{Success: resp.StatusCode < 400, Output: formatJSON(string(body))}
 }
 
 // ── Stocks ────────────────────────────────────────────────────────
 
-func stocksLookup(ctx context.Context, args map[string]interface{}) callToolResult {
+func stocksLookup(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	symbol, _ := args["symbol"].(string)
 	if symbol == "" {
-		return callToolResult{Error: "symbol is required"}
+		return extsdk.Result{Error: "symbol is required"}
 	}
 	symbol = strings.ToUpper(symbol)
 
@@ -429,7 +331,7 @@ func stocksLookup(ctx context.Context, args map[string]interface{}) callToolResu
 	req.Header.Set("User-Agent", "Mozilla/5.0")
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("stocks: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("stocks: %v", err)}
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
@@ -449,7 +351,7 @@ func stocksLookup(ctx context.Context, args map[string]interface{}) callToolResu
 	json.Unmarshal(body, &data)
 
 	if len(data.Chart.Result) == 0 {
-		return callToolResult{Error: fmt.Sprintf("no data for symbol: %s", symbol)}
+		return extsdk.Result{Error: fmt.Sprintf("no data for symbol: %s", symbol)}
 	}
 
 	m := data.Chart.Result[0].Meta
@@ -460,22 +362,22 @@ func stocksLookup(ctx context.Context, args map[string]interface{}) callToolResu
 		m.Symbol, m.Currency, m.RegularMarketPrice,
 		change, changePct,
 		m.Currency, m.PreviousClose)
-	return callToolResult{Success: true, Output: output}
+	return extsdk.Result{Success: true, Output: output}
 }
 
 // ── Twilio SMS ────────────────────────────────────────────────────
 
-func twilioSMS(ctx context.Context, args map[string]interface{}) callToolResult {
+func twilioSMS(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	sid := os.Getenv("TWILIO_ACCOUNT_SID")
 	token := os.Getenv("TWILIO_AUTH_TOKEN")
 	from := os.Getenv("TWILIO_PHONE_NUMBER")
 	if sid == "" || token == "" || from == "" {
-		return callToolResult{Error: "TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER must be set"}
+		return extsdk.Result{Error: "TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER must be set"}
 	}
 	to, _ := args["to"].(string)
 	body, _ := args["body"].(string)
 	if to == "" || body == "" {
-		return callToolResult{Error: "to and body are required"}
+		return extsdk.Result{Error: "to and body are required"}
 	}
 
 	url := fmt.Sprintf("https://api.twilio.com/2010-04-01/Accounts/%s/Messages.json", sid)
@@ -489,11 +391,11 @@ func twilioSMS(ctx context.Context, args map[string]interface{}) callToolResult 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("twilio: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("twilio: %v", err)}
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(resp.Body)
-	return callToolResult{Success: resp.StatusCode < 400, Output: formatJSON(string(respBody))}
+	return extsdk.Result{Success: resp.StatusCode < 400, Output: formatJSON(string(respBody))}
 }
 
 // ── Helpers ──────────────────────────────────────────────────────

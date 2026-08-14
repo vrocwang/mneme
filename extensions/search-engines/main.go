@@ -6,77 +6,33 @@
 //   - search_seltz: search via Seltz engine
 //   - search_parallel: search across multiple engines concurrently
 //
-// Protocol: stdin/stdout JSON-RPC 2.0 (one message per line).
+// Protocol plumbing (JSON-RPC over stdio) is provided by pkg/extsdk.
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
-type rpcRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-type rpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
-}
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-type manifest struct {
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Description string   `json:"description"`
-	Tools       []string `json:"tools"`
-	AgentDefs   []string `json:"agent_defs"`
-	ProtocolMin int      `json:"protocol_min"`
-}
-type toolDef struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Permission  string                 `json:"permission"`
-	HasEffects  bool                   `json:"has_effects"`
-}
-type callToolParams struct {
-	Name string                 `json:"name"`
-	Args map[string]interface{} `json:"args"`
-}
-type callToolResult struct {
-	Success bool   `json:"success"`
-	Output  string `json:"output"`
-	Error   string `json:"error,omitempty"`
-}
+func main() {
+	srv := extsdk.NewServer(extsdk.Manifest{
+		Name:        "search-engines",
+		Version:     "0.1.0",
+		Description: "Additional search backends: SearXNG, Querit, Seltz, Parallel",
+	})
 
-var extManifest = manifest{
-	Name:        "search-engines",
-	Version:     "0.1.0",
-	Description: "Additional search backends: SearXNG, Querit, Seltz, Parallel",
-	Tools:       []string{"search_searxng", "search_querit", "search_seltz", "search_parallel"},
-	AgentDefs:   []string{},
-	ProtocolMin: 1,
-}
-
-var toolDefs = []toolDef{
-	{
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "search_searxng",
 		Description: "Search via a self-hosted SearXNG instance (privacy-respecting metasearch). Requires SEARXNG_URL env var.",
 		Parameters: map[string]interface{}{
@@ -90,8 +46,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "read_only",
 		HasEffects: false,
-	},
-	{
+	}, searchSearXNG)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "search_querit",
 		Description: "Search via Querit.ai semantic search API. Requires QUERIT_API_KEY env var.",
 		Parameters: map[string]interface{}{
@@ -104,8 +61,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "read_only",
 		HasEffects: false,
-	},
-	{
+	}, searchQuerit)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "search_seltz",
 		Description: "Search via Seltz search engine. Requires SELTZ_API_KEY env var.",
 		Parameters: map[string]interface{}{
@@ -118,8 +76,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "read_only",
 		HasEffects: false,
-	},
-	{
+	}, searchSeltz)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "search_parallel",
 		Description: "Search across multiple engines in parallel and merge results. Uses SearXNG, Querit, and DuckDuckGo.",
 		Parameters: map[string]interface{}{
@@ -132,7 +91,12 @@ var toolDefs = []toolDef{
 		},
 		Permission: "read_only",
 		HasEffects: false,
-	},
+	}, searchParallel)
+
+	if err := srv.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "search-engines: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 var httpClient = &http.Client{Timeout: 20 * time.Second}
@@ -144,76 +108,19 @@ type searchResult struct {
 	Source  string `json:"source"`
 }
 
-func main() {
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	log.Info("search-engines extension starting")
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				return
-			}
-			return
-		}
-		var req rpcRequest
-		json.Unmarshal(line, &req)
-		resp := handleRequest(&req)
-		respBytes, _ := json.Marshal(resp)
-		fmt.Fprintf(os.Stdout, "%s\n", respBytes)
-	}
-}
-
-func handleRequest(req *rpcRequest) *rpcResponse {
-	switch req.Method {
-	case "extension.describe":
-		result, _ := json.Marshal(extManifest)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_tools":
-		type lr struct{ Tools []toolDef }
-		result, _ := json.Marshal(lr{Tools: toolDefs})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_agents":
-		result, _ := json.Marshal(map[string]interface{}{"agents": []interface{}{}})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.call_tool":
-		var params callToolParams
-		json.Unmarshal(req.Params, &params)
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-		var result callToolResult
-		switch params.Name {
-		case "search_searxng":
-			result = searchSearXNG(ctx, params.Args)
-		case "search_querit":
-			result = searchQuerit(ctx, params.Args)
-		case "search_seltz":
-			result = searchSeltz(ctx, params.Args)
-		case "search_parallel":
-			result = searchParallel(ctx, params.Args)
-		default:
-			result = callToolResult{Error: fmt.Sprintf("unknown: %s", params.Name)}
-		}
-		resultBytes, _ := json.Marshal(result)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: resultBytes}
-	default:
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: fmt.Sprintf("unknown: %s", req.Method)}}
-	}
-}
-
-func searchSearXNG(ctx context.Context, args map[string]interface{}) callToolResult {
+func searchSearXNG(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	baseURL := os.Getenv("SEARXNG_URL")
 	if baseURL == "" {
-		return callToolResult{Error: "SEARXNG_URL not set. Set it to your SearXNG instance URL."}
+		return extsdk.Result{Error: "SEARXNG_URL not set. Set it to your SearXNG instance URL."}
 	}
 	query, _ := args["query"].(string)
 	if query == "" {
-		return callToolResult{Error: "query is required"}
+		return extsdk.Result{Error: "query is required"}
 	}
 
 	u, err := url.Parse(baseURL + "/search")
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("searxng: invalid base URL: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("searxng: invalid base URL: %v", err)}
 	}
 	q := u.Query()
 	q.Set("q", query)
@@ -226,7 +133,7 @@ func searchSearXNG(ctx context.Context, args map[string]interface{}) callToolRes
 	req, _ := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("searxng: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("searxng: %v", err)}
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
@@ -253,15 +160,15 @@ func searchSearXNG(ctx context.Context, args map[string]interface{}) callToolRes
 	return formatResults(results)
 }
 
-func searchQuerit(ctx context.Context, args map[string]interface{}) callToolResult {
+func searchQuerit(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	apiKey := os.Getenv("QUERIT_API_KEY")
 	query, _ := args["query"].(string)
 	if query == "" {
-		return callToolResult{Error: "query is required"}
+		return extsdk.Result{Error: "query is required"}
 	}
 	if apiKey == "" {
 		// Fallback: inform that API key is needed
-		return callToolResult{Success: true, Output: fmt.Sprintf(
+		return extsdk.Result{Success: true, Output: fmt.Sprintf(
 			"Querit search configured for: %s\n\nSet QUERIT_API_KEY to enable Querit semantic search.\nQuerit.ai provides AI-powered semantic search at https://querit.ai",
 			query,
 		)}
@@ -273,21 +180,21 @@ func searchQuerit(ctx context.Context, args map[string]interface{}) callToolResu
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("querit: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("querit: %v", err)}
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	return callToolResult{Success: resp.StatusCode < 400, Output: string(body)}
+	return extsdk.Result{Success: resp.StatusCode < 400, Output: string(body)}
 }
 
-func searchSeltz(ctx context.Context, args map[string]interface{}) callToolResult {
+func searchSeltz(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	apiKey := os.Getenv("SELTZ_API_KEY")
 	query, _ := args["query"].(string)
 	if query == "" {
-		return callToolResult{Error: "query is required"}
+		return extsdk.Result{Error: "query is required"}
 	}
 	if apiKey == "" {
-		return callToolResult{Success: true, Output: fmt.Sprintf(
+		return extsdk.Result{Success: true, Output: fmt.Sprintf(
 			"Seltz search configured for: %s\n\nSet SELTZ_API_KEY to enable Seltz search.",
 			query,
 		)}
@@ -298,17 +205,17 @@ func searchSeltz(ctx context.Context, args map[string]interface{}) callToolResul
 	req.Header.Set("X-API-Key", apiKey)
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("seltz: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("seltz: %v", err)}
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	return callToolResult{Success: resp.StatusCode < 400, Output: string(body)}
+	return extsdk.Result{Success: resp.StatusCode < 400, Output: string(body)}
 }
 
-func searchParallel(ctx context.Context, args map[string]interface{}) callToolResult {
+func searchParallel(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	query, _ := args["query"].(string)
 	if query == "" {
-		return callToolResult{Error: "query is required"}
+		return extsdk.Result{Error: "query is required"}
 	}
 	limit := getInt(args, "limit", 5)
 
@@ -386,7 +293,7 @@ func searchParallel(ctx context.Context, args map[string]interface{}) callToolRe
 	}
 	out.WriteString(strings.Join(allOutputs, "\n"))
 
-	return callToolResult{Success: true, Output: out.String()}
+	return extsdk.Result{Success: true, Output: out.String()}
 }
 
 func searchDDG(ctx context.Context, query string, limit int) ([]searchResult, error) {
@@ -482,14 +389,14 @@ func truncateStr(s string, max int) string {
 	return s[:max] + "..."
 }
 
-func formatResults(results []searchResult) callToolResult {
+func formatResults(results []searchResult) extsdk.Result {
 	if len(results) == 0 {
-		return callToolResult{Success: true, Output: "No results found."}
+		return extsdk.Result{Success: true, Output: "No results found."}
 	}
 	var out strings.Builder
 	for i, r := range results {
 		out.WriteString(fmt.Sprintf("%d. [%s] %s\n  %s\n  %s\n\n", i+1, r.Source, r.Title, r.URL, r.Snippet))
 	}
 	out.WriteString(fmt.Sprintf("---\n%d results", len(results)))
-	return callToolResult{Success: true, Output: out.String()}
+	return extsdk.Result{Success: true, Output: out.String()}
 }

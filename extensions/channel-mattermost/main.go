@@ -5,74 +5,32 @@
 //   - mattermost_webhook: send via incoming webhook
 //   - mattermost_list_channels: list accessible channels
 //
-// Protocol: stdin/stdout JSON-RPC 2.0 (one message per line).
+// Protocol plumbing (JSON-RPC over stdio) is provided by pkg/extsdk.
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
-type rpcRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-type rpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
-}
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-type manifest struct {
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Description string   `json:"description"`
-	Tools       []string `json:"tools"`
-	AgentDefs   []string `json:"agent_defs"`
-	ProtocolMin int      `json:"protocol_min"`
-}
-type toolDef struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Permission  string                 `json:"permission"`
-	HasEffects  bool                   `json:"has_effects"`
-}
-type callToolParams struct {
-	Name string                 `json:"name"`
-	Args map[string]interface{} `json:"args"`
-}
-type callToolResult struct {
-	Success bool   `json:"success"`
-	Output  string `json:"output"`
-	Error   string `json:"error,omitempty"`
-}
+var httpClient = &http.Client{Timeout: 30 * time.Second}
 
-var extManifest = manifest{
-	Name:        "channel-mattermost",
-	Version:     "0.1.0",
-	Description: "Mattermost channel: send messages, webhooks, list channels",
-	Tools:       []string{"mattermost_send", "mattermost_webhook", "mattermost_list_channels"},
-	AgentDefs:   []string{},
-	ProtocolMin: 1,
-}
+func main() {
+	srv := extsdk.NewServer(extsdk.Manifest{
+		Name:        "channel-mattermost",
+		Version:     "0.1.0",
+		Description: "Mattermost channel: send messages, webhooks, list channels",
+	})
 
-var toolDefs = []toolDef{
-	{
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "mattermost_send",
 		Description: "Send a message to a Mattermost channel via API. Requires MATTERMOST_URL and MATTERMOST_TOKEN env vars.",
 		Parameters: map[string]interface{}{
@@ -85,8 +43,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "execute",
 		HasEffects: true,
-	},
-	{
+	}, mattermostSend)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "mattermost_webhook",
 		Description: "Send a message via a Mattermost incoming webhook URL (simpler setup)",
 		Parameters: map[string]interface{}{
@@ -101,8 +60,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "execute",
 		HasEffects: true,
-	},
-	{
+	}, mattermostWebhook)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "mattermost_list_channels",
 		Description: "List channels accessible to the bot. Requires MATTERMOST_URL and MATTERMOST_TOKEN env vars.",
 		Parameters: map[string]interface{}{
@@ -115,68 +75,11 @@ var toolDefs = []toolDef{
 		},
 		Permission: "read_only",
 		HasEffects: false,
-	},
-}
+	}, mattermostListChannels)
 
-var httpClient = &http.Client{Timeout: 30 * time.Second}
-
-func main() {
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	log.Info("channel-mattermost extension starting")
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				return
-			}
-			return
-		}
-		var req rpcRequest
-		json.Unmarshal(line, &req)
-		resp := handleRequest(&req)
-		respBytes, _ := json.Marshal(resp)
-		fmt.Fprintf(os.Stdout, "%s\n", respBytes)
-	}
-}
-
-func handleRequest(req *rpcRequest) *rpcResponse {
-	switch req.Method {
-	case "extension.describe":
-		result, _ := json.Marshal(extManifest)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_tools":
-		type listResult struct {
-			Tools []toolDef `json:"tools"`
-		}
-		result, _ := json.Marshal(listResult{Tools: toolDefs})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_agents":
-		type listAgentsResult struct {
-			Agents []interface{} `json:"agents"`
-		}
-		result, _ := json.Marshal(listAgentsResult{Agents: []interface{}{}})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.call_tool":
-		var params callToolParams
-		json.Unmarshal(req.Params, &params)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		var result callToolResult
-		switch params.Name {
-		case "mattermost_send":
-			result = mattermostSend(ctx, params.Args)
-		case "mattermost_webhook":
-			result = mattermostWebhook(ctx, params.Args)
-		case "mattermost_list_channels":
-			result = mattermostListChannels(ctx, params.Args)
-		default:
-			result = callToolResult{Error: fmt.Sprintf("unknown: %s", params.Name)}
-		}
-		resultBytes, _ := json.Marshal(result)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: resultBytes}
-	default:
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: fmt.Sprintf("unknown: %s", req.Method)}}
+	if err := srv.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "channel-mattermost: %v\n", err)
+		os.Exit(1)
 	}
 }
 
@@ -189,16 +92,16 @@ func getMattermostConfig() (url, token string, err error) {
 	return url, token, nil
 }
 
-func mattermostSend(ctx context.Context, args map[string]interface{}) callToolResult {
+func mattermostSend(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	baseURL, token, err := getMattermostConfig()
 	if err != nil {
-		return callToolResult{Error: err.Error()}
+		return extsdk.Result{Error: err.Error()}
 	}
 
 	channelID, _ := args["channelId"].(string)
 	message, _ := args["message"].(string)
 	if channelID == "" || message == "" {
-		return callToolResult{Error: "channelId and message are required"}
+		return extsdk.Result{Error: "channelId and message are required"}
 	}
 
 	payload := map[string]interface{}{
@@ -212,18 +115,18 @@ func mattermostSend(ctx context.Context, args map[string]interface{}) callToolRe
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("mattermost: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("mattermost: %v", err)}
 	}
 	defer resp.Body.Close()
 	rbody, _ := io.ReadAll(resp.Body)
-	return callToolResult{Success: resp.StatusCode < 400, Output: string(rbody)}
+	return extsdk.Result{Success: resp.StatusCode < 400, Output: string(rbody)}
 }
 
-func mattermostWebhook(ctx context.Context, args map[string]interface{}) callToolResult {
+func mattermostWebhook(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	webhookURL, _ := args["webhookUrl"].(string)
 	text, _ := args["text"].(string)
 	if webhookURL == "" || text == "" {
-		return callToolResult{Error: "webhookUrl and text are required"}
+		return extsdk.Result{Error: "webhookUrl and text are required"}
 	}
 
 	payload := map[string]interface{}{"text": text}
@@ -236,17 +139,17 @@ func mattermostWebhook(ctx context.Context, args map[string]interface{}) callToo
 	b, _ := json.Marshal(payload)
 	resp, err := http.Post(webhookURL, "application/json", bytes.NewReader(b))
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("webhook: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("webhook: %v", err)}
 	}
 	defer resp.Body.Close()
 	rbody, _ := io.ReadAll(resp.Body)
-	return callToolResult{Success: resp.StatusCode < 400, Output: string(rbody)}
+	return extsdk.Result{Success: resp.StatusCode < 400, Output: string(rbody)}
 }
 
-func mattermostListChannels(ctx context.Context, args map[string]interface{}) callToolResult {
+func mattermostListChannels(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	baseURL, token, err := getMattermostConfig()
 	if err != nil {
-		return callToolResult{Error: err.Error()}
+		return extsdk.Result{Error: err.Error()}
 	}
 
 	teamID, _ := args["teamId"].(string)
@@ -259,9 +162,9 @@ func mattermostListChannels(ctx context.Context, args map[string]interface{}) ca
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("list channels: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("list channels: %v", err)}
 	}
 	defer resp.Body.Close()
 	rbody, _ := io.ReadAll(resp.Body)
-	return callToolResult{Success: resp.StatusCode < 400, Output: string(rbody)}
+	return extsdk.Result{Success: resp.StatusCode < 400, Output: string(rbody)}
 }

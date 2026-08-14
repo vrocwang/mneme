@@ -2,7 +2,10 @@ module github.com/simon/mneme/extensions/browser-cdp
 
 go 1.25.0
 
-require github.com/chromedp/chromedp v0.13.6
+require (
+	github.com/chromedp/chromedp v0.13.6
+	github.com/simon/mneme v0.0.0
+)
 
 require (
 	github.com/chromedp/cdproto v0.0.0-20250403032234-65de8f5d025b // indirect
@@ -11,5 +14,7 @@ require (
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.4.0 // indirect
-	golang.org/x/sys v0.29.0 // indirect
+	golang.org/x/sys v0.44.0 // indirect
 )
+
+replace github.com/simon/mneme => ../../

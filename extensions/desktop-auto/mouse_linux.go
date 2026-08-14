@@ -9,17 +9,19 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
 // mouseTool controls the mouse on Linux via xdotool.
-func mouseTool(_ context.Context, args map[string]interface{}) callToolResult {
+func mouseTool(_ context.Context, args map[string]interface{}) extsdk.Result {
 	action, _ := args["action"].(string)
 	if action == "" {
-		return callToolResult{Error: "action is required"}
+		return extsdk.Result{Error: "action is required"}
 	}
 
 	if !hasXdotool() {
-		return callToolResult{Error: "xdotool not found. Install with: sudo apt install xdotool"}
+		return extsdk.Result{Error: "xdotool not found. Install with: sudo apt install xdotool"}
 	}
 
 	x, _ := floatFromArgs(args, "x")
@@ -28,32 +30,32 @@ func mouseTool(_ context.Context, args map[string]interface{}) callToolResult {
 	switch action {
 	case "move":
 		if x == 0 && y == 0 {
-			return callToolResult{Error: "x and y coordinates required for move"}
+			return extsdk.Result{Error: "x and y coordinates required for move"}
 		}
 		out, err := execCmd("xdotool", "mousemove", strconv.Itoa(int(x)), strconv.Itoa(int(y)))
 		if err != nil {
-			return callToolResult{Error: fmt.Sprintf("mouse move: %v", err)}
+			return extsdk.Result{Error: fmt.Sprintf("mouse move: %v", err)}
 		}
-		return callToolResult{Success: true, Output: fmt.Sprintf("Mouse moved to (%d, %d)\n%s", int(x), int(y), out)}
+		return extsdk.Result{Success: true, Output: fmt.Sprintf("Mouse moved to (%d, %d)\n%s", int(x), int(y), out)}
 
 	case "click":
 		out, err := execCmd("xdotool", fmt.Sprintf("mousemove_relative"), "--", "0", "0")
 		if err != nil {
-			return callToolResult{Error: fmt.Sprintf("mouse click: %v", err)}
+			return extsdk.Result{Error: fmt.Sprintf("mouse click: %v", err)}
 		}
 		args := []string{"click", "1"}
 		if x != 0 || y != 0 {
 			out2, err := execCmd("xdotool", "mousemove", strconv.Itoa(int(x)), strconv.Itoa(int(y)))
 			if err != nil {
-				return callToolResult{Error: fmt.Sprintf("mouse move: %v", err)}
+				return extsdk.Result{Error: fmt.Sprintf("mouse move: %v", err)}
 			}
 			out += out2
 		}
 		out2, err := execCmd("xdotool", args...)
 		if err != nil {
-			return callToolResult{Error: fmt.Sprintf("mouse click: %v", err)}
+			return extsdk.Result{Error: fmt.Sprintf("mouse click: %v", err)}
 		}
-		return callToolResult{Success: true, Output: out + out2}
+		return extsdk.Result{Success: true, Output: out + out2}
 
 	case "dblclick":
 		args := []string{"click", "--repeat", "2", "1"}
@@ -62,9 +64,9 @@ func mouseTool(_ context.Context, args map[string]interface{}) callToolResult {
 		}
 		out, err := execCmd("xdotool", args...)
 		if err != nil {
-			return callToolResult{Error: fmt.Sprintf("mouse dblclick: %v", err)}
+			return extsdk.Result{Error: fmt.Sprintf("mouse dblclick: %v", err)}
 		}
-		return callToolResult{Success: true, Output: fmt.Sprintf("Double-click at (%d, %d)\n%s", int(x), int(y), out)}
+		return extsdk.Result{Success: true, Output: fmt.Sprintf("Double-click at (%d, %d)\n%s", int(x), int(y), out)}
 
 	case "rightclick":
 		if x != 0 || y != 0 {
@@ -72,15 +74,15 @@ func mouseTool(_ context.Context, args map[string]interface{}) callToolResult {
 		}
 		out, err := execCmd("xdotool", "click", "3")
 		if err != nil {
-			return callToolResult{Error: fmt.Sprintf("mouse rightclick: %v", err)}
+			return extsdk.Result{Error: fmt.Sprintf("mouse rightclick: %v", err)}
 		}
-		return callToolResult{Success: true, Output: out}
+		return extsdk.Result{Success: true, Output: out}
 
 	case "drag":
 		dx, _ := floatFromArgs(args, "dx")
 		dy, _ := floatFromArgs(args, "dy")
 		if dx == 0 && dy == 0 {
-			return callToolResult{Error: "dx and dy required for drag"}
+			return extsdk.Result{Error: "dx and dy required for drag"}
 		}
 		if x != 0 || y != 0 {
 			execCmd("xdotool", "mousemove", strconv.Itoa(int(x)), strconv.Itoa(int(y)))
@@ -89,9 +91,9 @@ func mouseTool(_ context.Context, args map[string]interface{}) callToolResult {
 		execCmd("xdotool", "mousemove_relative", "--", strconv.Itoa(int(dx)), strconv.Itoa(int(dy)))
 		out, err := execCmd("xdotool", "mouseup", "1")
 		if err != nil {
-			return callToolResult{Error: fmt.Sprintf("mouse drag: %v", err)}
+			return extsdk.Result{Error: fmt.Sprintf("mouse drag: %v", err)}
 		}
-		return callToolResult{Success: true, Output: fmt.Sprintf("Dragged by (%d, %d)\n%s", int(dx), int(dy), out)}
+		return extsdk.Result{Success: true, Output: fmt.Sprintf("Dragged by (%d, %d)\n%s", int(dx), int(dy), out)}
 
 	case "scroll_up":
 		amount, _ := floatFromArgs(args, "amount")
@@ -100,9 +102,9 @@ func mouseTool(_ context.Context, args map[string]interface{}) callToolResult {
 		}
 		out, err := execCmd("xdotool", "click", "--repeat", strconv.Itoa(int(amount)), "4")
 		if err != nil {
-			return callToolResult{Error: fmt.Sprintf("scroll up: %v", err)}
+			return extsdk.Result{Error: fmt.Sprintf("scroll up: %v", err)}
 		}
-		return callToolResult{Success: true, Output: fmt.Sprintf("Scrolled up %d\n%s", int(amount), out)}
+		return extsdk.Result{Success: true, Output: fmt.Sprintf("Scrolled up %d\n%s", int(amount), out)}
 
 	case "scroll_down":
 		amount, _ := floatFromArgs(args, "amount")
@@ -111,12 +113,12 @@ func mouseTool(_ context.Context, args map[string]interface{}) callToolResult {
 		}
 		out, err := execCmd("xdotool", "click", "--repeat", strconv.Itoa(int(amount)), "5")
 		if err != nil {
-			return callToolResult{Error: fmt.Sprintf("scroll down: %v", err)}
+			return extsdk.Result{Error: fmt.Sprintf("scroll down: %v", err)}
 		}
-		return callToolResult{Success: true, Output: fmt.Sprintf("Scrolled down %d\n%s", int(amount), out)}
+		return extsdk.Result{Success: true, Output: fmt.Sprintf("Scrolled down %d\n%s", int(amount), out)}
 
 	default:
-		return callToolResult{Error: fmt.Sprintf("unknown mouse action: %s (valid: move, click, dblclick, rightclick, drag, scroll_up, scroll_down)", action)}
+		return extsdk.Result{Error: fmt.Sprintf("unknown mouse action: %s (valid: move, click, dblclick, rightclick, drag, scroll_up, scroll_down)", action)}
 	}
 }
 

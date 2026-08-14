@@ -7,22 +7,22 @@
 //   - skill_list: list installed and running skills
 //   - skill_logs: retrieve skill execution logs
 //
-// Protocol: stdin/stdout JSON-RPC 2.0 (one message per line).
+// Protocol plumbing (JSON-RPC over stdio) is provided by pkg/extsdk.
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
 // dataDir returns the host workspace directory.
@@ -31,86 +31,14 @@ func dataDir() string {
 	return filepath.Join(filepath.Dir(exe), "data")
 }
 
-// ── JSON-RPC types ────────────────────────────────────────────────
+func main() {
+	srv := extsdk.NewServer(extsdk.Manifest{
+		Name:        "skill-runtime",
+		Version:     "0.1.0",
+		Description: "Skill execution runtime: run, cancel, status, list, logs",
+	})
 
-type rpcRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-type rpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
-}
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-type manifest struct {
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Description string   `json:"description"`
-	Tools       []string `json:"tools"`
-	AgentDefs   []string `json:"agent_defs"`
-	ProtocolMin int      `json:"protocol_min"`
-}
-type toolDef struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Permission  string                 `json:"permission"`
-	HasEffects  bool                   `json:"has_effects"`
-}
-type callToolParams struct {
-	Name string                 `json:"name"`
-	Args map[string]interface{} `json:"args"`
-}
-type callToolResult struct {
-	Success bool   `json:"success"`
-	Output  string `json:"output"`
-	Error   string `json:"error,omitempty"`
-}
-
-var extManifest = manifest{
-	Name:        "skill-runtime",
-	Version:     "0.1.0",
-	Description: "Skill execution runtime: run, cancel, status, list, logs",
-	Tools:       []string{"skill_run", "skill_cancel", "skill_status", "skill_list", "skill_logs"},
-	AgentDefs:   []string{"skill_executor"},
-	ProtocolMin: 1,
-}
-
-var extAgentDefs = []struct {
-	ID            string   `json:"id"`
-	Name          string   `json:"name"`
-	Description   string   `json:"description"`
-	Tier          string   `json:"tier"`
-	SystemPrompt  string   `json:"systemPrompt"`
-	ToolAllowlist []string `json:"toolAllowlist"`
-	MaxIterations int      `json:"maxIterations"`
-	Hidden        bool     `json:"hidden"`
-}{
-	{
-		ID:          "skill_executor",
-		Name:        "Skill Executor",
-		Description: "Executes skills as subprocesses, monitors their output, and manages skill lifecycle",
-		Tier:        "worker",
-		SystemPrompt: `You are a skill execution specialist. Your role is to run skills, monitor their progress, and handle errors.
-- Start skills with appropriate arguments
-- Monitor skill output for errors
-- Cancel skills that hang or produce incorrect results
-- Keep logs of skill execution for debugging`,
-		ToolAllowlist: []string{"skill_run", "skill_cancel", "skill_status", "skill_list", "skill_logs", "shell", "read_file", "list_dir"},
-		MaxIterations: 12,
-		Hidden:        false,
-	},
-}
-
-var toolDefs = []toolDef{
-	{
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "skill_run",
 		Description: "Run a skill by name. Skills are executable scripts or binaries. Returns a run ID for tracking.",
 		Parameters: map[string]interface{}{
@@ -126,8 +54,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "execute",
 		HasEffects: true,
-	},
-	{
+	}, skillRunCmd)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "skill_cancel",
 		Description: "Cancel a running skill by its run ID",
 		Parameters: map[string]interface{}{
@@ -140,8 +69,11 @@ var toolDefs = []toolDef{
 		},
 		Permission: "execute",
 		HasEffects: true,
-	},
-	{
+	}, func(ctx context.Context, args map[string]interface{}) extsdk.Result {
+		return skillCancelCmd(args)
+	})
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "skill_status",
 		Description: "Get the status of a running or completed skill by run ID",
 		Parameters: map[string]interface{}{
@@ -153,8 +85,11 @@ var toolDefs = []toolDef{
 		},
 		Permission: "read_only",
 		HasEffects: false,
-	},
-	{
+	}, func(ctx context.Context, args map[string]interface{}) extsdk.Result {
+		return skillStatus(args)
+	})
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "skill_list",
 		Description: "List all installed skills available for execution",
 		Parameters: map[string]interface{}{
@@ -167,8 +102,11 @@ var toolDefs = []toolDef{
 		},
 		Permission: "read_only",
 		HasEffects: false,
-	},
-	{
+	}, func(ctx context.Context, args map[string]interface{}) extsdk.Result {
+		return skillList(args)
+	})
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "skill_logs",
 		Description: "Get execution logs for a skill run",
 		Parameters: map[string]interface{}{
@@ -182,7 +120,29 @@ var toolDefs = []toolDef{
 		},
 		Permission: "read_only",
 		HasEffects: false,
-	},
+	}, func(ctx context.Context, args map[string]interface{}) extsdk.Result {
+		return skillLogs(args)
+	})
+
+	srv.RegisterAgent(extsdk.AgentDef{
+		ID:          "skill_executor",
+		Name:        "Skill Executor",
+		Description: "Executes skills as subprocesses, monitors their output, and manages skill lifecycle",
+		Tier:        "worker",
+		SystemPrompt: `You are a skill execution specialist. Your role is to run skills, monitor their progress, and handle errors.
+- Start skills with appropriate arguments
+- Monitor skill output for errors
+- Cancel skills that hang or produce incorrect results
+- Keep logs of skill execution for debugging`,
+		ToolAllowlist: []string{"skill_run", "skill_cancel", "skill_status", "skill_list", "skill_logs", "shell", "read_file", "list_dir"},
+		MaxIterations: 12,
+		Hidden:        false,
+	})
+
+	if err := srv.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "skill-runtime: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 // ── Skill runtime state ───────────────────────────────────────────
@@ -207,73 +167,10 @@ var (
 	runSeq int64
 )
 
-func main() {
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	log.Info("skill-runtime extension starting", "version", extManifest.Version)
-
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				log.Info("stdin closed, exiting")
-				return
-			}
-			log.Error("read error", "err", err)
-			return
-		}
-		var req rpcRequest
-		json.Unmarshal(line, &req)
-		resp := handleRequest(&req)
-		respBytes, _ := json.Marshal(resp)
-		fmt.Fprintf(os.Stdout, "%s\n", respBytes)
-	}
-}
-
-func handleRequest(req *rpcRequest) *rpcResponse {
-	switch req.Method {
-	case "extension.describe":
-		result, _ := json.Marshal(extManifest)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_tools":
-		type lr struct{ Tools []toolDef }
-		result, _ := json.Marshal(lr{Tools: toolDefs})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_agents":
-		type ar struct{ Agents interface{} }
-		result, _ := json.Marshal(ar{Agents: extAgentDefs})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.call_tool":
-		var params callToolParams
-		json.Unmarshal(req.Params, &params)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		var result callToolResult
-		switch params.Name {
-		case "skill_run":
-			result = skillRunCmd(ctx, params.Args)
-		case "skill_cancel":
-			result = skillCancelCmd(params.Args)
-		case "skill_status":
-			result = skillStatus(params.Args)
-		case "skill_list":
-			result = skillList(params.Args)
-		case "skill_logs":
-			result = skillLogs(params.Args)
-		default:
-			result = callToolResult{Error: fmt.Sprintf("unknown tool: %s", params.Name)}
-		}
-		resultBytes, _ := json.Marshal(result)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: resultBytes}
-	default:
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: fmt.Sprintf("unknown: %s", req.Method)}}
-	}
-}
-
-func skillRunCmd(ctx context.Context, args map[string]interface{}) callToolResult {
+func skillRunCmd(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	skillName, _ := args["skillName"].(string)
 	if skillName == "" {
-		return callToolResult{Error: "skillName is required"}
+		return extsdk.Result{Error: "skillName is required"}
 	}
 
 	workDir, _ := args["workDir"].(string)
@@ -289,7 +186,7 @@ func skillRunCmd(ctx context.Context, args map[string]interface{}) callToolResul
 	// Resolve skill path
 	skillPath := resolveSkillPath(skillName, workDir)
 	if skillPath == "" {
-		return callToolResult{Error: fmt.Sprintf("skill not found: %s", skillName)}
+		return extsdk.Result{Error: fmt.Sprintf("skill not found: %s", skillName)}
 	}
 
 	runCtx, runCancel := context.WithTimeout(ctx, time.Duration(timeoutMs)*time.Millisecond)
@@ -318,17 +215,17 @@ func skillRunCmd(ctx context.Context, args map[string]interface{}) callToolResul
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		runCancel()
-		return callToolResult{Error: fmt.Sprintf("stdout pipe: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("stdout pipe: %v", err)}
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		runCancel()
-		return callToolResult{Error: fmt.Sprintf("stderr pipe: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("stderr pipe: %v", err)}
 	}
 
 	if err := cmd.Start(); err != nil {
 		runCancel()
-		return callToolResult{Error: fmt.Sprintf("skill start: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("skill start: %v", err)}
 	}
 
 	runsMu.Lock()
@@ -369,24 +266,24 @@ func skillRunCmd(ctx context.Context, args map[string]interface{}) callToolResul
 		runsMu.Unlock()
 	}()
 
-	return callToolResult{Success: true, Output: fmt.Sprintf("Skill started: %s\nRun ID: %s\nStatus: running\nTimeout: %dms", skillName, runID, timeoutMs)}
+	return extsdk.Result{Success: true, Output: fmt.Sprintf("Skill started: %s\nRun ID: %s\nStatus: running\nTimeout: %dms", skillName, runID, timeoutMs)}
 }
 
-func skillCancelCmd(args map[string]interface{}) callToolResult {
+func skillCancelCmd(args map[string]interface{}) extsdk.Result {
 	runID, _ := args["runId"].(string)
 	if runID == "" {
-		return callToolResult{Error: "runId is required"}
+		return extsdk.Result{Error: "runId is required"}
 	}
 
 	runsMu.Lock()
 	run, ok := runs[runID]
 	if !ok {
 		runsMu.Unlock()
-		return callToolResult{Error: fmt.Sprintf("run not found: %s", runID)}
+		return extsdk.Result{Error: fmt.Sprintf("run not found: %s", runID)}
 	}
 	if run.Status != "running" {
 		runsMu.Unlock()
-		return callToolResult{Success: true, Output: fmt.Sprintf("Run %s already %s", runID, run.Status)}
+		return extsdk.Result{Success: true, Output: fmt.Sprintf("Run %s already %s", runID, run.Status)}
 	}
 
 	run.cancel()
@@ -396,10 +293,10 @@ func skillCancelCmd(args map[string]interface{}) callToolResult {
 	run.Status = "cancelled"
 	runsMu.Unlock()
 
-	return callToolResult{Success: true, Output: fmt.Sprintf("Cancelled: %s", runID)}
+	return extsdk.Result{Success: true, Output: fmt.Sprintf("Cancelled: %s", runID)}
 }
 
-func skillStatus(args map[string]interface{}) callToolResult {
+func skillStatus(args map[string]interface{}) extsdk.Result {
 	runID, _ := args["runId"].(string)
 
 	runsMu.Lock()
@@ -408,7 +305,7 @@ func skillStatus(args map[string]interface{}) callToolResult {
 	if runID != "" {
 		run, ok := runs[runID]
 		if !ok {
-			return callToolResult{Error: fmt.Sprintf("run not found: %s", runID)}
+			return extsdk.Result{Error: fmt.Sprintf("run not found: %s", runID)}
 		}
 		b, _ := json.MarshalIndent(map[string]interface{}{
 			"id":        run.ID,
@@ -418,7 +315,7 @@ func skillStatus(args map[string]interface{}) callToolResult {
 			"endTime":   run.EndTime.Format(time.RFC3339),
 			"exitCode":  run.ExitCode,
 		}, "", "  ")
-		return callToolResult{Success: true, Output: string(b)}
+		return extsdk.Result{Success: true, Output: string(b)}
 	}
 
 	// List all
@@ -429,10 +326,10 @@ func skillStatus(args map[string]interface{}) callToolResult {
 		})
 	}
 	b, _ := json.MarshalIndent(statuses, "", "  ")
-	return callToolResult{Success: true, Output: string(b)}
+	return extsdk.Result{Success: true, Output: string(b)}
 }
 
-func skillList(args map[string]interface{}) callToolResult {
+func skillList(args map[string]interface{}) extsdk.Result {
 	searchPath, _ := args["searchPath"].(string)
 	filter, _ := args["filter"].(string)
 
@@ -468,12 +365,12 @@ func skillList(args map[string]interface{}) callToolResult {
 
 	b, _ := json.MarshalIndent(found, "", "  ")
 	if len(found) == 0 {
-		return callToolResult{Success: true, Output: fmt.Sprintf("No skills found. Place executables in %s/", filepath.Join(dataDir(), "skills"))}
+		return extsdk.Result{Success: true, Output: fmt.Sprintf("No skills found. Place executables in %s/", filepath.Join(dataDir(), "skills"))}
 	}
-	return callToolResult{Success: true, Output: string(b)}
+	return extsdk.Result{Success: true, Output: string(b)}
 }
 
-func skillLogs(args map[string]interface{}) callToolResult {
+func skillLogs(args map[string]interface{}) extsdk.Result {
 	runID, _ := args["runId"].(string)
 	tail := 100
 	if t, ok := intFromOptArgs(args, "tail"); ok && t > 0 {
@@ -488,7 +385,7 @@ func skillLogs(args map[string]interface{}) callToolResult {
 	run, ok := runs[runID]
 	runsMu.Unlock()
 	if !ok {
-		return callToolResult{Error: fmt.Sprintf("run not found: %s", runID)}
+		return extsdk.Result{Error: fmt.Sprintf("run not found: %s", runID)}
 	}
 
 	var out string
@@ -501,7 +398,7 @@ func skillLogs(args map[string]interface{}) callToolResult {
 	if out == "" {
 		out = fmt.Sprintf("No output yet. Status: %s", run.Status)
 	}
-	return callToolResult{Success: true, Output: out}
+	return extsdk.Result{Success: true, Output: out}
 }
 
 // ── Helpers ──────────────────────────────────────────────────────

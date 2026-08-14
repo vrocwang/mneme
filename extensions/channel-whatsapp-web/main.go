@@ -8,74 +8,32 @@
 //   - whatsapp_web_send: send a message via WhatsApp Business API
 //   - whatsapp_web_status: check WhatsApp API connection status
 //
-// Protocol: stdin/stdout JSON-RPC 2.0 (one message per line).
+// Protocol plumbing (JSON-RPC over stdio) is provided by pkg/extsdk.
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
-type rpcRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-type rpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
-}
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-type manifest struct {
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Description string   `json:"description"`
-	Tools       []string `json:"tools"`
-	AgentDefs   []string `json:"agent_defs"`
-	ProtocolMin int      `json:"protocol_min"`
-}
-type toolDef struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Permission  string                 `json:"permission"`
-	HasEffects  bool                   `json:"has_effects"`
-}
-type callToolParams struct {
-	Name string
-	Args map[string]interface{}
-}
-type callToolResult struct {
-	Success bool   `json:"success"`
-	Output  string `json:"output"`
-	Error   string `json:"error,omitempty"`
-}
+var httpClient = &http.Client{Timeout: 20 * time.Second}
 
-var extManifest = manifest{
-	Name:        "channel-whatsapp-web",
-	Version:     "0.1.0",
-	Description: "WhatsApp Web channel: send messages via WhatsApp Business API",
-	Tools:       []string{"whatsapp_web_send", "whatsapp_web_status"},
-	AgentDefs:   []string{},
-	ProtocolMin: 1,
-}
+func main() {
+	srv := extsdk.NewServer(extsdk.Manifest{
+		Name:        "channel-whatsapp-web",
+		Version:     "0.1.0",
+		Description: "WhatsApp Web channel: send messages via WhatsApp Business API",
+	})
 
-var toolDefs = []toolDef{
-	{
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "whatsapp_web_send",
 		Description: "Send a WhatsApp message via the WhatsApp Business API. Requires WHATSAPP_API_TOKEN and WHATSAPP_PHONE_ID env vars.",
 		Parameters: map[string]interface{}{
@@ -88,73 +46,19 @@ var toolDefs = []toolDef{
 		},
 		Permission: "execute",
 		HasEffects: true,
-	},
-	{
+	}, whatsappSend)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "whatsapp_web_status",
 		Description: "Check WhatsApp Business API connection status",
 		Parameters:  map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
 		Permission:  "read_only",
 		HasEffects:  false,
-	},
-}
+	}, whatsappStatus)
 
-var httpClient = &http.Client{Timeout: 20 * time.Second}
-
-func main() {
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	log.Info("channel-whatsapp-web extension starting")
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				return
-			}
-			return
-		}
-		var req rpcRequest
-		json.Unmarshal(line, &req)
-		resp := handleRequest(&req)
-		respBytes, _ := json.Marshal(resp)
-		fmt.Fprintf(os.Stdout, "%s\n", respBytes)
-	}
-}
-
-func handleRequest(req *rpcRequest) *rpcResponse {
-	switch req.Method {
-	case "extension.describe":
-		result, _ := json.Marshal(extManifest)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_tools":
-		type listResult struct {
-			Tools []toolDef `json:"tools"`
-		}
-		result, _ := json.Marshal(listResult{Tools: toolDefs})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_agents":
-		type listAgentsResult struct {
-			Agents []interface{} `json:"agents"`
-		}
-		result, _ := json.Marshal(listAgentsResult{Agents: []interface{}{}})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.call_tool":
-		var params callToolParams
-		json.Unmarshal(req.Params, &params)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		var result callToolResult
-		switch params.Name {
-		case "whatsapp_web_send":
-			result = whatsappSend(ctx, params.Args)
-		case "whatsapp_web_status":
-			result = whatsappStatus(ctx)
-		default:
-			result = callToolResult{Error: fmt.Sprintf("unknown: %s", params.Name)}
-		}
-		resultBytes, _ := json.Marshal(result)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: resultBytes}
-	default:
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: fmt.Sprintf("unknown: %s", req.Method)}}
+	if err := srv.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "channel-whatsapp-web: %v\n", err)
+		os.Exit(1)
 	}
 }
 
@@ -167,16 +71,16 @@ func getWACreds() (token, phoneID string, err error) {
 	return token, phoneID, nil
 }
 
-func whatsappSend(ctx context.Context, args map[string]interface{}) callToolResult {
+func whatsappSend(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	token, phoneID, err := getWACreds()
 	if err != nil {
-		return callToolResult{Error: err.Error()}
+		return extsdk.Result{Error: err.Error()}
 	}
 
 	to, _ := args["to"].(string)
 	body, _ := args["body"].(string)
 	if to == "" || body == "" {
-		return callToolResult{Error: "to and body are required"}
+		return extsdk.Result{Error: "to and body are required"}
 	}
 
 	payload := map[string]interface{}{
@@ -194,17 +98,18 @@ func whatsappSend(ctx context.Context, args map[string]interface{}) callToolResu
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("whatsapp send: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("whatsapp send: %v", err)}
 	}
 	defer resp.Body.Close()
 	rbody, _ := io.ReadAll(resp.Body)
-	return callToolResult{Success: resp.StatusCode < 400, Output: string(rbody)}
+	return extsdk.Result{Success: resp.StatusCode < 400, Output: string(rbody)}
 }
 
-func whatsappStatus(ctx context.Context) callToolResult {
+func whatsappStatus(ctx context.Context, args map[string]interface{}) extsdk.Result {
+	_ = args
 	token, phoneID, err := getWACreds()
 	if err != nil {
-		return callToolResult{Success: false, Error: fmt.Sprintf("WhatsApp API not configured: %v", err)}
+		return extsdk.Result{Success: false, Error: fmt.Sprintf("WhatsApp API not configured: %v", err)}
 	}
 
 	url := fmt.Sprintf("https://graph.facebook.com/v18.0/%s", phoneID)
@@ -212,13 +117,13 @@ func whatsappStatus(ctx context.Context) callToolResult {
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("status check: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("status check: %v", err)}
 	}
 	defer resp.Body.Close()
 	rbody, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode < 400 {
-		return callToolResult{Success: true, Output: fmt.Sprintf("WhatsApp API connected\nPhone ID: %s\n%s", phoneID, string(rbody))}
+		return extsdk.Result{Success: true, Output: fmt.Sprintf("WhatsApp API connected\nPhone ID: %s\n%s", phoneID, string(rbody))}
 	}
-	return callToolResult{Error: fmt.Sprintf("API check failed (status %d): %s", resp.StatusCode, string(rbody))}
+	return extsdk.Result{Error: fmt.Sprintf("API check failed (status %d): %s", resp.StatusCode, string(rbody))}
 }

@@ -8,14 +8,16 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
 // curlTool makes a raw HTTP request with full control over method, headers, and body.
 // It includes SSRF protection to prevent requests to internal/private addresses.
-func curlTool(ctx context.Context, args map[string]interface{}) callToolResult {
+func curlTool(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	rawURL, _ := args["url"].(string)
 	if rawURL == "" {
-		return callToolResult{Error: "url is required"}
+		return extsdk.Result{Error: "url is required"}
 	}
 
 	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
@@ -24,7 +26,7 @@ func curlTool(ctx context.Context, args map[string]interface{}) callToolResult {
 
 	// SSRF protection
 	if err := validateSafeURL(rawURL); err != nil {
-		return callToolResult{Error: fmt.Sprintf("URL rejected: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("URL rejected: %v", err)}
 	}
 
 	method := "GET"
@@ -58,7 +60,7 @@ func curlTool(ctx context.Context, args map[string]interface{}) callToolResult {
 
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, bodyReader)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("create request: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("create request: %v", err)}
 	}
 
 	req.Header.Set("User-Agent", "Mneme-Curl/1.0")
@@ -74,13 +76,13 @@ func curlTool(ctx context.Context, args map[string]interface{}) callToolResult {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("request failed: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("request failed: %v", err)}
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20)) // 2MB limit
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("read body: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("read body: %v", err)}
 	}
 
 	// Build curl-style output
@@ -102,7 +104,7 @@ func curlTool(ctx context.Context, args map[string]interface{}) callToolResult {
 		result = result[:50000] + fmt.Sprintf("\n\n[Response truncated at 50000 chars. Total: %d chars]", len(out.String()))
 	}
 
-	return callToolResult{Success: true, Output: result}
+	return extsdk.Result{Success: true, Output: result}
 }
 
 // ── Shared HTML utilities ────────────────────────────────────────────────

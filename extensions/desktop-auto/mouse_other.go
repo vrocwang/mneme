@@ -9,13 +9,15 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
 // mouseTool controls the mouse via platform-specific commands.
-func mouseTool(_ context.Context, args map[string]interface{}) callToolResult {
+func mouseTool(_ context.Context, args map[string]interface{}) extsdk.Result {
 	action, _ := args["action"].(string)
 	if action == "" {
-		return callToolResult{Error: "action is required"}
+		return extsdk.Result{Error: "action is required"}
 	}
 
 	x, _ := floatFromArgs(args, "x")
@@ -27,11 +29,11 @@ func mouseTool(_ context.Context, args map[string]interface{}) callToolResult {
 	case "windows":
 		return mouseWindows(action, x, y, args)
 	default:
-		return callToolResult{Error: fmt.Sprintf("unsupported platform: %s", runtime.GOOS)}
+		return extsdk.Result{Error: fmt.Sprintf("unsupported platform: %s", runtime.GOOS)}
 	}
 }
 
-func mouseMac(action string, x, y float64, args map[string]interface{}) callToolResult {
+func mouseMac(action string, x, y float64, args map[string]interface{}) extsdk.Result {
 	amount, _ := floatFromArgs(args, "amount")
 	if amount == 0 {
 		amount = 3
@@ -45,18 +47,18 @@ func mouseMac(action string, x, y float64, args map[string]interface{}) callTool
 			cmd := exec.Command("cliclick", fmt.Sprintf("m:%d,%d", int(x), int(y)))
 			out, err := cmd.CombinedOutput()
 			if err != nil {
-				return callToolResult{Error: fmt.Sprintf("macOS mouse move: %v (%s)", err, string(out))}
+				return extsdk.Result{Error: fmt.Sprintf("macOS mouse move: %v (%s)", err, string(out))}
 			}
-			return callToolResult{Success: true, Output: strings.TrimSpace(string(out))}
+			return extsdk.Result{Success: true, Output: strings.TrimSpace(string(out))}
 		}
 		// Fall back to Python Quartz
 		py := fmt.Sprintf(`import Quartz; Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventMouseMoved, (%d, %d), 0))`, int(x), int(y))
 		cmd := exec.Command("python3", "-c", py)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			return callToolResult{Error: fmt.Sprintf("macOS mouse move: %v (%s) - install cliclick (brew install cliclick) or pyobjc", err, string(out))}
+			return extsdk.Result{Error: fmt.Sprintf("macOS mouse move: %v (%s) - install cliclick (brew install cliclick) or pyobjc", err, string(out))}
 		}
-		return callToolResult{Success: true, Output: strings.TrimSpace(string(out))}
+		return extsdk.Result{Success: true, Output: strings.TrimSpace(string(out))}
 	case "click":
 		script = fmt.Sprintf(`
 tell application "System Events"
@@ -89,18 +91,18 @@ tell application "System Events"
     end repeat
 end tell`, int(amount))
 	default:
-		return callToolResult{Error: fmt.Sprintf("unsupported action on macOS: %s", action)}
+		return extsdk.Result{Error: fmt.Sprintf("unsupported action on macOS: %s", action)}
 	}
 
 	cmd := exec.Command("osascript", "-e", script)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("macOS mouse: %v (%s)", err, string(out))}
+		return extsdk.Result{Error: fmt.Sprintf("macOS mouse: %v (%s)", err, string(out))}
 	}
-	return callToolResult{Success: true, Output: strings.TrimSpace(string(out))}
+	return extsdk.Result{Success: true, Output: strings.TrimSpace(string(out))}
 }
 
-func mouseWindows(action string, x, y float64, args map[string]interface{}) callToolResult {
+func mouseWindows(action string, x, y float64, args map[string]interface{}) extsdk.Result {
 	// On Windows, use PowerShell to control mouse via .NET
 	amount, _ := floatFromArgs(args, "amount")
 	if amount == 0 {
@@ -125,15 +127,15 @@ for ($i=0; $i -lt %d; $i++) { [System.Win32]::mouse_event(0x0800, 0, 0, 120, 0) 
 		ps = fmt.Sprintf(`Add-Type -MemberDefinition '[DllImport("user32.dll")] public static extern void mouse_event(int dwFlags, int dx, int dy, int cButtons, int dwExtraInfo);' -Name Win32 -Namespace System
 for ($i=0; $i -lt %d; $i++) { [System.Win32]::mouse_event(0x0800, 0, 0, -120, 0) }`, int(amount))
 	default:
-		return callToolResult{Error: fmt.Sprintf("unsupported action on Windows: %s", action)}
+		return extsdk.Result{Error: fmt.Sprintf("unsupported action on Windows: %s", action)}
 	}
 
 	cmd := exec.Command("powershell", "-NoProfile", "-Command", ps)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("Windows mouse: %v (%s)", err, string(out))}
+		return extsdk.Result{Error: fmt.Sprintf("Windows mouse: %v (%s)", err, string(out))}
 	}
-	return callToolResult{Success: true, Output: strings.TrimSpace(string(out))}
+	return extsdk.Result{Success: true, Output: strings.TrimSpace(string(out))}
 }
 
 // Shared helpers used on non-Linux platforms.

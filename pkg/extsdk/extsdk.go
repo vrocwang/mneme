@@ -146,6 +146,14 @@ func NewServer(m Manifest) *Server {
 	if m.ProtocolMin == 0 {
 		m.ProtocolMin = ProtocolVersion
 	}
+	// Emit [] rather than null for empty lists, matching the host's
+	// expectation that Tools/AgentDefs are arrays.
+	if m.Tools == nil {
+		m.Tools = []string{}
+	}
+	if m.AgentDefs == nil {
+		m.AgentDefs = []string{}
+	}
 	return &Server{
 		manifest: m,
 		log:      slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
@@ -223,14 +231,17 @@ func (s *Server) Run() error {
 
 func (s *Server) handle(req *rpcRequest) *rpcResponse {
 	switch req.Method {
-	case "extension.describe":
+	case "extension.describe", "manifest": // "manifest" is a legacy alias some extensions use
 		result, _ := json.Marshal(s.manifest)
 		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
 
 	case "extension.list_tools":
 		s.mu.RLock()
-		tools := append([]ToolDef(nil), s.tools...)
+		tools := s.tools
 		s.mu.RUnlock()
+		if tools == nil {
+			tools = []ToolDef{} // emit [] rather than null
+		}
 		result, _ := json.Marshal(struct {
 			Tools []ToolDef `json:"tools"`
 		}{Tools: tools})
@@ -238,8 +249,11 @@ func (s *Server) handle(req *rpcRequest) *rpcResponse {
 
 	case "extension.list_agents":
 		s.mu.RLock()
-		agents := append([]AgentDef(nil), s.agents...)
+		agents := s.agents
 		s.mu.RUnlock()
+		if agents == nil {
+			agents = []AgentDef{} // emit [] rather than null
+		}
 		result, _ := json.Marshal(struct {
 			Agents []AgentDef `json:"agents"`
 		}{Agents: agents})
@@ -299,4 +313,40 @@ func (s *Server) rpcResult(req *rpcRequest, v interface{}) *rpcResponse {
 		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: newRPCError(-32603, err.Error())}
 	}
 	return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: b}
+}
+
+// ── Argument helpers (shared by extensions to avoid per-extension helpers) ──
+
+// GetStr returns the string value at key, or fallback when absent/empty.
+func GetStr(args map[string]interface{}, key, fallback string) string {
+	if v, ok := args[key].(string); ok && v != "" {
+		return v
+	}
+	return fallback
+}
+
+// GetInt returns the int value at key, or fallback when absent. Accepts
+// float64 (JSON numbers), int, and int64.
+func GetInt(args map[string]interface{}, key string, fallback int) int {
+	v, ok := args[key]
+	if !ok {
+		return fallback
+	}
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case int64:
+		return int(n)
+	}
+	return fallback
+}
+
+// GetBool returns the bool value at key, or fallback when absent.
+func GetBool(args map[string]interface{}, key string, fallback bool) bool {
+	if v, ok := args[key].(bool); ok {
+		return v
+	}
+	return fallback
 }

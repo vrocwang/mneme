@@ -10,7 +10,7 @@
 // Uses stdin/stdout JSON-RPC to communicate with both the Mneme core
 // AND the language server process (spawned as a subprocess).
 //
-// Protocol: stdin/stdout JSON-RPC 2.0 (one message per line).
+// Protocol plumbing (JSON-RPC over stdio) is provided by pkg/extsdk.
 package main
 
 import (
@@ -28,147 +28,19 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-	"time"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
-// ── JSON-RPC types ────────────────────────────────────────────────
-
-type rpcRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-
-type rpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
-}
-
+// rpcError is reused for parsing JSON-RPC responses from the language
+// server subprocess (not the Mneme extension protocol, which is handled
+// by pkg/extsdk).
 type rpcError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 }
 
-type manifest struct {
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Description string   `json:"description"`
-	Tools       []string `json:"tools"`
-	AgentDefs   []string `json:"agent_defs"`
-	ProtocolMin int      `json:"protocol_min"`
-}
-
-type toolDef struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Permission  string                 `json:"permission"`
-	HasEffects  bool                   `json:"has_effects"`
-}
-
-type callToolParams struct {
-	Name string                 `json:"name"`
-	Args map[string]interface{} `json:"args"`
-}
-
-type callToolResult struct {
-	Success bool   `json:"success"`
-	Output  string `json:"output"`
-	Error   string `json:"error,omitempty"`
-}
-
-var extManifest = manifest{
-	Name:        "lsp",
-	Version:     "0.1.0",
-	Description: "Language Server Protocol integration: definition, references, hover, symbols, completions",
-	Tools:       []string{"lsp_definition", "lsp_references", "lsp_hover", "lsp_symbols", "lsp_complete"},
-	AgentDefs:   []string{},
-	ProtocolMin: 1,
-}
-
-var toolDefs = []toolDef{
-	{
-		Name:        "lsp_definition",
-		Description: "Go to the definition of a symbol at the given file and position",
-		Parameters: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"filePath":   map[string]interface{}{"type": "string", "description": "Absolute path to the source file"},
-				"line":       map[string]interface{}{"type": "number", "description": "Line number (1-based)"},
-				"character":  map[string]interface{}{"type": "number", "description": "Character offset (1-based)"},
-				"languageId": map[string]interface{}{"type": "string", "description": "Language ID: go, typescript, python, rust, etc. Auto-detected if empty."},
-			},
-			"required": []string{"filePath", "line", "character"},
-		},
-		Permission: "read_only",
-		HasEffects: false,
-	},
-	{
-		Name:        "lsp_references",
-		Description: "Find all references to a symbol at the given file and position",
-		Parameters: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"filePath":    map[string]interface{}{"type": "string", "description": "Absolute path to the source file"},
-				"line":        map[string]interface{}{"type": "number", "description": "Line number (1-based)"},
-				"character":   map[string]interface{}{"type": "number", "description": "Character offset (1-based)"},
-				"includeDecl": map[string]interface{}{"type": "boolean", "description": "Include declaration in results (default true)"},
-			},
-			"required": []string{"filePath", "line", "character"},
-		},
-		Permission: "read_only",
-		HasEffects: false,
-	},
-	{
-		Name:        "lsp_hover",
-		Description: "Get hover information (type, documentation) for a symbol at the given position",
-		Parameters: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"filePath":  map[string]interface{}{"type": "string", "description": "Absolute path to the source file"},
-				"line":      map[string]interface{}{"type": "number", "description": "Line number (1-based)"},
-				"character": map[string]interface{}{"type": "number", "description": "Character offset (1-based)"},
-			},
-			"required": []string{"filePath", "line", "character"},
-		},
-		Permission: "read_only",
-		HasEffects: false,
-	},
-	{
-		Name:        "lsp_symbols",
-		Description: "List document symbols or search workspace symbols",
-		Parameters: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"filePath": map[string]interface{}{"type": "string", "description": "File path for document symbols. Omit for workspace symbol search."},
-				"query":    map[string]interface{}{"type": "string", "description": "Search query for workspace symbols"},
-				"maxItems": map[string]interface{}{"type": "number", "description": "Max results (default 50)"},
-			},
-			"required": []string{},
-		},
-		Permission: "read_only",
-		HasEffects: false,
-	},
-	{
-		Name:        "lsp_complete",
-		Description: "Get code completion suggestions at a position",
-		Parameters: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"filePath":  map[string]interface{}{"type": "string", "description": "Absolute path to the source file"},
-				"line":      map[string]interface{}{"type": "number", "description": "Line number (1-based)"},
-				"character": map[string]interface{}{"type": "number", "description": "Character offset (1-based)"},
-				"maxItems":  map[string]interface{}{"type": "number", "description": "Max completions (default 20)"},
-			},
-			"required": []string{"filePath", "line", "character"},
-		},
-		Permission: "read_only",
-		HasEffects: false,
-	},
-}
+var log = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 // ── LSP client state ──────────────────────────────────────────────
 
@@ -234,7 +106,7 @@ func detectLangID(filePath string) string {
 	}
 }
 
-func getOrStartLS(ctx context.Context, langID string, log *slog.Logger) (*lspClient, error) {
+func getOrStartLS(ctx context.Context, langID string) (*lspClient, error) {
 	clientCacheMu.Lock()
 	if c, ok := clientCache[langID]; ok {
 		// Check if the cached process is still alive.
@@ -404,78 +276,106 @@ func (c *lspClient) call(ctx context.Context, method string, params interface{})
 // ── Main ──────────────────────────────────────────────────────────
 
 func main() {
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	log.Info("lsp extension starting", "version", extManifest.Version)
+	log.Info("lsp extension starting", "version", "0.1.0")
 
-	reader := bufio.NewReader(os.Stdin)
+	srv := extsdk.NewServer(extsdk.Manifest{
+		Name:        "lsp",
+		Version:     "0.1.0",
+		Description: "Language Server Protocol integration: definition, references, hover, symbols, completions",
+	})
 
-	for {
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				log.Info("stdin closed, exiting")
-				return
-			}
-			log.Error("read error", "err", err)
-			return
-		}
+	srv.RegisterTool(extsdk.ToolDef{
+		Name:        "lsp_definition",
+		Description: "Go to the definition of a symbol at the given file and position",
+		Parameters: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"filePath":   map[string]interface{}{"type": "string", "description": "Absolute path to the source file"},
+				"line":       map[string]interface{}{"type": "number", "description": "Line number (1-based)"},
+				"character":  map[string]interface{}{"type": "number", "description": "Character offset (1-based)"},
+				"languageId": map[string]interface{}{"type": "string", "description": "Language ID: go, typescript, python, rust, etc. Auto-detected if empty."},
+			},
+			"required": []string{"filePath", "line", "character"},
+		},
+		Permission: "read_only",
+		HasEffects: false,
+	}, lspDefinition)
 
-		var req rpcRequest
-		if err := json.Unmarshal(line, &req); err != nil {
-			log.Error("unmarshal error", "err", err)
-			continue
-		}
+	srv.RegisterTool(extsdk.ToolDef{
+		Name:        "lsp_references",
+		Description: "Find all references to a symbol at the given file and position",
+		Parameters: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"filePath":    map[string]interface{}{"type": "string", "description": "Absolute path to the source file"},
+				"line":        map[string]interface{}{"type": "number", "description": "Line number (1-based)"},
+				"character":   map[string]interface{}{"type": "number", "description": "Character offset (1-based)"},
+				"includeDecl": map[string]interface{}{"type": "boolean", "description": "Include declaration in results (default true)"},
+			},
+			"required": []string{"filePath", "line", "character"},
+		},
+		Permission: "read_only",
+		HasEffects: false,
+	}, lspReferences)
 
-		resp := handleRequest(&req, log)
-		respBytes, _ := json.Marshal(resp)
-		fmt.Fprintf(os.Stdout, "%s\n", respBytes)
-	}
-}
+	srv.RegisterTool(extsdk.ToolDef{
+		Name:        "lsp_hover",
+		Description: "Get hover information (type, documentation) for a symbol at the given position",
+		Parameters: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"filePath":  map[string]interface{}{"type": "string", "description": "Absolute path to the source file"},
+				"line":      map[string]interface{}{"type": "number", "description": "Line number (1-based)"},
+				"character": map[string]interface{}{"type": "number", "description": "Character offset (1-based)"},
+			},
+			"required": []string{"filePath", "line", "character"},
+		},
+		Permission: "read_only",
+		HasEffects: false,
+	}, lspHover)
 
-func handleRequest(req *rpcRequest, log *slog.Logger) *rpcResponse {
-	switch req.Method {
-	case "extension.describe":
-		result, _ := json.Marshal(extManifest)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_tools":
-		type listResult struct {
-			Tools []toolDef `json:"tools"`
-		}
-		result, _ := json.Marshal(listResult{Tools: toolDefs})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_agents":
-		result, _ := json.Marshal(map[string]interface{}{"agents": []interface{}{}})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.call_tool":
-		var params callToolParams
-		json.Unmarshal(req.Params, &params)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		var result callToolResult
-		switch params.Name {
-		case "lsp_definition":
-			result = lspDefinition(ctx, params.Args, log)
-		case "lsp_references":
-			result = lspReferences(ctx, params.Args, log)
-		case "lsp_hover":
-			result = lspHover(ctx, params.Args, log)
-		case "lsp_symbols":
-			result = lspSymbols(ctx, params.Args, log)
-		case "lsp_complete":
-			result = lspComplete(ctx, params.Args, log)
-		default:
-			result = callToolResult{Error: fmt.Sprintf("unknown tool: %s", params.Name)}
-		}
-		resultBytes, _ := json.Marshal(result)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: resultBytes}
-	default:
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: fmt.Sprintf("unknown: %s", req.Method)}}
+	srv.RegisterTool(extsdk.ToolDef{
+		Name:        "lsp_symbols",
+		Description: "List document symbols or search workspace symbols",
+		Parameters: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"filePath": map[string]interface{}{"type": "string", "description": "File path for document symbols. Omit for workspace symbol search."},
+				"query":    map[string]interface{}{"type": "string", "description": "Search query for workspace symbols"},
+				"maxItems": map[string]interface{}{"type": "number", "description": "Max results (default 50)"},
+			},
+			"required": []string{},
+		},
+		Permission: "read_only",
+		HasEffects: false,
+	}, lspSymbols)
+
+	srv.RegisterTool(extsdk.ToolDef{
+		Name:        "lsp_complete",
+		Description: "Get code completion suggestions at a position",
+		Parameters: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"filePath":  map[string]interface{}{"type": "string", "description": "Absolute path to the source file"},
+				"line":      map[string]interface{}{"type": "number", "description": "Line number (1-based)"},
+				"character": map[string]interface{}{"type": "number", "description": "Character offset (1-based)"},
+				"maxItems":  map[string]interface{}{"type": "number", "description": "Max completions (default 20)"},
+			},
+			"required": []string{"filePath", "line", "character"},
+		},
+		Permission: "read_only",
+		HasEffects: false,
+	}, lspComplete)
+
+	if err := srv.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "lsp: %v\n", err)
+		os.Exit(1)
 	}
 }
 
 // ── Tool implementations ──────────────────────────────────────────
 
-func lspDefinition(ctx context.Context, args map[string]interface{}, log *slog.Logger) callToolResult {
+func lspDefinition(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	filePath, _ := args["filePath"].(string)
 	line := intFromArgs(args, "line")
 	character := intFromArgs(args, "character")
@@ -485,12 +385,12 @@ func lspDefinition(ctx context.Context, args map[string]interface{}, log *slog.L
 		langID = detectLangID(filePath)
 	}
 	if langID == "" {
-		return callToolResult{Error: "cannot detect language; provide languageId"}
+		return extsdk.Result{Error: "cannot detect language; provide languageId"}
 	}
 
-	c, err := getOrStartLS(ctx, langID, log)
+	c, err := getOrStartLS(ctx, langID)
 	if err != nil {
-		return callToolResult{Error: err.Error()}
+		return extsdk.Result{Error: err.Error()}
 	}
 
 	result, err := c.call(ctx, "textDocument/definition", map[string]interface{}{
@@ -498,13 +398,13 @@ func lspDefinition(ctx context.Context, args map[string]interface{}, log *slog.L
 		"position":     map[string]int{"line": line - 1, "character": character - 1},
 	})
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("definition: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("definition: %v", err)}
 	}
 
-	return callToolResult{Success: true, Output: prettyJSON(result)}
+	return extsdk.Result{Success: true, Output: prettyJSON(result)}
 }
 
-func lspReferences(ctx context.Context, args map[string]interface{}, log *slog.Logger) callToolResult {
+func lspReferences(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	filePath, _ := args["filePath"].(string)
 	line := intFromArgs(args, "line")
 	character := intFromArgs(args, "character")
@@ -515,12 +415,12 @@ func lspReferences(ctx context.Context, args map[string]interface{}, log *slog.L
 
 	langID := getStrArg(args, "languageId", detectLangID(filePath))
 	if langID == "" {
-		return callToolResult{Error: "cannot detect language; provide languageId"}
+		return extsdk.Result{Error: "cannot detect language; provide languageId"}
 	}
 
-	c, err := getOrStartLS(ctx, langID, log)
+	c, err := getOrStartLS(ctx, langID)
 	if err != nil {
-		return callToolResult{Error: err.Error()}
+		return extsdk.Result{Error: err.Error()}
 	}
 
 	result, err := c.call(ctx, "textDocument/references", map[string]interface{}{
@@ -529,25 +429,25 @@ func lspReferences(ctx context.Context, args map[string]interface{}, log *slog.L
 		"context":      map[string]bool{"includeDeclaration": includeDecl},
 	})
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("references: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("references: %v", err)}
 	}
 
-	return callToolResult{Success: true, Output: prettyJSON(result)}
+	return extsdk.Result{Success: true, Output: prettyJSON(result)}
 }
 
-func lspHover(ctx context.Context, args map[string]interface{}, log *slog.Logger) callToolResult {
+func lspHover(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	filePath, _ := args["filePath"].(string)
 	line := intFromArgs(args, "line")
 	character := intFromArgs(args, "character")
 
 	langID := getStrArg(args, "languageId", detectLangID(filePath))
 	if langID == "" {
-		return callToolResult{Error: "cannot detect language; provide languageId"}
+		return extsdk.Result{Error: "cannot detect language; provide languageId"}
 	}
 
-	c, err := getOrStartLS(ctx, langID, log)
+	c, err := getOrStartLS(ctx, langID)
 	if err != nil {
-		return callToolResult{Error: err.Error()}
+		return extsdk.Result{Error: err.Error()}
 	}
 
 	result, err := c.call(ctx, "textDocument/hover", map[string]interface{}{
@@ -555,13 +455,13 @@ func lspHover(ctx context.Context, args map[string]interface{}, log *slog.Logger
 		"position":     map[string]int{"line": line - 1, "character": character - 1},
 	})
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("hover: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("hover: %v", err)}
 	}
 
-	return callToolResult{Success: true, Output: extractHoverText(result)}
+	return extsdk.Result{Success: true, Output: extractHoverText(result)}
 }
 
-func lspSymbols(ctx context.Context, args map[string]interface{}, log *slog.Logger) callToolResult {
+func lspSymbols(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	filePath, _ := args["filePath"].(string)
 	query, _ := args["query"].(string)
 
@@ -576,11 +476,11 @@ func lspSymbols(ctx context.Context, args map[string]interface{}, log *slog.Logg
 	if filePath != "" {
 		// Document symbols
 		if langID == "" {
-			return callToolResult{Error: "cannot detect language from file path"}
+			return extsdk.Result{Error: "cannot detect language from file path"}
 		}
-		c, startErr := getOrStartLS(ctx, langID, log)
+		c, startErr := getOrStartLS(ctx, langID)
 		if startErr != nil {
-			return callToolResult{Error: startErr.Error()}
+			return extsdk.Result{Error: startErr.Error()}
 		}
 		result, err = c.call(ctx, "textDocument/documentSymbol", map[string]interface{}{
 			"textDocument": map[string]interface{}{"uri": fileToURI(filePath)},
@@ -593,7 +493,7 @@ func lspSymbols(ctx context.Context, args map[string]interface{}, log *slog.Logg
 		}
 		sort.Strings(langs)
 		for _, lang := range langs {
-			c, startErr := getOrStartLS(ctx, lang, log)
+			c, startErr := getOrStartLS(ctx, lang)
 			if startErr != nil {
 				continue
 			}
@@ -603,32 +503,32 @@ func lspSymbols(ctx context.Context, args map[string]interface{}, log *slog.Logg
 			break
 		}
 		if result == nil {
-			return callToolResult{Error: "no LSP server available for workspace symbol search"}
+			return extsdk.Result{Error: "no LSP server available for workspace symbol search"}
 		}
 	} else {
-		return callToolResult{Error: "provide either filePath (document symbols) or query (workspace symbols)"}
+		return extsdk.Result{Error: "provide either filePath (document symbols) or query (workspace symbols)"}
 	}
 
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("symbols: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("symbols: %v", err)}
 	}
 
-	return callToolResult{Success: true, Output: prettyJSON(result)}
+	return extsdk.Result{Success: true, Output: prettyJSON(result)}
 }
 
-func lspComplete(ctx context.Context, args map[string]interface{}, log *slog.Logger) callToolResult {
+func lspComplete(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	filePath, _ := args["filePath"].(string)
 	line := intFromArgs(args, "line")
 	character := intFromArgs(args, "character")
 
 	langID := getStrArg(args, "languageId", detectLangID(filePath))
 	if langID == "" {
-		return callToolResult{Error: "cannot detect language; provide languageId"}
+		return extsdk.Result{Error: "cannot detect language; provide languageId"}
 	}
 
-	c, err := getOrStartLS(ctx, langID, log)
+	c, err := getOrStartLS(ctx, langID)
 	if err != nil {
-		return callToolResult{Error: err.Error()}
+		return extsdk.Result{Error: err.Error()}
 	}
 
 	result, err := c.call(ctx, "textDocument/completion", map[string]interface{}{
@@ -636,10 +536,10 @@ func lspComplete(ctx context.Context, args map[string]interface{}, log *slog.Log
 		"position":     map[string]int{"line": line - 1, "character": character - 1},
 	})
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("completion: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("completion: %v", err)}
 	}
 
-	return callToolResult{Success: true, Output: prettyJSON(result)}
+	return extsdk.Result{Success: true, Output: prettyJSON(result)}
 }
 
 // ── Helpers ────────────────────────────────────────────────────────

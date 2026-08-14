@@ -5,75 +5,33 @@
 //   - matrix_join: join a Matrix room
 //   - matrix_sync: sync recent messages from joined rooms
 //
-// Protocol: stdin/stdout JSON-RPC 2.0 (one message per line).
+// Protocol plumbing (JSON-RPC over stdio) is provided by pkg/extsdk.
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
 	"time"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
-type rpcRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-type rpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
-}
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-type manifest struct {
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Description string   `json:"description"`
-	Tools       []string `json:"tools"`
-	AgentDefs   []string `json:"agent_defs"`
-	ProtocolMin int      `json:"protocol_min"`
-}
-type toolDef struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Permission  string                 `json:"permission"`
-	HasEffects  bool                   `json:"has_effects"`
-}
-type callToolParams struct {
-	Name string                 `json:"name"`
-	Args map[string]interface{} `json:"args"`
-}
-type callToolResult struct {
-	Success bool   `json:"success"`
-	Output  string `json:"output"`
-	Error   string `json:"error,omitempty"`
-}
+var httpClient = &http.Client{Timeout: 30 * time.Second}
 
-var extManifest = manifest{
-	Name:        "channel-matrix",
-	Version:     "0.1.0",
-	Description: "Matrix channel: send messages, join rooms, sync",
-	Tools:       []string{"matrix_send", "matrix_join", "matrix_sync"},
-	AgentDefs:   []string{},
-	ProtocolMin: 1,
-}
+func main() {
+	srv := extsdk.NewServer(extsdk.Manifest{
+		Name:        "channel-matrix",
+		Version:     "0.1.0",
+		Description: "Matrix channel: send messages, join rooms, sync",
+	})
 
-var toolDefs = []toolDef{
-	{
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "matrix_send",
 		Description: "Send a message to a Matrix room. Requires MATRIX_HOMESERVER, MATRIX_ACCESS_TOKEN env vars.",
 		Parameters: map[string]interface{}{
@@ -87,8 +45,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "execute",
 		HasEffects: true,
-	},
-	{
+	}, matrixSend)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "matrix_join",
 		Description: "Join a Matrix room by ID or alias. Requires MATRIX_HOMESERVER, MATRIX_ACCESS_TOKEN env vars.",
 		Parameters: map[string]interface{}{
@@ -100,8 +59,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "execute",
 		HasEffects: true,
-	},
-	{
+	}, matrixJoin)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "matrix_sync",
 		Description: "Sync recent messages from the Matrix homeserver. Requires MATRIX_HOMESERVER, MATRIX_ACCESS_TOKEN env vars.",
 		Parameters: map[string]interface{}{
@@ -115,68 +75,11 @@ var toolDefs = []toolDef{
 		},
 		Permission: "read_only",
 		HasEffects: false,
-	},
-}
+	}, matrixSync)
 
-var httpClient = &http.Client{Timeout: 30 * time.Second}
-
-func main() {
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	log.Info("channel-matrix extension starting")
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				return
-			}
-			return
-		}
-		var req rpcRequest
-		json.Unmarshal(line, &req)
-		resp := handleRequest(&req)
-		respBytes, _ := json.Marshal(resp)
-		fmt.Fprintf(os.Stdout, "%s\n", respBytes)
-	}
-}
-
-func handleRequest(req *rpcRequest) *rpcResponse {
-	switch req.Method {
-	case "extension.describe":
-		result, _ := json.Marshal(extManifest)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_tools":
-		type listResult struct {
-			Tools []toolDef `json:"tools"`
-		}
-		result, _ := json.Marshal(listResult{Tools: toolDefs})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_agents":
-		type listAgentsResult struct {
-			Agents []interface{} `json:"agents"`
-		}
-		result, _ := json.Marshal(listAgentsResult{Agents: []interface{}{}})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.call_tool":
-		var params callToolParams
-		json.Unmarshal(req.Params, &params)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		var result callToolResult
-		switch params.Name {
-		case "matrix_send":
-			result = matrixSend(ctx, params.Args)
-		case "matrix_join":
-			result = matrixJoin(ctx, params.Args)
-		case "matrix_sync":
-			result = matrixSync(ctx, params.Args)
-		default:
-			result = callToolResult{Error: fmt.Sprintf("unknown: %s", params.Name)}
-		}
-		resultBytes, _ := json.Marshal(result)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: resultBytes}
-	default:
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: fmt.Sprintf("unknown: %s", req.Method)}}
+	if err := srv.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "channel-matrix: %v\n", err)
+		os.Exit(1)
 	}
 }
 
@@ -189,15 +92,15 @@ func getMatrixConfig() (homeserver, token string, err error) {
 	return homeserver, token, nil
 }
 
-func matrixSend(ctx context.Context, args map[string]interface{}) callToolResult {
+func matrixSend(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	hs, token, err := getMatrixConfig()
 	if err != nil {
-		return callToolResult{Error: err.Error()}
+		return extsdk.Result{Error: err.Error()}
 	}
 	roomID, _ := args["roomId"].(string)
 	body, _ := args["body"].(string)
 	if roomID == "" || body == "" {
-		return callToolResult{Error: "roomId and body are required"}
+		return extsdk.Result{Error: "roomId and body are required"}
 	}
 
 	txnID := fmt.Sprintf("oh_%d", time.Now().UnixMilli())
@@ -219,21 +122,21 @@ func matrixSend(ctx context.Context, args map[string]interface{}) callToolResult
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("matrix send: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("matrix send: %v", err)}
 	}
 	defer resp.Body.Close()
 	rbody, _ := io.ReadAll(resp.Body)
-	return callToolResult{Success: resp.StatusCode < 400, Output: string(rbody)}
+	return extsdk.Result{Success: resp.StatusCode < 400, Output: string(rbody)}
 }
 
-func matrixJoin(ctx context.Context, args map[string]interface{}) callToolResult {
+func matrixJoin(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	hs, token, err := getMatrixConfig()
 	if err != nil {
-		return callToolResult{Error: err.Error()}
+		return extsdk.Result{Error: err.Error()}
 	}
 	roomID, _ := args["roomIdOrAlias"].(string)
 	if roomID == "" {
-		return callToolResult{Error: "roomIdOrAlias is required"}
+		return extsdk.Result{Error: "roomIdOrAlias is required"}
 	}
 
 	reqURL := fmt.Sprintf("%s/_matrix/client/v3/join/%s", hs, url.PathEscape(roomID))
@@ -242,17 +145,17 @@ func matrixJoin(ctx context.Context, args map[string]interface{}) callToolResult
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("matrix join: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("matrix join: %v", err)}
 	}
 	defer resp.Body.Close()
 	rbody, _ := io.ReadAll(resp.Body)
-	return callToolResult{Success: resp.StatusCode < 400, Output: string(rbody)}
+	return extsdk.Result{Success: resp.StatusCode < 400, Output: string(rbody)}
 }
 
-func matrixSync(ctx context.Context, args map[string]interface{}) callToolResult {
+func matrixSync(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	hs, token, err := getMatrixConfig()
 	if err != nil {
-		return callToolResult{Error: err.Error()}
+		return extsdk.Result{Error: err.Error()}
 	}
 	since, _ := args["since"].(string)
 	filter, _ := args["filter"].(string)
@@ -273,7 +176,7 @@ func matrixSync(ctx context.Context, args map[string]interface{}) callToolResult
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("matrix sync: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("matrix sync: %v", err)}
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
@@ -308,7 +211,7 @@ func matrixSync(ctx context.Context, args map[string]interface{}) callToolResult
 			}
 		}
 	}
-	return callToolResult{Success: true, Output: out}
+	return extsdk.Result{Success: true, Output: out}
 }
 
 func getInt(args map[string]interface{}, key string) (int, bool) {

@@ -5,82 +5,29 @@
 //   - lark_send_webhook: send a message via webhook URL
 //   - lark_list_groups: list accessible groups/chats
 //
-// Protocol: stdin/stdout JSON-RPC 2.0 (one message per line).
+// Protocol plumbing (JSON-RPC over stdio) is provided by pkg/extsdk.
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
-	"time"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
-// ── JSON-RPC types ────────────────────────────────────────────────
+func main() {
+	srv := extsdk.NewServer(extsdk.Manifest{
+		Name:        "channel-lark",
+		Version:     "0.1.0",
+		Description: "Lark/Feishu channel: send messages, webhooks, list groups",
+	})
 
-type rpcRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-
-type rpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
-}
-
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-
-type manifest struct {
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Description string   `json:"description"`
-	Tools       []string `json:"tools"`
-	AgentDefs   []string `json:"agent_defs"`
-	ProtocolMin int      `json:"protocol_min"`
-}
-
-type toolDef struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Permission  string                 `json:"permission"`
-	HasEffects  bool                   `json:"has_effects"`
-}
-
-type callToolParams struct {
-	Name string                 `json:"name"`
-	Args map[string]interface{} `json:"args"`
-}
-
-type callToolResult struct {
-	Success bool   `json:"success"`
-	Output  string `json:"output"`
-	Error   string `json:"error,omitempty"`
-}
-
-var extManifest = manifest{
-	Name:        "channel-lark",
-	Version:     "0.1.0",
-	Description: "Lark/Feishu channel: send messages, webhooks, list groups",
-	Tools:       []string{"lark_send_message", "lark_send_webhook", "lark_list_groups"},
-	AgentDefs:   []string{},
-	ProtocolMin: 1,
-}
-
-var toolDefs = []toolDef{
-	{
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "lark_send_message",
 		Description: "Send a text or interactive card message to a Lark/Feishu chat via the Open API. Requires app credentials (app_id, app_secret).",
 		Parameters: map[string]interface{}{
@@ -96,8 +43,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "execute",
 		HasEffects: true,
-	},
-	{
+	}, larkSendMsg)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "lark_send_webhook",
 		Description: "Send a message to a Lark/Feishu group via an incoming webhook URL (simpler setup — no app credentials needed).",
 		Parameters: map[string]interface{}{
@@ -111,8 +59,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "execute",
 		HasEffects: true,
-	},
-	{
+	}, larkSendWebhook)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "lark_list_groups",
 		Description: "List Lark/Feishu chats/groups accessible to the app",
 		Parameters: map[string]interface{}{
@@ -126,75 +75,11 @@ var toolDefs = []toolDef{
 		},
 		Permission: "read_only",
 		HasEffects: false,
-	},
-}
+	}, larkListGroups)
 
-func main() {
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	log.Info("channel-lark extension starting", "version", extManifest.Version)
-
-	reader := bufio.NewReader(os.Stdin)
-
-	for {
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				log.Info("stdin closed, exiting")
-				return
-			}
-			log.Error("read error", "err", err)
-			return
-		}
-
-		var req rpcRequest
-		if err := json.Unmarshal(line, &req); err != nil {
-			log.Error("unmarshal error", "err", err)
-			continue
-		}
-
-		resp := handleRequest(&req)
-		respBytes, _ := json.Marshal(resp)
-		fmt.Fprintf(os.Stdout, "%s\n", respBytes)
-	}
-}
-
-func handleRequest(req *rpcRequest) *rpcResponse {
-	switch req.Method {
-	case "extension.describe":
-		result, _ := json.Marshal(extManifest)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_tools":
-		type listResult struct {
-			Tools []toolDef `json:"tools"`
-		}
-		result, _ := json.Marshal(listResult{Tools: toolDefs})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_agents":
-		type listAgentsResult struct {
-			Agents []interface{} `json:"agents"`
-		}
-		result, _ := json.Marshal(listAgentsResult{Agents: []interface{}{}})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.call_tool":
-		var params callToolParams
-		json.Unmarshal(req.Params, &params)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		var result callToolResult
-		switch params.Name {
-		case "lark_send_message":
-			result = larkSendMsg(ctx, params.Args)
-		case "lark_send_webhook":
-			result = larkSendWebhook(ctx, params.Args)
-		case "lark_list_groups":
-			result = larkListGroups(ctx, params.Args)
-		default:
-			result = callToolResult{Error: fmt.Sprintf("unknown tool: %s", params.Name)}
-		}
-		resultBytes, _ := json.Marshal(result)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: resultBytes}
-	default:
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: fmt.Sprintf("unknown: %s", req.Method)}}
+	if err := srv.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "channel-lark: %v\n", err)
+		os.Exit(1)
 	}
 }
 
@@ -243,7 +128,7 @@ func getLarkToken(ctx context.Context, appID, appSecret string) (string, error) 
 	return "", fmt.Errorf("lark auth response missing token (code %d: %s)", tr.Code, tr.Msg)
 }
 
-func larkSendMsg(ctx context.Context, args map[string]interface{}) callToolResult {
+func larkSendMsg(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	appID, _ := args["appId"].(string)
 	appSecret, _ := args["appSecret"].(string)
 	content, _ := args["content"].(string)
@@ -255,7 +140,7 @@ func larkSendMsg(ctx context.Context, args map[string]interface{}) callToolResul
 
 	token, err := getLarkToken(ctx, appID, appSecret)
 	if err != nil {
-		return callToolResult{Error: err.Error()}
+		return extsdk.Result{Error: err.Error()}
 	}
 
 	msgContent := map[string]interface{}{}
@@ -265,7 +150,7 @@ func larkSendMsg(ctx context.Context, args map[string]interface{}) callToolResul
 	case "interactive":
 		var card map[string]interface{}
 		if err := json.Unmarshal([]byte(content), &card); err != nil {
-			return callToolResult{Error: fmt.Sprintf("invalid card JSON: %v", err)}
+			return extsdk.Result{Error: fmt.Sprintf("invalid card JSON: %v", err)}
 		}
 		msgContent = card
 	default:
@@ -292,15 +177,15 @@ func larkSendMsg(ctx context.Context, args map[string]interface{}) callToolResul
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("send message: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("send message: %v", err)}
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	return callToolResult{Success: true, Output: fmt.Sprintf("Message sent to Lark.\nResponse: %s", string(body))}
+	return extsdk.Result{Success: true, Output: fmt.Sprintf("Message sent to Lark.\nResponse: %s", string(body))}
 }
 
-func larkSendWebhook(ctx context.Context, args map[string]interface{}) callToolResult {
+func larkSendWebhook(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	webhookURL, _ := args["webhookUrl"].(string)
 	title, _ := args["title"].(string)
 	content, _ := args["content"].(string)
@@ -329,21 +214,21 @@ func larkSendWebhook(ctx context.Context, args map[string]interface{}) callToolR
 	b, _ := json.Marshal(payload)
 	resp, err := http.Post(webhookURL, "application/json", bytes.NewReader(b))
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("webhook: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("webhook: %v", err)}
 	}
 	defer resp.Body.Close()
 
 	rbody, _ := io.ReadAll(resp.Body)
-	return callToolResult{Success: resp.StatusCode < 400, Output: fmt.Sprintf("Webhook sent. Status: %d\n%s", resp.StatusCode, string(rbody))}
+	return extsdk.Result{Success: resp.StatusCode < 400, Output: fmt.Sprintf("Webhook sent. Status: %d\n%s", resp.StatusCode, string(rbody))}
 }
 
-func larkListGroups(ctx context.Context, args map[string]interface{}) callToolResult {
+func larkListGroups(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	appID, _ := args["appId"].(string)
 	appSecret, _ := args["appSecret"].(string)
 
 	token, err := getLarkToken(ctx, appID, appSecret)
 	if err != nil {
-		return callToolResult{Error: err.Error()}
+		return extsdk.Result{Error: err.Error()}
 	}
 
 	pageSize := 20
@@ -357,12 +242,12 @@ func larkListGroups(ctx context.Context, args map[string]interface{}) callToolRe
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("list groups: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("list groups: %v", err)}
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	return callToolResult{Success: true, Output: string(body)}
+	return extsdk.Result{Success: true, Output: string(body)}
 }
 
 func intFromArgs(args map[string]interface{}, key string) (int, bool) {

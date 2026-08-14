@@ -3,74 +3,32 @@
 // Provides:
 //   - gmail_unsubscribe: find and unsubscribe from mailing lists in Gmail
 //
-// Protocol: stdin/stdout JSON-RPC 2.0 (one message per line).
+// Protocol plumbing (JSON-RPC over stdio) is provided by pkg/extsdk.
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
-type rpcRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-type rpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
-}
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-type manifest struct {
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Description string   `json:"description"`
-	Tools       []string `json:"tools"`
-	AgentDefs   []string `json:"agent_defs"`
-	ProtocolMin int      `json:"protocol_min"`
-}
-type toolDef struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Permission  string                 `json:"permission"`
-	HasEffects  bool                   `json:"has_effects"`
-}
-type callToolParams struct {
-	Name string                 `json:"name"`
-	Args map[string]interface{} `json:"args"`
-}
-type callToolResult struct {
-	Success bool   `json:"success"`
-	Output  string `json:"output"`
-	Error   string `json:"error,omitempty"`
-}
+var httpClient = &http.Client{Timeout: 15 * time.Second}
 
-var extManifest = manifest{
-	Name:        "tool-gmail-unsubscribe",
-	Version:     "0.1.0",
-	Description: "Find and unsubscribe from mailing lists in Gmail via the Gmail API",
-	Tools:       []string{"gmail_unsubscribe"},
-	AgentDefs:   []string{},
-	ProtocolMin: 1,
-}
+func main() {
+	srv := extsdk.NewServer(extsdk.Manifest{
+		Name:        "tool-gmail-unsubscribe",
+		Version:     "0.1.0",
+		Description: "Find and unsubscribe from mailing lists in Gmail via the Gmail API",
+	})
 
-var toolDefs = []toolDef{
-	{
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "gmail_unsubscribe",
 		Description: "Scan recent Gmail emails for List-Unsubscribe headers and attempt to unsubscribe from mailing lists",
 		Parameters: map[string]interface{}{
@@ -83,66 +41,18 @@ var toolDefs = []toolDef{
 		},
 		Permission: "execute",
 		HasEffects: true,
-	},
-}
+	}, gmailUnsubscribe)
 
-var httpClient = &http.Client{Timeout: 15 * time.Second}
-
-func main() {
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	log.Info("tool-gmail-unsubscribe extension starting")
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				return
-			}
-			return
-		}
-		var req rpcRequest
-		json.Unmarshal(line, &req)
-		resp := handleRequest(&req)
-		respBytes, _ := json.Marshal(resp)
-		fmt.Fprintf(os.Stdout, "%s\n", respBytes)
+	if err := srv.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "tool-gmail-unsubscribe: %v\n", err)
+		os.Exit(1)
 	}
 }
 
-func handleRequest(req *rpcRequest) *rpcResponse {
-	switch req.Method {
-	case "extension.describe":
-		result, _ := json.Marshal(extManifest)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_tools":
-		type lr struct{ Tools []toolDef }
-		result, _ := json.Marshal(lr{Tools: toolDefs})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_agents":
-		result, _ := json.Marshal(map[string]interface{}{"agents": []interface{}{}})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.call_tool":
-		var params callToolParams
-		json.Unmarshal(req.Params, &params)
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-		var result callToolResult
-		switch params.Name {
-		case "gmail_unsubscribe":
-			result = gmailUnsubscribe(ctx, params.Args)
-		default:
-			result = callToolResult{Error: fmt.Sprintf("unknown: %s", params.Name)}
-		}
-		resultBytes, _ := json.Marshal(result)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: resultBytes}
-	default:
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: fmt.Sprintf("unknown: %s", req.Method)}}
-	}
-}
-
-func gmailUnsubscribe(ctx context.Context, args map[string]interface{}) callToolResult {
+func gmailUnsubscribe(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	email, _ := args["email"].(string)
 	if email == "" {
-		return callToolResult{Error: "email is required"}
+		return extsdk.Result{Error: "email is required"}
 	}
 
 	token, _ := args["token"].(string)
@@ -150,7 +60,7 @@ func gmailUnsubscribe(ctx context.Context, args map[string]interface{}) callTool
 		token = os.Getenv("GMAIL_TOKEN")
 	}
 	if token == "" {
-		return callToolResult{Error: "token is required (or set GMAIL_TOKEN env var)"}
+		return extsdk.Result{Error: "token is required (or set GMAIL_TOKEN env var)"}
 	}
 
 	// Query Gmail API for recent messages (last 50)
@@ -158,23 +68,23 @@ func gmailUnsubscribe(ctx context.Context, args map[string]interface{}) callTool
 
 	req, err := http.NewRequestWithContext(ctx, "GET", gmailURL, nil)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("request: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("request: %v", err)}
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("gmail API: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("gmail API: %v", err)}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == 401 || resp.StatusCode == 403 {
-		return callToolResult{Error: "Gmail API authentication failed — check your token"}
+		return extsdk.Result{Error: "Gmail API authentication failed — check your token"}
 	}
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
-		return callToolResult{Error: fmt.Sprintf("Gmail API error %d: %s", resp.StatusCode, truncate(string(body), 300))}
+		return extsdk.Result{Error: fmt.Sprintf("Gmail API error %d: %s", resp.StatusCode, truncate(string(body), 300))}
 	}
 
 	var listResp struct {
@@ -183,11 +93,11 @@ func gmailUnsubscribe(ctx context.Context, args map[string]interface{}) callTool
 		} `json:"messages"`
 	}
 	if err := json.Unmarshal(body, &listResp); err != nil {
-		return callToolResult{Error: fmt.Sprintf("parse: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("parse: %v", err)}
 	}
 
 	if len(listResp.Messages) == 0 {
-		return callToolResult{Success: true, Output: "No recent messages found."}
+		return extsdk.Result{Success: true, Output: "No recent messages found."}
 	}
 
 	// For each message, fetch headers and look for List-Unsubscribe
@@ -274,11 +184,11 @@ func gmailUnsubscribe(ctx context.Context, args map[string]interface{}) callTool
 	}
 
 	if len(results) == 0 {
-		return callToolResult{Success: true, Output: "No List-Unsubscribe headers found in recent messages."}
+		return extsdk.Result{Success: true, Output: "No List-Unsubscribe headers found in recent messages."}
 	}
 
 	b, _ := json.MarshalIndent(results, "", "  ")
-	return callToolResult{Success: true, Output: string(b)}
+	return extsdk.Result{Success: true, Output: string(b)}
 }
 
 func parseUnsubscribeHeader(header string) []string {

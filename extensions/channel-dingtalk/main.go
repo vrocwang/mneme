@@ -5,11 +5,10 @@
 //   - dingtalk_send_webhook: send message via webhook robot URL
 //   - dingtalk_get_token: get access token for API calls
 //
-// Protocol: stdin/stdout JSON-RPC 2.0 (one message per line).
+// Protocol plumbing (JSON-RPC over stdio) is provided by pkg/extsdk.
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/hmac"
@@ -18,74 +17,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
-// ── JSON-RPC types ────────────────────────────────────────────────
+func main() {
+	srv := extsdk.NewServer(extsdk.Manifest{
+		Name:        "channel-dingtalk",
+		Version:     "0.1.0",
+		Description: "DingTalk channel: send messages, webhooks, access token management",
+	})
 
-type rpcRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-
-type rpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
-}
-
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-
-type manifest struct {
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Description string   `json:"description"`
-	Tools       []string `json:"tools"`
-	AgentDefs   []string `json:"agent_defs"`
-	ProtocolMin int      `json:"protocol_min"`
-}
-
-type toolDef struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Permission  string                 `json:"permission"`
-	HasEffects  bool                   `json:"has_effects"`
-}
-
-type callToolParams struct {
-	Name string                 `json:"name"`
-	Args map[string]interface{} `json:"args"`
-}
-
-type callToolResult struct {
-	Success bool   `json:"success"`
-	Output  string `json:"output"`
-	Error   string `json:"error,omitempty"`
-}
-
-var extManifest = manifest{
-	Name:        "channel-dingtalk",
-	Version:     "0.1.0",
-	Description: "DingTalk channel: send messages, webhooks, access token management",
-	Tools:       []string{"dingtalk_send_message", "dingtalk_send_webhook", "dingtalk_get_token"},
-	AgentDefs:   []string{},
-	ProtocolMin: 1,
-}
-
-var toolDefs = []toolDef{
-	{
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "dingtalk_send_message",
 		Description: "Send a message to a DingTalk conversation via the Open API. Requires app credentials (appKey, appSecret).",
 		Parameters: map[string]interface{}{
@@ -102,8 +50,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "execute",
 		HasEffects: true,
-	},
-	{
+	}, dingtalkSendMsg)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "dingtalk_send_webhook",
 		Description: "Send a message to a DingTalk group via a custom robot webhook URL. Supports text, markdown, and link message types. Includes signature verification if secret is provided.",
 		Parameters: map[string]interface{}{
@@ -121,8 +70,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "execute",
 		HasEffects: true,
-	},
-	{
+	}, dingtalkSendWebhook)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "dingtalk_get_token",
 		Description: "Get a DingTalk access token for API calls",
 		Parameters: map[string]interface{}{
@@ -135,75 +85,11 @@ var toolDefs = []toolDef{
 		},
 		Permission: "read_only",
 		HasEffects: false,
-	},
-}
+	}, dingtalkGetToken)
 
-func main() {
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	log.Info("channel-dingtalk extension starting", "version", extManifest.Version)
-
-	reader := bufio.NewReader(os.Stdin)
-
-	for {
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				log.Info("stdin closed, exiting")
-				return
-			}
-			log.Error("read error", "err", err)
-			return
-		}
-
-		var req rpcRequest
-		if err := json.Unmarshal(line, &req); err != nil {
-			log.Error("unmarshal error", "err", err)
-			continue
-		}
-
-		resp := handleRequest(&req)
-		respBytes, _ := json.Marshal(resp)
-		fmt.Fprintf(os.Stdout, "%s\n", respBytes)
-	}
-}
-
-func handleRequest(req *rpcRequest) *rpcResponse {
-	switch req.Method {
-	case "extension.describe":
-		result, _ := json.Marshal(extManifest)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_tools":
-		type listResult struct {
-			Tools []toolDef `json:"tools"`
-		}
-		result, _ := json.Marshal(listResult{Tools: toolDefs})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_agents":
-		type listAgentsResult struct {
-			Agents []interface{} `json:"agents"`
-		}
-		result, _ := json.Marshal(listAgentsResult{Agents: []interface{}{}})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.call_tool":
-		var params callToolParams
-		json.Unmarshal(req.Params, &params)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		var result callToolResult
-		switch params.Name {
-		case "dingtalk_send_message":
-			result = dingtalkSendMsg(ctx, params.Args)
-		case "dingtalk_send_webhook":
-			result = dingtalkSendWebhook(ctx, params.Args)
-		case "dingtalk_get_token":
-			result = dingtalkGetToken(ctx, params.Args)
-		default:
-			result = callToolResult{Error: fmt.Sprintf("unknown tool: %s", params.Name)}
-		}
-		resultBytes, _ := json.Marshal(result)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: resultBytes}
-	default:
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: fmt.Sprintf("unknown: %s", req.Method)}}
+	if err := srv.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "channel-dingtalk: %v\n", err)
+		os.Exit(1)
 	}
 }
 
@@ -216,7 +102,7 @@ type dingtalkTokenResp struct {
 	ExpireIn    int64  `json:"expireIn"`
 }
 
-func dingtalkGetToken(ctx context.Context, args map[string]interface{}) callToolResult {
+func dingtalkGetToken(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	appKey, _ := args["appKey"].(string)
 	appSecret, _ := args["appSecret"].(string)
 
@@ -234,7 +120,7 @@ func dingtalkGetToken(ctx context.Context, args map[string]interface{}) callTool
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("token request: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("token request: %v", err)}
 	}
 	defer resp.Body.Close()
 
@@ -242,12 +128,12 @@ func dingtalkGetToken(ctx context.Context, args map[string]interface{}) callTool
 	var tr dingtalkTokenResp
 	json.Unmarshal(rbody, &tr)
 	if tr.AccessToken == "" {
-		return callToolResult{Error: fmt.Sprintf("failed to get token (status %d): %s", resp.StatusCode, string(rbody))}
+		return extsdk.Result{Error: fmt.Sprintf("failed to get token (status %d): %s", resp.StatusCode, string(rbody))}
 	}
-	return callToolResult{Success: true, Output: fmt.Sprintf("Access token: %s... (expires in %ds)", tr.AccessToken[:min(20, len(tr.AccessToken))], tr.ExpireIn)}
+	return extsdk.Result{Success: true, Output: fmt.Sprintf("Access token: %s... (expires in %ds)", tr.AccessToken[:min(20, len(tr.AccessToken))], tr.ExpireIn)}
 }
 
-func dingtalkSendMsg(ctx context.Context, args map[string]interface{}) callToolResult {
+func dingtalkSendMsg(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	appKey, _ := args["appKey"].(string)
 	appSecret, _ := args["appSecret"].(string)
 	userID, _ := args["userId"].(string)
@@ -268,14 +154,14 @@ func dingtalkSendMsg(ctx context.Context, args map[string]interface{}) callToolR
 
 	tokenResp, err := http.DefaultClient.Do(tokenReq)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("auth: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("auth: %v", err)}
 	}
 	var tr dingtalkTokenResp
 	json.NewDecoder(tokenResp.Body).Decode(&tr)
 	tokenResp.Body.Close()
 
 	if tr.AccessToken == "" {
-		return callToolResult{Error: "failed to get access token"}
+		return extsdk.Result{Error: "failed to get access token"}
 	}
 
 	// Build message
@@ -308,15 +194,15 @@ func dingtalkSendMsg(ctx context.Context, args map[string]interface{}) callToolR
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("send: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("send: %v", err)}
 	}
 	defer resp.Body.Close()
 
 	rbody, _ := io.ReadAll(resp.Body)
-	return callToolResult{Success: resp.StatusCode == 200, Output: fmt.Sprintf("Message sent to %s.\nResponse: %s", userID, string(rbody))}
+	return extsdk.Result{Success: resp.StatusCode == 200, Output: fmt.Sprintf("Message sent to %s.\nResponse: %s", userID, string(rbody))}
 }
 
-func dingtalkSendWebhook(ctx context.Context, args map[string]interface{}) callToolResult {
+func dingtalkSendWebhook(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	webhookURL, _ := args["webhookUrl"].(string)
 	secret, _ := args["secret"].(string)
 	content, _ := args["content"].(string)
@@ -358,12 +244,12 @@ func dingtalkSendWebhook(ctx context.Context, args map[string]interface{}) callT
 	b, _ := json.Marshal(msg)
 	resp, err := http.Post(finalURL, "application/json", bytes.NewReader(b))
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("webhook: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("webhook: %v", err)}
 	}
 	defer resp.Body.Close()
 
 	rbody, _ := io.ReadAll(resp.Body)
-	return callToolResult{Success: resp.StatusCode < 400, Output: fmt.Sprintf("Webhook sent. Status: %d\n%s", resp.StatusCode, string(rbody))}
+	return extsdk.Result{Success: resp.StatusCode < 400, Output: fmt.Sprintf("Webhook sent. Status: %d\n%s", resp.StatusCode, string(rbody))}
 }
 
 // generateDingTalkSign computes the HMAC-SHA256 signature for DingTalk robot webhooks.

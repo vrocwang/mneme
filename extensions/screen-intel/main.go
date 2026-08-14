@@ -5,103 +5,32 @@
 //   - screen_ocr: extract text from screen via OCR
 //   - screen_context: get active window and screen state
 //
-// Protocol: stdin/stdout JSON-RPC 2.0 (one message per line).
+// Protocol plumbing (JSON-RPC over stdio) is provided by pkg/extsdk.
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
-	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
-type rpcRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-type rpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
-}
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-type manifest struct {
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Description string   `json:"description"`
-	Tools       []string `json:"tools"`
-	AgentDefs   []string `json:"agent_defs"`
-	ProtocolMin int      `json:"protocol_min"`
-}
-type toolDef struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Permission  string                 `json:"permission"`
-	HasEffects  bool                   `json:"has_effects"`
-}
-type callToolParams struct {
-	Name string                 `json:"name"`
-	Args map[string]interface{} `json:"args"`
-}
-type callToolResult struct {
-	Success bool   `json:"success"`
-	Output  string `json:"output"`
-	Error   string `json:"error,omitempty"`
-}
+func main() {
+	srv := extsdk.NewServer(extsdk.Manifest{
+		Name:        "screen-intel",
+		Version:     "0.1.0",
+		Description: "Screen intelligence: analyze, OCR, context awareness",
+	})
 
-var extManifest = manifest{
-	Name:        "screen-intel",
-	Version:     "0.1.0",
-	Description: "Screen intelligence: analyze, OCR, context awareness",
-	Tools:       []string{"screen_analyze", "screen_ocr", "screen_context"},
-	AgentDefs:   []string{"screen_awareness_agent"},
-	ProtocolMin: 1,
-}
-
-var agentDefs = []struct {
-	ID            string   `json:"id"`
-	Name          string   `json:"name"`
-	Description   string   `json:"description"`
-	Tier          string   `json:"tier"`
-	SystemPrompt  string   `json:"systemPrompt"`
-	ToolAllowlist []string `json:"toolAllowlist"`
-	MaxIterations int      `json:"maxIterations"`
-	Hidden        bool     `json:"hidden"`
-}{
-	{
-		ID:          "screen_awareness_agent",
-		Name:        "Screen Awareness",
-		Description: "Captures and analyzes screen content using OCR and context extraction",
-		Tier:        "worker",
-		SystemPrompt: `You are a screen awareness specialist. Capture and analyze what's on the user's screen.
-- Take screenshots of relevant areas
-- Extract text via OCR when needed
-- Identify active applications and windows
-- Describe what you see clearly and concisely`,
-		ToolAllowlist: []string{"screen_analyze", "screen_ocr", "screen_context", "read_file", "shell"},
-		MaxIterations: 8,
-		Hidden:        false,
-	},
-}
-
-var toolDefs = []toolDef{
-	{
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "screen_analyze",
 		Description: "Capture the screen and describe its content. Returns the screenshot path and a textual description.",
 		Parameters: map[string]interface{}{
@@ -114,8 +43,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "read_only",
 		HasEffects: false,
-	},
-	{
+	}, screenAnalyze)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "screen_ocr",
 		Description: "Extract text from the screen using OCR. Requires tesseract-ocr on Linux/macOS.",
 		Parameters: map[string]interface{}{
@@ -128,8 +58,9 @@ var toolDefs = []toolDef{
 		},
 		Permission: "read_only",
 		HasEffects: false,
-	},
-	{
+	}, screenOCR)
+
+	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "screen_context",
 		Description: "Get the current screen context: active window, display info, and running applications",
 		Parameters: map[string]interface{}{
@@ -141,61 +72,28 @@ var toolDefs = []toolDef{
 		},
 		Permission: "read_only",
 		HasEffects: false,
-	},
-}
+	}, func(ctx context.Context, args map[string]interface{}) extsdk.Result {
+		return screenContext(args)
+	})
 
-func main() {
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	log.Info("screen-intel extension starting")
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				return
-			}
-			return
-		}
-		var req rpcRequest
-		json.Unmarshal(line, &req)
-		resp := handleRequest(&req)
-		respBytes, _ := json.Marshal(resp)
-		fmt.Fprintf(os.Stdout, "%s\n", respBytes)
-	}
-}
+	srv.RegisterAgent(extsdk.AgentDef{
+		ID:          "screen_awareness_agent",
+		Name:        "Screen Awareness",
+		Description: "Captures and analyzes screen content using OCR and context extraction",
+		Tier:        "worker",
+		SystemPrompt: `You are a screen awareness specialist. Capture and analyze what's on the user's screen.
+- Take screenshots of relevant areas
+- Extract text via OCR when needed
+- Identify active applications and windows
+- Describe what you see clearly and concisely`,
+		ToolAllowlist: []string{"screen_analyze", "screen_ocr", "screen_context", "read_file", "shell"},
+		MaxIterations: 8,
+		Hidden:        false,
+	})
 
-func handleRequest(req *rpcRequest) *rpcResponse {
-	switch req.Method {
-	case "extension.describe":
-		result, _ := json.Marshal(extManifest)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_tools":
-		type lr struct{ Tools []toolDef }
-		result, _ := json.Marshal(lr{Tools: toolDefs})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.list_agents":
-		result, _ := json.Marshal(map[string]interface{}{"agents": agentDefs})
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-	case "extension.call_tool":
-		var params callToolParams
-		json.Unmarshal(req.Params, &params)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		var result callToolResult
-		switch params.Name {
-		case "screen_analyze":
-			result = screenAnalyze(ctx, params.Args)
-		case "screen_ocr":
-			result = screenOCR(ctx, params.Args)
-		case "screen_context":
-			result = screenContext(params.Args)
-		default:
-			result = callToolResult{Error: fmt.Sprintf("unknown: %s", params.Name)}
-		}
-		resultBytes, _ := json.Marshal(result)
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: resultBytes}
-	default:
-		return &rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: fmt.Sprintf("unknown: %s", req.Method)}}
+	if err := srv.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "screen-intel: %v\n", err)
+		os.Exit(1)
 	}
 }
 
@@ -276,7 +174,7 @@ public class W { [DllImport("user32.dll")] public static extern IntPtr GetForegr
 	return ""
 }
 
-func screenAnalyze(ctx context.Context, args map[string]interface{}) callToolResult {
+func screenAnalyze(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	region := getStrArg(args, "region", "full")
 	dir := getStrArg(args, "outputDir", "")
 	if dir == "" {
@@ -286,7 +184,7 @@ func screenAnalyze(ctx context.Context, args map[string]interface{}) callToolRes
 
 	path, err := captureScreen(ctx, region)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("capture: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("capture: %v", err)}
 	}
 
 	activeWin := getActiveWindow()
@@ -316,37 +214,37 @@ func screenAnalyze(ctx context.Context, args map[string]interface{}) callToolRes
 	}
 
 	b, _ := json.MarshalIndent(r, "", "  ")
-	return callToolResult{Success: true, Output: string(b)}
+	return extsdk.Result{Success: true, Output: string(b)}
 }
 
-func screenOCR(ctx context.Context, args map[string]interface{}) callToolResult {
+func screenOCR(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	region := getStrArg(args, "region", "full")
 	lang := getStrArg(args, "language", "eng")
 
 	path, err := captureScreen(ctx, region)
 	if err != nil {
-		return callToolResult{Error: fmt.Sprintf("capture: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("capture: %v", err)}
 	}
 	defer os.Remove(path)
 
 	// Try tesseract
 	if _, err := exec.LookPath("tesseract"); err != nil {
-		return callToolResult{Error: "tesseract not found. Install: sudo apt install tesseract-ocr"}
+		return extsdk.Result{Error: "tesseract not found. Install: sudo apt install tesseract-ocr"}
 	}
 
 	outPath := path + ".txt"
 	cmd := exec.CommandContext(ctx, "tesseract", path, path, "-l", lang)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return callToolResult{Error: fmt.Sprintf("OCR: %v (%s)", err, string(out))}
+		return extsdk.Result{Error: fmt.Sprintf("OCR: %v (%s)", err, string(out))}
 	}
 
 	text, _ := os.ReadFile(outPath)
 	os.Remove(outPath)
 
-	return callToolResult{Success: true, Output: string(text)}
+	return extsdk.Result{Success: true, Output: string(text)}
 }
 
-func screenContext(args map[string]interface{}) callToolResult {
+func screenContext(args map[string]interface{}) extsdk.Result {
 	includeScreen, _ := args["includeScreenshot"].(bool)
 
 	ctx := map[string]interface{}{
@@ -363,7 +261,7 @@ func screenContext(args map[string]interface{}) callToolResult {
 	}
 
 	b, _ := json.MarshalIndent(ctx, "", "  ")
-	return callToolResult{Success: true, Output: string(b)}
+	return extsdk.Result{Success: true, Output: string(b)}
 }
 
 func getStrArg(args map[string]interface{}, key, fallback string) string {

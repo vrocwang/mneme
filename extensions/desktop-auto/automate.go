@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
 type automationAction struct {
@@ -15,19 +17,19 @@ type automationAction struct {
 }
 
 // automateTool runs a sequence of mouse and keyboard actions from a JSON plan.
-func automateTool(ctx context.Context, args map[string]interface{}) callToolResult {
+func automateTool(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	planStr, _ := args["plan"].(string)
 	if planStr == "" {
-		return callToolResult{Error: "plan is required (JSON array of action objects)"}
+		return extsdk.Result{Error: "plan is required (JSON array of action objects)"}
 	}
 
 	var actions []automationAction
 	if err := json.Unmarshal([]byte(planStr), &actions); err != nil {
-		return callToolResult{Error: fmt.Sprintf("invalid plan JSON: %v", err)}
+		return extsdk.Result{Error: fmt.Sprintf("invalid plan JSON: %v", err)}
 	}
 
 	if len(actions) == 0 {
-		return callToolResult{Error: "plan must contain at least one action"}
+		return extsdk.Result{Error: "plan must contain at least one action"}
 	}
 
 	delayMs := 100
@@ -48,7 +50,7 @@ func automateTool(ctx context.Context, args map[string]interface{}) callToolResu
 
 		time.Sleep(time.Duration(delayMs) * time.Millisecond)
 
-		var result callToolResult
+		var result extsdk.Result
 		switch a.Action {
 		case "mouse":
 			result = mouseTool(ctx, a.Args)
@@ -81,7 +83,7 @@ func automateTool(ctx context.Context, args map[string]interface{}) callToolResu
 	return buildAutomateResult(results, errors, len(actions), len(actions))
 }
 
-func buildAutomateResult(results []string, errors []string, executed, total int) callToolResult {
+func buildAutomateResult(results []string, errors []string, executed, total int) extsdk.Result {
 	var out strings.Builder
 	out.WriteString(fmt.Sprintf("Automation: %d/%d actions executed\n", executed, total))
 
@@ -95,10 +97,10 @@ func buildAutomateResult(results []string, errors []string, executed, total int)
 	}
 
 	if len(errors) > 0 && len(results) == 0 {
-		return callToolResult{Error: out.String()}
+		return extsdk.Result{Error: out.String()}
 	}
 
-	return callToolResult{Success: true, Output: out.String()}
+	return extsdk.Result{Success: true, Output: out.String()}
 }
 
 func truncate(s string, max int) string {

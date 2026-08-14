@@ -9,12 +9,14 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
-func keyboardTool(_ context.Context, args map[string]interface{}) callToolResult {
+func keyboardTool(_ context.Context, args map[string]interface{}) extsdk.Result {
 	action, _ := args["action"].(string)
 	if action == "" {
-		return callToolResult{Error: "action is required"}
+		return extsdk.Result{Error: "action is required"}
 	}
 
 	switch runtime.GOOS {
@@ -23,16 +25,16 @@ func keyboardTool(_ context.Context, args map[string]interface{}) callToolResult
 	case "windows":
 		return keyboardWindows(action, args)
 	default:
-		return callToolResult{Error: fmt.Sprintf("unsupported platform: %s", runtime.GOOS)}
+		return extsdk.Result{Error: fmt.Sprintf("unsupported platform: %s", runtime.GOOS)}
 	}
 }
 
-func keyboardMac(action string, args map[string]interface{}) callToolResult {
+func keyboardMac(action string, args map[string]interface{}) extsdk.Result {
 	switch action {
 	case "type":
 		text, _ := args["text"].(string)
 		if text == "" {
-			return callToolResult{Error: "text is required for type action"}
+			return extsdk.Result{Error: "text is required for type action"}
 		}
 		// osascript keystroke
 		escaped := strings.ReplaceAll(text, "\\", "\\\\")
@@ -40,14 +42,14 @@ func keyboardMac(action string, args map[string]interface{}) callToolResult {
 		cmd := exec.Command("osascript", "-e", fmt.Sprintf(`tell application "System Events" to keystroke "%s"`, escaped))
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			return callToolResult{Error: fmt.Sprintf("keyboard type: %v (%s)", err, string(out))}
+			return extsdk.Result{Error: fmt.Sprintf("keyboard type: %v (%s)", err, string(out))}
 		}
-		return callToolResult{Success: true, Output: fmt.Sprintf("Typed: %s\n%s", text, string(out))}
+		return extsdk.Result{Success: true, Output: fmt.Sprintf("Typed: %s\n%s", text, string(out))}
 
 	case "combo":
 		keys := strSliceFromArgs(args, "keys")
 		if len(keys) == 0 {
-			return callToolResult{Error: "keys array required for combo action"}
+			return extsdk.Result{Error: "keys array required for combo action"}
 		}
 		// Map to AppleScript key codes
 		macMods := map[string]string{
@@ -79,35 +81,35 @@ end tell`,
 		cmd := exec.Command("osascript", "-e", script)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			return callToolResult{Error: fmt.Sprintf("keyboard combo: %v (%s)", err, string(out))}
+			return extsdk.Result{Error: fmt.Sprintf("keyboard combo: %v (%s)", err, string(out))}
 		}
-		return callToolResult{Success: true, Output: string(out)}
+		return extsdk.Result{Success: true, Output: string(out)}
 
 	default:
-		return callToolResult{Error: fmt.Sprintf("unknown keyboard action: %s", action)}
+		return extsdk.Result{Error: fmt.Sprintf("unknown keyboard action: %s", action)}
 	}
 }
 
-func keyboardWindows(action string, args map[string]interface{}) callToolResult {
+func keyboardWindows(action string, args map[string]interface{}) extsdk.Result {
 	switch action {
 	case "type":
 		text, _ := args["text"].(string)
 		if text == "" {
-			return callToolResult{Error: "text is required for type action"}
+			return extsdk.Result{Error: "text is required for type action"}
 		}
 		ps := fmt.Sprintf(`Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.SendKeys]::SendWait('%s')`, escapePSSendKeys(text))
 		cmd := exec.Command("powershell", "-NoProfile", "-Command", ps)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			return callToolResult{Error: fmt.Sprintf("keyboard type: %v (%s)", err, string(out))}
+			return extsdk.Result{Error: fmt.Sprintf("keyboard type: %v (%s)", err, string(out))}
 		}
-		return callToolResult{Success: true, Output: string(out)}
+		return extsdk.Result{Success: true, Output: string(out)}
 
 	case "combo":
 		keys := strSliceFromArgs(args, "keys")
 		if len(keys) == 0 {
-			return callToolResult{Error: "keys array required for combo action"}
+			return extsdk.Result{Error: "keys array required for combo action"}
 		}
 		// PowerShell SendKeys notation: ^ for ctrl, % for alt, + for shift
 		sendKeys := ""
@@ -128,12 +130,12 @@ func keyboardWindows(action string, args map[string]interface{}) callToolResult 
 		cmd := exec.Command("powershell", "-NoProfile", "-Command", ps)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			return callToolResult{Error: fmt.Sprintf("keyboard combo: %v (%s)", err, string(out))}
+			return extsdk.Result{Error: fmt.Sprintf("keyboard combo: %v (%s)", err, string(out))}
 		}
-		return callToolResult{Success: true, Output: string(out)}
+		return extsdk.Result{Success: true, Output: string(out)}
 
 	default:
-		return callToolResult{Error: fmt.Sprintf("unknown keyboard action: %s", action)}
+		return extsdk.Result{Error: fmt.Sprintf("unknown keyboard action: %s", action)}
 	}
 }
 
