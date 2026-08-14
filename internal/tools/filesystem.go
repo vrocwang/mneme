@@ -4,20 +4,28 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 
+	mnfs "github.com/simon/mneme/internal/fs"
 	"github.com/simon/mneme/internal/security"
 )
 
-// ReadFile reads a file from disk.
+// ReadFile reads a file from disk via the filesystem seam.
 type ReadFile struct {
 	workspaceRoot string
+	fs            mnfs.FS
 }
 
 func NewReadFile(workspaceRoot string) *ReadFile {
-	return &ReadFile{workspaceRoot: workspaceRoot}
+	return NewReadFileWithFS(workspaceRoot, mnfs.OS{})
+}
+
+// NewReadFileWithFS constructs ReadFile with an explicit filesystem provider.
+// The default constructor uses the in-process OS provider; callers that need a
+// process-isolated provider use this variant.
+func NewReadFileWithFS(workspaceRoot string, provider mnfs.FS) *ReadFile {
+	return &ReadFile{workspaceRoot: workspaceRoot, fs: provider}
 }
 
 func (t *ReadFile) Schema() Schema {
@@ -54,7 +62,7 @@ func (t *ReadFile) Execute(ctx context.Context, args map[string]interface{}) Res
 		return Result{Error: fmt.Sprintf("path blocked by security policy: %v", err)}
 	}
 
-	f, err := os.Open(resolvedPath)
+	f, err := t.fs.Open(resolvedPath)
 	if err != nil {
 		return Result{Error: fmt.Sprintf("open file: %v", err)}
 	}
@@ -70,13 +78,18 @@ func (t *ReadFile) Execute(ctx context.Context, args map[string]interface{}) Res
 	return Result{Success: true, Output: string(data)}
 }
 
-// WriteFile writes content to a file.
+// WriteFile writes content to a file via the filesystem seam.
 type WriteFile struct {
 	workspaceRoot string
+	fs            mnfs.FS
 }
 
 func NewWriteFile(workspaceRoot string) *WriteFile {
-	return &WriteFile{workspaceRoot: workspaceRoot}
+	return NewWriteFileWithFS(workspaceRoot, mnfs.OS{})
+}
+
+func NewWriteFileWithFS(workspaceRoot string, provider mnfs.FS) *WriteFile {
+	return &WriteFile{workspaceRoot: workspaceRoot, fs: provider}
 }
 
 func (t *WriteFile) Schema() Schema {
@@ -119,22 +132,27 @@ func (t *WriteFile) Execute(ctx context.Context, args map[string]interface{}) Re
 		return Result{Error: fmt.Sprintf("path blocked by security policy: %v", err)}
 	}
 	dir := filepath.Dir(resolvedPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := t.fs.MkdirAll(dir, 0755); err != nil {
 		return Result{Error: fmt.Sprintf("create dir: %v", err)}
 	}
-	if err := os.WriteFile(resolvedPath, []byte(content), 0644); err != nil {
+	if err := t.fs.WriteFile(resolvedPath, []byte(content), 0644); err != nil {
 		return Result{Error: fmt.Sprintf("write file: %v", err)}
 	}
 	return Result{Success: true, Output: fmt.Sprintf("Wrote %d bytes to %s", len(content), path)}
 }
 
-// ListDir lists files in a directory.
+// ListDir lists files in a directory via the filesystem seam.
 type ListDir struct {
 	workspaceRoot string
+	fs            mnfs.FS
 }
 
 func NewListDir(workspaceRoot string) *ListDir {
-	return &ListDir{workspaceRoot: workspaceRoot}
+	return NewListDirWithFS(workspaceRoot, mnfs.OS{})
+}
+
+func NewListDirWithFS(workspaceRoot string, provider mnfs.FS) *ListDir {
+	return &ListDir{workspaceRoot: workspaceRoot, fs: provider}
 }
 
 func (t *ListDir) Schema() Schema {
@@ -167,7 +185,7 @@ func (t *ListDir) Execute(ctx context.Context, args map[string]interface{}) Resu
 		return Result{Error: fmt.Sprintf("path blocked by security policy: %v", err)}
 	}
 
-	entries, err := os.ReadDir(resolvedPath)
+	entries, err := t.fs.ReadDir(resolvedPath)
 	if err != nil {
 		return Result{Error: fmt.Sprintf("list dir: %v", err)}
 	}
