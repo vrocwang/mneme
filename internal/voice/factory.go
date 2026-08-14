@@ -6,58 +6,106 @@ import (
 	"github.com/simon/mneme/internal/config"
 )
 
-// BuildSTT creates an STT engine based on the voice configuration.
-// Supported providers: "system", "whisper", "openai".
-// Defaults to "system" when unset.
+// STTFactory builds an STT engine from a VoiceConfig. Providers register a
+// factory by name; BuildSTT looks one up and falls back to "system".
+type STTFactory func(vc config.VoiceConfig) STTEngine
+
+// TTSFactory builds a TTS engine from a VoiceConfig.
+type TTSFactory func(vc config.VoiceConfig) TTSEngine
+
+var (
+	sttFactories = map[string]STTFactory{}
+	ttsFactories = map[string]TTSFactory{}
+)
+
+// RegisterSTT registers an STT provider factory under a name. It replaces any
+// previously registered factory of the same name (last registration wins).
+func RegisterSTT(name string, f STTFactory) {
+	sttFactories[strings.ToLower(name)] = f
+}
+
+// RegisterTTS registers a TTS provider factory under a name.
+func RegisterTTS(name string, f TTSFactory) {
+	ttsFactories[strings.ToLower(name)] = f
+}
+
+// STTProviderNames returns the names of all registered STT providers.
+func STTProviderNames() []string {
+	out := make([]string, 0, len(sttFactories))
+	for name := range sttFactories {
+		out = append(out, name)
+	}
+	return out
+}
+
+// TTSProviderNames returns the names of all registered TTS providers.
+func TTSProviderNames() []string {
+	out := make([]string, 0, len(ttsFactories))
+	for name := range ttsFactories {
+		out = append(out, name)
+	}
+	return out
+}
+
+// BuildSTT creates an STT engine based on the voice configuration, consulting
+// the provider registry. Supported providers are registered in init() below.
+// Defaults to "system" when unset or unknown.
 func BuildSTT(cfg *config.Config) STTEngine {
 	vc := cfg.Voice
 	provider := vc.STTProvider
 	if provider == "" {
 		provider = "system"
 	}
-
-	switch provider {
-	case "whisper":
-		model := vc.STTModel
-		if model == "" {
-			model = "base"
-		}
-		return NewWhisperSTT(model, "")
-	case "openai":
-		apiKey := vc.STTAPIKey
-		endpoint := vc.STTEndpoint
-		model := vc.STTModel
-		if model == "" {
-			model = "whisper-1"
-		}
-		return NewOpenAIStt(endpoint, apiKey, model)
-	default:
-		return NewSystemSTT()
+	if f, ok := sttFactories[strings.ToLower(provider)]; ok {
+		return f(vc)
 	}
+	return NewSystemSTT()
 }
 
-// BuildTTS creates a TTS engine based on the voice configuration.
-// Supported providers: "system", "piper", "openai".
-// Defaults to "system" when unset.
+// BuildTTS creates a TTS engine based on the voice configuration, consulting
+// the provider registry. Defaults to "system" when unset or unknown.
 func BuildTTS(cfg *config.Config) TTSEngine {
 	vc := cfg.Voice
 	provider := vc.TTSProvider
 	if provider == "" {
 		provider = "system"
 	}
+	if f, ok := ttsFactories[strings.ToLower(provider)]; ok {
+		return f(vc)
+	}
+	return NewSystemTTS()
+}
 
-	switch provider {
-	case "piper":
+func init() {
+	RegisterSTT("system", func(vc config.VoiceConfig) STTEngine {
+		return NewSystemSTT()
+	})
+	RegisterSTT("whisper", func(vc config.VoiceConfig) STTEngine {
+		model := vc.STTModel
+		if model == "" {
+			model = "base"
+		}
+		return NewWhisperSTT(model, "")
+	})
+	RegisterSTT("openai", func(vc config.VoiceConfig) STTEngine {
+		model := vc.STTModel
+		if model == "" {
+			model = "whisper-1"
+		}
+		return NewOpenAIStt(vc.STTEndpoint, vc.STTAPIKey, model)
+	})
+
+	RegisterTTS("system", func(vc config.VoiceConfig) TTSEngine {
+		return NewSystemTTS()
+	})
+	RegisterTTS("piper", func(vc config.VoiceConfig) TTSEngine {
 		model := vc.TTSModel
 		if model == "" {
 			model = "en_US-lessac-medium"
 		}
 		return NewPiperTTS(model, "")
-	case "openai":
-		apiKey := vc.TTSAPIKey
-		endpoint := vc.TTSEndpoint
-		// Parse TTSModel as "model:voice" (e.g. "tts-1:alloy"), defaulting
-		// to "tts-1" / "alloy" when the field is empty or missing a colon.
+	})
+	RegisterTTS("openai", func(vc config.VoiceConfig) TTSEngine {
 		model, voice := vc.TTSModel, "alloy"
 		if idx := strings.Index(vc.TTSModel, ":"); idx >= 0 {
 			model = vc.TTSModel[:idx]
@@ -69,8 +117,6 @@ func BuildTTS(cfg *config.Config) TTSEngine {
 		if voice == "" {
 			voice = "alloy"
 		}
-		return NewOpenAITts(endpoint, apiKey, model, voice)
-	default:
-		return NewSystemTTS()
-	}
+		return NewOpenAITts(vc.TTSEndpoint, vc.TTSAPIKey, model, voice)
+	})
 }
