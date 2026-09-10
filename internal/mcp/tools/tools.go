@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/simon/mneme/internal/capability"
@@ -104,17 +103,14 @@ func (t *listToolsTool) Execute(ctx context.Context, args map[string]interface{}
 		return pkgtools.Result{Error: fmt.Sprintf("MCP server %q not found", server)}
 	}
 
-	allTools := t.deps.Reg.AllTools()
+	setTools := t.deps.Reg.ToolsInSet(setID)
 	type toolInfo struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
 	}
 	var result []toolInfo
-	prefix := "mcp:" + server + ":"
-	for _, td := range allTools {
-		if strings.HasPrefix(td.Name, prefix) {
-			result = append(result, toolInfo{Name: td.Name, Description: td.Description})
-		}
+	for _, td := range setTools {
+		result = append(result, toolInfo{Name: td.Name, Description: td.Description})
 	}
 	if len(result) == 0 {
 		return pkgtools.Result{Output: fmt.Sprintf("No tools found for MCP server %q (health: %s). The server may not be connected.", server, set.Health)}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +17,7 @@ import (
 // CompanionLoop manages the full desktop AI companion experience.
 type CompanionLoop struct {
 	log *slog.Logger
+	cfg CompanionConfig
 
 	stt    voice.STTEngine
 	tts    voice.TTSEngine
@@ -42,12 +45,19 @@ type CompanionConfig struct {
 	Provider inference.Provider
 	Model    string
 	Vision   *VisionEngine // optional: enables LLM-powered screen understanding
+	// TempDir is where voice recordings are spooled. When empty the
+	// OS temp dir is used.
+	TempDir string
 }
 
 // NewCompanionLoop creates a desktop companion loop.
 func NewCompanionLoop(log *slog.Logger, cfg CompanionConfig) *CompanionLoop {
+	if cfg.TempDir == "" {
+		cfg.TempDir = os.TempDir()
+	}
 	return &CompanionLoop{
 		log:      log,
+		cfg:      cfg,
 		stt:      cfg.STT,
 		tts:      cfg.TTS,
 		screen:   cfg.Screen,
@@ -122,7 +132,7 @@ func (c *CompanionLoop) Activate(parentCtx context.Context) error {
 	// Step 2: Record audio and transcribe
 	var userText string
 	if c.stt != nil {
-		audioPath := fmt.Sprintf("/tmp/mneme-voice-%d.wav", time.Now().UnixNano())
+		audioPath := filepath.Join(c.cfg.TempDir, fmt.Sprintf("mneme-voice-%d.wav", time.Now().UnixNano()))
 		if err := voice.RecordFromMic(ctx, audioPath, 5); err != nil {
 			c.log.Warn("mic recording failed", "error", err)
 		} else {

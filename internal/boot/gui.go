@@ -52,6 +52,7 @@ func BootstrapGUI(core *AppCore, ctx context.Context, appMethods jsonrpc.AppMeth
 			Provider: core.Provider,
 			Model:    cfg.Agent.DefaultModel,
 			Vision:   visionEngine,
+			TempDir:  filepath.Join(cfg.Workspace, "tmp"),
 		})
 		if cfg.ScreenIntelligence.Enabled && gui.ScreenCap != nil && visionEngine != nil {
 			gui.ScreenIntel = desktop.NewScreenIntelLoop(log, desktop.ScreenIntelConfig{

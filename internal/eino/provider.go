@@ -52,7 +52,7 @@ func NewChatModel(ctx context.Context, cfg *config.Config) (model.ToolCallingCha
 		modelName = pc.Models[0]
 	}
 
-	primary, err := newChatModelFromProvider(ctx, pc, modelName)
+	primary, err := newChatModelFromProvider(ctx, pc, modelName, cfg.Agent.MaxOutputTokens)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +73,7 @@ func CollectFailoverModels(ctx context.Context, cfg *config.Config, primary *con
 		if len(pc.Models) == 0 {
 			continue
 		}
-		m, err := newChatModelFromProvider(ctx, pc, pc.Models[0])
+		m, err := newChatModelFromProvider(ctx, pc, pc.Models[0], cfg.Agent.MaxOutputTokens)
 		if err != nil {
 			continue // skip providers that fail to initialize
 		}
@@ -83,10 +83,12 @@ func CollectFailoverModels(ctx context.Context, cfg *config.Config, primary *con
 }
 
 // newChatModelFromProvider creates a single chat model from a provider config.
-func newChatModelFromProvider(ctx context.Context, pc *config.ProviderConfig, modelName string) (model.ToolCallingChatModel, error) {
+// maxTokens is the configured per-response output budget (agent.max_output_tokens);
+// 0 means the provider applies its own default.
+func newChatModelFromProvider(ctx context.Context, pc *config.ProviderConfig, modelName string, maxTokens int) (model.ToolCallingChatModel, error) {
 	switch pc.Type {
 	case "anthropic", "claude":
-		return newClaudeModel(ctx, pc, modelName)
+		return newClaudeModel(ctx, pc, modelName, maxTokens)
 	case "ollama":
 		return newOllamaModel(ctx, pc, modelName)
 	default: // "openai" or ""
@@ -105,18 +107,23 @@ func newOpenAIModel(ctx context.Context, pc *config.ProviderConfig, modelName st
 
 // newClaudeModel creates an Anthropic Claude ChatModel via the eino-ext
 // claude provider. Uses the direct Anthropic API (not Bedrock or Vertex).
-func newClaudeModel(ctx context.Context, pc *config.ProviderConfig, modelName string) (model.ToolCallingChatModel, error) {
+func newClaudeModel(ctx context.Context, pc *config.ProviderConfig, modelName string, maxTokens int) (model.ToolCallingChatModel, error) {
 	// claude.Config.BaseURL is *string; nil means use the default endpoint.
 	var baseURL *string
 	if pc.BaseURL != "" {
 		baseURL = &pc.BaseURL
+	}
+	// The Anthropic API requires an explicit output cap; honor
+	// agent.max_output_tokens when set, else use a safe default.
+	if maxTokens <= 0 {
+		maxTokens = 4096
 	}
 
 	return claude.NewChatModel(ctx, &claude.Config{
 		APIKey:    pc.APIKey,
 		BaseURL:   baseURL,
 		Model:     modelName,
-		MaxTokens: 4096,
+		MaxTokens: maxTokens,
 	})
 }
 

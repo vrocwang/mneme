@@ -46,7 +46,9 @@ func (a *AgentRPC) ListAgents() []map[string]interface{} {
 
 // UpsertAgent creates or updates a user-defined agent. Persisted to
 // workspace/agents/<id>.toml and registered in-memory immediately.
-func (a *AgentRPC) UpsertAgent(id, name, description, systemPrompt string) error {
+// tier, model, maxIterations, and toolAllowlist come from the agent editor;
+// zero values fall back to sensible defaults.
+func (a *AgentRPC) UpsertAgent(id, name, description, systemPrompt, tier, model string, maxIterations int, toolAllowlist []string) error {
 	if a.reg == nil {
 		return fmt.Errorf("capability registry not available")
 	}
@@ -59,14 +61,27 @@ func (a *AgentRPC) UpsertAgent(id, name, description, systemPrompt string) error
 		a.reg.UnregisterAgent(id)
 	}
 
+	if tier == "" {
+		tier = "worker"
+	}
+	if maxIterations <= 0 {
+		maxIterations = 10
+	}
+	if len(toolAllowlist) == 0 {
+		toolAllowlist = []string{"*"}
+	}
+
 	def := &tools.AgentDef{
 		ID:            id,
 		Name:          name,
 		Description:   description,
-		Tier:          "worker",
-		MaxIterations: 10,
+		Tier:          tier,
+		MaxIterations: maxIterations,
 		SystemPrompt:  systemPrompt,
-		ToolAllowlist: []string{"*"},
+		ToolAllowlist: toolAllowlist,
+	}
+	if model != "" {
+		def.Model = model
 	}
 
 	// Persist to TOML so it survives restarts.

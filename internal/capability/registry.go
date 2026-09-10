@@ -23,18 +23,16 @@ type MCPAuditLogger interface {
 // CapabilityRegistry is the single source of truth for all tools and agents.
 // It replaces tools.Registry + agent.Registry + mcp.Registry + extension loader.
 type CapabilityRegistry struct {
-	mu                *sync.RWMutex // shared with ScopedView children
+	mu                *sync.RWMutex
 	sets              map[string]*CapabilitySet
 	exec              map[string]tools.Tool
 	toolOwner         map[string]string
 	agents            map[string]*tools.AgentDef
 	agentOwner        map[string]string
 	mcpClients        map[string]*mcpclient.Client
-	mcpAuth           mcpclient.AuthProvider // global MCP auth provider (optional)
 	extensionProcs    map[string]*tools.ProtoProcess
 	extensionMonitors map[string]context.CancelFunc // cancels health monitor goroutine per extension
 	mcpToolServer     map[string]string             // toolName → setID
-	scopedTools       map[string]bool               // non-nil when this is a ScopedView
 	mcpAudit          MCPAuditLogger
 	channels          map[string]*channelEntry // registered channel providers
 	disposes          map[string]dispose.Func  // setID → teardown (effect-style unwind)
@@ -234,41 +232,32 @@ func (r *CapabilityRegistry) UnregisterTool(name string) {
 	delete(r.mcpToolServer, name)
 }
 
-// UnregisterToolsBySet removes all tools belonging to a capability set.
-// Used when a set is dynamically disabled at runtime (e.g. Composio).
-func (r *CapabilityRegistry) UnregisterToolsBySet(setID string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for name, owner := range r.toolOwner {
-		if owner == setID {
-			delete(r.exec, name)
-			delete(r.toolOwner, name)
-			delete(r.mcpToolServer, name)
-		}
-	}
-	// Clear tool list in the set descriptor.
-	if s, ok := r.sets[setID]; ok {
-		s.Tools = nil
-		s.ToolCount = 0
-	}
-}
-
 func (r *CapabilityRegistry) AllTools() []ToolDescriptor {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := make([]ToolDescriptor, 0, len(r.exec)+len(r.mcpToolServer))
 	for name, t := range r.exec {
-		if r.scopedTools != nil && !r.scopedTools[name] {
-			continue
-		}
 		out = append(out, toolToDescriptor(name, t))
 	}
 	for name := range r.mcpToolServer {
-		if r.scopedTools != nil && !r.scopedTools[name] {
-			continue
-		}
 		out = append(out, ToolDescriptor{Name: name, Description: "MCP remote tool"})
 	}
+	return out
+}
+
+// ToolsInSet returns descriptors for the tools owned by the given capability
+// set. MCP consumers use this to list a server's tools without assuming any
+// naming convention — registration stores tools under their raw names and
+// tracks ownership separately.
+func (r *CapabilityRegistry) ToolsInSet(setID string) []ToolDescriptor {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	s, ok := r.sets[setID]
+	if !ok {
+		return nil
+	}
+	out := make([]ToolDescriptor, len(s.Tools))
+	copy(out, s.Tools)
 	return out
 }
 
@@ -277,15 +266,9 @@ func (r *CapabilityRegistry) ToolNames() []string {
 	defer r.mu.RUnlock()
 	names := make([]string, 0, len(r.exec)+len(r.mcpToolServer))
 	for name := range r.exec {
-		if r.scopedTools != nil && !r.scopedTools[name] {
-			continue
-		}
 		names = append(names, name)
 	}
 	for name := range r.mcpToolServer {
-		if r.scopedTools != nil && !r.scopedTools[name] {
-			continue
-		}
 		names = append(names, name)
 	}
 	return names
@@ -294,9 +277,6 @@ func (r *CapabilityRegistry) ToolNames() []string {
 func (r *CapabilityRegistry) GetTool(name string) (tools.Tool, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if r.scopedTools != nil && !r.scopedTools[name] {
-		return nil, false
-	}
 	t, ok := r.exec[name]
 	if !ok {
 		// Check MCP tools when not found in exec.
@@ -320,10 +300,6 @@ func (r *CapabilityRegistry) SetMCPAuditLogger(l MCPAuditLogger) {
 func (r *CapabilityRegistry) Execute(ctx context.Context, name string, args map[string]interface{}) tools.Result {
 	r.mu.RLock()
 	t, ok := r.exec[name]
-	if r.scopedTools != nil && !r.scopedTools[name] {
-		r.mu.RUnlock()
-		return tools.Result{Error: fmt.Sprintf("tool not allowed in scoped view: %s", name)}
-	}
 	serverID, isMCP := r.mcpToolServer[name]
 	client := r.mcpClients[serverID]
 	serverName := serverID
@@ -457,32 +433,6 @@ func (r *CapabilityRegistry) GetAgent(id string) (*tools.AgentDef, bool) {
 	return def, ok
 }
 
-// ── ScopedView ────────────────────────────────────────
-
-// ScopedView returns a view restricted to the given tool names.
-// Shares the parent's execution maps but filters visibility.
-func (r *CapabilityRegistry) ScopedView(toolNames []string) *CapabilityRegistry {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	filtered := make(map[string]bool, len(toolNames))
-	for _, name := range toolNames {
-		filtered[name] = true
-	}
-	return &CapabilityRegistry{
-		mu:                r.mu, // share parent mutex for concurrent safety
-		exec:              r.exec,
-		toolOwner:         r.toolOwner,
-		sets:              r.sets,
-		agents:            r.agents,
-		agentOwner:        r.agentOwner,
-		mcpClients:        r.mcpClients,
-		extensionProcs:    r.extensionProcs,
-		extensionMonitors: r.extensionMonitors,
-		mcpToolServer:     r.mcpToolServer,
-		scopedTools:       filtered,
-	}
-}
-
 // ── MCP ───────────────────────────────────────────────
 
 // RegisterMCP registers a tool provided by an external MCP server.
@@ -497,12 +447,6 @@ func (r *CapabilityRegistry) RegisterMCP(setID, toolName string, client *mcpclie
 		Name:        toolName,
 		Description: "MCP remote tool",
 	})
-}
-
-func (r *CapabilityRegistry) SetMCPAuthProvider(auth mcpclient.AuthProvider) {
-	r.mu.Lock()
-	r.mcpAuth = auth
-	r.mu.Unlock()
 }
 
 func (r *CapabilityRegistry) ConnectMCPServer(setID string, entry ServerEntry) error {
@@ -525,14 +469,6 @@ func (r *CapabilityRegistry) ConnectMCPServer(setID string, entry ServerEntry) e
 		client = mcpclient.NewHTTP(entry.Name, entry.URL)
 	default:
 		return fmt.Errorf("unknown MCP transport: %s", entry.Transport)
-	}
-
-	// Attach the global auth provider if one is set.
-	r.mu.RLock()
-	auth := r.mcpAuth
-	r.mu.RUnlock()
-	if auth != nil {
-		client = client.WithAuth(auth)
 	}
 
 	// Perform MCP handshake for HTTP transports (stdio does it in NewStdio).
@@ -706,37 +642,6 @@ func (r *CapabilityRegistry) DisposeSet(setID string) {
 	}
 }
 
-// RegisterInProcessSet registers a first-party (trusted) capability set that
-// lives in-process: its tools and agents are Go values implementing the seam
-// interfaces directly, with no subprocess or transport layer. This is the
-// in-process twin of RegisterExtension (process-isolated) — both produce the
-// same kind of registrations (set + tools + agents) and both return a
-// DisposeFunc, so consumers and unload paths treat them uniformly.
-func (r *CapabilityRegistry) RegisterInProcessSet(set *CapabilitySet, inTools []tools.Tool, inAgents []*tools.AgentDef) (dispose.Func, error) {
-	if set == nil {
-		return nil, fmt.Errorf("nil capability set")
-	}
-
-	// Reserve the set ID first (same rationale as RegisterExtension): fail
-	// before mutating any tool/agent state on a duplicate set ID.
-	if err := r.AddSet(set); err != nil {
-		return nil, err
-	}
-
-	for _, t := range inTools {
-		r.RegisterTool(set.ID, t)
-	}
-	for _, a := range inAgents {
-		r.RegisterAgent(set.ID, a)
-	}
-
-	unwind := dispose.Once(func() { _ = r.removeSetInternal(set.ID) })
-	r.mu.Lock()
-	r.disposes[set.ID] = unwind
-	r.mu.Unlock()
-	return unwind, nil
-}
-
 // removeSetInternal performs the full teardown for a set: unregister tools and
 // agents, cancel the health monitor, stop the process, and remove the set. It
 // is idempotent (missing entries are ignored) and is the shared implementation
@@ -783,13 +688,6 @@ func (r *CapabilityRegistry) removeSetInternal(id string) error {
 }
 
 // ── Extension process tracking ───────────────────────────────────
-
-// GetExtensionProcess returns the extension process for a given set ID, or nil.
-func (r *CapabilityRegistry) GetExtensionProcess(setID string) *tools.ProtoProcess {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.extensionProcs[setID]
-}
 
 func (r *CapabilityRegistry) TrackExtension(setID string, proc *tools.ProtoProcess) {
 	healthCtx, healthCancel := context.WithCancel(context.Background())

@@ -215,14 +215,9 @@ func (r *RPC) GetMCPServerStatus(name string) (MCPServerStatus, error) {
 	connected := set.Health == capability.HealthOK
 	var tools []MCPServerToolInfo
 
-	// Resolve tools from registry.
-	allTools := r.reg.AllTools()
-	for _, td := range allTools {
-		if prefix := "mcp:" + name; len(td.Name) > len(prefix) {
-			if td.Name[:len(prefix)] == prefix {
-				tools = append(tools, MCPServerToolInfo{Name: td.Name, Description: td.Description})
-			}
-		}
+	// Resolve tools owned by this server's capability set.
+	for _, td := range r.reg.ToolsInSet("mcp:" + name) {
+		tools = append(tools, MCPServerToolInfo{Name: td.Name, Description: td.Description})
 	}
 
 	return MCPServerStatus{
@@ -239,17 +234,20 @@ func (r *RPC) CallMCPTool(serverName, toolName string, args map[string]interface
 	if serverName == "" || toolName == "" {
 		return nil, fmt.Errorf("serverName and toolName are required")
 	}
-	// Resolve the full tool name: the registry prefixes tools with "mcp:<server>:"
-	fullName := "mcp:" + serverName + ":" + toolName
-	// Fallback: try without the double-colon separator
-	if _, ok := r.reg.GetTool(fullName); !ok {
-		fullName = toolName
-		if _, ok := r.reg.GetTool(fullName); !ok {
-			return map[string]interface{}{"output": fmt.Sprintf("tool %q not found on server %q", toolName, serverName), "isError": true}, nil
+	// Verify the tool is owned by the named server's set, then execute by
+	// raw name (MCP tools are registered under their server-side names).
+	owned := false
+	for _, td := range r.reg.ToolsInSet("mcp:" + serverName) {
+		if td.Name == toolName {
+			owned = true
+			break
 		}
 	}
+	if !owned {
+		return map[string]interface{}{"output": fmt.Sprintf("tool %q not found on server %q", toolName, serverName), "isError": true}, nil
+	}
 
-	result := r.reg.Execute(context.Background(), fullName, args)
+	result := r.reg.Execute(context.Background(), toolName, args)
 	out := map[string]interface{}{
 		"output":  result.Output,
 		"isError": result.Error != "",

@@ -6,7 +6,6 @@ import (
 	"os"
 	"runtime"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/simon/mneme/internal/config"
@@ -51,7 +50,6 @@ type Shell struct {
 	runner         subprocess.Runner
 	maxOutputBytes int
 	safeEnvVars    []string
-	timeoutSec     int
 }
 
 func NewShell(workspaceRoot string, tier security.Tier, toolsShellCfg config.ToolsShellConfig, sandboxCfg config.SandboxConfig) *Shell {
@@ -75,7 +73,6 @@ func NewShellWithRunner(workspaceRoot string, tier security.Tier, toolsShellCfg 
 	if s.maxOutputBytes == 0 {
 		s.maxOutputBytes = defaultMaxShellOutputBytes
 	}
-	s.timeoutSec = 120 // default: 2 minutes
 	if len(s.safeEnvVars) == 0 {
 		s.safeEnvVars = defaultSafeEnvVars
 	}
@@ -155,10 +152,13 @@ func (t *Shell) Execute(ctx context.Context, args map[string]interface{}) Result
 	}
 
 	// Execute via the subprocess seam, which owns timeout handling and
-	// process-group termination of the whole command tree.
-	output, err := t.runner.Run(ctx, cmd, time.Duration(t.timeoutSec)*time.Second)
+	// process-group termination of the whole command tree. The timeout is
+	// the global tool timeout (agent.limits.default_tool_timeout, env- and
+	// RPC-overridable) rather than a tool-private value.
+	timeout := ToolTimeoutDuration()
+	output, err := t.runner.Run(ctx, cmd, timeout)
 	if err == subprocess.ErrTimeout {
-		return Result{Error: fmt.Sprintf("command timed out after %d seconds", t.timeoutSec)}
+		return Result{Error: fmt.Sprintf("command timed out after %s", timeout)}
 	}
 	outStr := string(output)
 	truncated := len(outStr) > t.maxOutputBytes

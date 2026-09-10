@@ -113,11 +113,19 @@ export function CapabilitiesPage() {
     if (!agentForm.id.trim() || !agentForm.name.trim()) return;
     setInstalling(true);
     try {
+      const allowlist = agentForm.toolAllowlist
+        .split(',')
+        .map(t => t.trim())
+        .filter(t => t !== '');
       await api.upsertAgent(
         agentForm.id.trim(),
         agentForm.name.trim(),
         agentForm.description.trim(),
         agentForm.systemPrompt.trim(),
+        agentForm.tier,
+        agentForm.model.trim(),
+        agentForm.maxIterations,
+        allowlist,
       );
       setShowAgentEditor(false);
       await fetchSets();
