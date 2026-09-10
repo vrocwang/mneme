@@ -20,7 +20,3 @@ type Store interface {
 type Prober interface {
 	Probe() bool
 }
-
-func Default() Store {
-	return defaultStore()
-}

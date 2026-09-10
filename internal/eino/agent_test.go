@@ -91,14 +91,14 @@ func TestFilterToolsByAllowlist_PreservesOrder(t *testing.T) {
 }
 
 func TestBuildInstruction_NilManager(t *testing.T) {
-	if got := buildInstruction(nil, prompts.AgentGeneral); got != "" {
+	if got := buildInstruction(nil, prompts.NameFromAgentID("general")); got != "" {
 		t.Errorf("nil manager should return empty string, got %q", got)
 	}
 }
 
 func TestBuildInstruction_LoadsEmbeddedDefault(t *testing.T) {
 	mgr := prompts.New("")
-	got := buildInstruction(mgr, prompts.AgentGeneral)
+	got := buildInstruction(mgr, prompts.NameFromAgentID("general"))
 	if got == "" {
 		t.Error("embedded agent_general prompt should resolve to non-empty text")
 	}

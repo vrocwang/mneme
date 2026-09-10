@@ -161,26 +161,4 @@ func TestRedactArgsJSON_InvalidInput(t *testing.T) {
 	}
 }
 
-func TestSummarizeAction(t *testing.T) {
-	raw := `{"action":"execute","tool_slug":"SLACK_SEND","params":{"body":"hi"}}`
-	summary := SummarizeAction("composio", raw)
-	if !strings.Contains(summary, "composio") {
-		t.Errorf("summary should contain tool name, got %s", summary)
-	}
-	if !strings.Contains(summary, "action=execute") {
-		t.Errorf("summary should contain safe field action, got %s", summary)
-	}
-	if strings.Contains(summary, "hi") {
-		t.Errorf("summary should NOT contain raw message body, got %s", summary)
-	}
-}
 
-func TestSummarizeAction_EmptyArgs(t *testing.T) {
-	summary := SummarizeAction("pushover", `{}`)
-	if !strings.Contains(summary, "pushover") {
-		t.Errorf("summary should contain tool name, got %s", summary)
-	}
-	if !strings.Contains(summary, "bytes") {
-		t.Errorf("summary should mention bytes, got %s", summary)
-	}
-}

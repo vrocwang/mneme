@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 )
@@ -238,18 +237,4 @@ func fileChecksum(path string) string {
 var DefaultExcludePatterns = []string{
 	".git", "node_modules", ".venv", "__pycache__", "target", "build", "dist",
 	".DS_Store", ".cache", ".mneme", "*.tmp", "*.log",
-}
-
-// ShouldExclude checks if a path matches any exclude pattern.
-func ShouldExclude(path string, patterns []string) bool {
-	name := filepath.Base(path)
-	for _, p := range patterns {
-		if matched, _ := filepath.Match(p, name); matched {
-			return true
-		}
-		if strings.Contains(path, "/"+p+"/") || strings.HasPrefix(path, p+"/") {
-			return true
-		}
-	}
-	return false
 }

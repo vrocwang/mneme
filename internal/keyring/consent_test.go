@@ -57,21 +57,6 @@ func TestConsent_RecordConsent(t *testing.T) {
 	}
 }
 
-func TestConsent_Initialize(t *testing.T) {
-	pref := &ConsentPreference{
-		StorageMode:   "local_encrypted",
-		ConsentedAtMs: int64Ptr(12345),
-	}
-	Initialize(pref)
-
-	consentCache.RLock()
-	cached := consentPref
-	consentCache.RUnlock()
-
-	if cached == nil || cached.StorageMode != "local_encrypted" {
-		t.Errorf("cache should be initialized, got %v", cached)
-	}
-}
 
 func TestConsent_CurrentStatus(t *testing.T) {
 	status := CurrentStatus()

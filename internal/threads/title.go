@@ -1,7 +1,6 @@
 package threads
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 )
@@ -70,9 +69,4 @@ func SanitizeTitle(raw string) string {
 		}
 	}
 	return t
-}
-
-// BuildTitlePrompt formats the user + assistant messages for title generation.
-func BuildTitlePrompt(userMessage, assistantMessage string) string {
-	return fmt.Sprintf("User: %s\n\nAssistant: %s\n\nTitle:", userMessage, assistantMessage)
 }

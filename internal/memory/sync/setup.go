@@ -26,16 +26,6 @@ func RegisterEnvConnectors(mgr *Manager, log *slog.Logger) {
 		}
 	}
 }
-
-// SyncRunner returns a no-arg function suitable for cron.Handler that runs
-// all registered connectors through the given pipeline.
-func SyncRunner(mgr *Manager, pipeline Pipeline) func(ctx context.Context) error {
-	return func(ctx context.Context) error {
-		mgr.SyncAll(ctx, pipeline)
-		return nil
-	}
-}
-
 // SnapshotFunc is called after each sync tick to capture a memory snapshot.
 type SnapshotFunc func(label string) error
 

@@ -155,19 +155,4 @@ func TestGraph_EdgeKeyDeterministic(t *testing.T) {
 	}
 }
 
-func TestFormatRelated(t *testing.T) {
-	edges := []Edge{
-		{Source: "Alice", Target: "Bob", Weight: 2.0, Count: 3},
-	}
-	result := FormatRelated("Alice", edges)
-	if result == "" {
-		t.Error("expected non-empty result")
-	}
-}
 
-func TestFormatRelated_Empty(t *testing.T) {
-	result := FormatRelated("Nobody", nil)
-	if result == "" {
-		t.Error("expected non-empty result for empty edges")
-	}
-}

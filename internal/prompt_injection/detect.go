@@ -156,29 +156,6 @@ func sanitizeInput(input string) string {
 	return strings.TrimSpace(input)
 }
 
-func QuickInjectionCheck(input string) bool {
-	lower := strings.ToLower(input)
-	quickFlags := []string{
-		"ignore all previous instructions",
-		"ignore previous instructions",
-		"forget all previous",
-		"disregard above",
-		"<|im_start|>",
-		"<|im_end|>",
-		"you are now",
-		"pretend you are",
-		"new system prompt",
-		"do anything now",
-		"developer mode",
-	}
-	for _, flag := range quickFlags {
-		if strings.Contains(lower, flag) {
-			return true
-		}
-	}
-	return false
-}
-
 // ── Enhanced detection matching Rust prompt_injection::detector ──────────
 
 type PromptEnforcementVerdict int
@@ -188,19 +165,6 @@ const (
 	VerdictBlock
 	VerdictReview
 )
-
-func (v PromptEnforcementVerdict) String() string {
-	switch v {
-	case VerdictAllow:
-		return "allow"
-	case VerdictBlock:
-		return "block"
-	case VerdictReview:
-		return "review"
-	default:
-		return "unknown"
-	}
-}
 
 type PromptEnforcementAction int
 
@@ -470,92 +434,5 @@ func EnforcePromptInput(input string) PromptEnforcementDecision {
 }
 
 // ── Tool definition scanning ──────────────────────────────────────────
-
-// ScanToolDefinition checks a remote tool's name and description for
-// prompt injection patterns. MCP tools and other externally-sourced
-// tools may carry malicious descriptions designed to override system
-// instructions. Returns a score and the list of matched patterns.
-func ScanToolDefinition(name, description string) (score float64, reasons []string) {
-	// Check the tool name — short names get a pass, but suspicious
-	// patterns (e.g. names containing system-override keywords) are caught.
-	if len(name) > 60 {
-		score += 0.1
-		reasons = append(reasons, "unusually_long_tool_name")
-	}
-
-	// Check the description for injection patterns using the same
-	// detector pipeline used for user messages.
-	combined := name + "\n" + description
-	if combined != "" {
-		descScore, descReasons := detectInjection(combined)
-		if descScore > 0.3 {
-			score += descScore * 0.5 // tool definitions are lower risk than user input
-			reasons = append(reasons, descReasons...)
-		}
-	}
-
-	// Specific patterns that indicate tool-description-based attacks.
-	toolSpecificPatterns := []struct {
-		pattern string
-		reason  string
-		weight  float64
-	}{
-		{"system:", "tool_def_contains_system_prefix", 0.4},
-		{"<system>", "tool_def_contains_system_tag", 0.5},
-		{"override", "tool_def_contains_override", 0.3},
-		{"ignore previous", "tool_def_contains_ignore_previous", 0.5},
-		{"you are now", "tool_def_contains_role_change", 0.5},
-		{"new instructions", "tool_def_contains_new_instructions", 0.4},
-		{"forget everything", "tool_def_contains_forget", 0.6},
-	}
-
-	lowerCombined := strings.ToLower(combined)
-	for _, sp := range toolSpecificPatterns {
-		if strings.Contains(lowerCombined, sp.pattern) {
-			score += sp.weight
-			reasons = append(reasons, sp.reason)
-		}
-	}
-
-	if score > 1.0 {
-		score = 1.0
-	}
-	return score, reasons
-}
-
-// detectInjection is the internal scoring helper used by both
-// DetectPromptInjection and ScanToolDefinition.
-func detectInjection(input string) (score float64, reasons []string) {
-	lower := strings.ToLower(input)
-
-	// Check system override patterns.
-	for _, p := range systemOverridePatterns {
-		if p.MatchString(lower) {
-			score += 0.3
-			reasons = append(reasons, "system_override")
-			break
-		}
-	}
-
-	// Check jailbreak patterns.
-	for _, p := range jailbreakPatterns {
-		if p.MatchString(lower) {
-			score += 0.5
-			reasons = append(reasons, "jailbreak")
-			break
-		}
-	}
-
-	// Check base64-encoded content (potential hidden payload).
-	if base64Pattern.MatchString(input) {
-		score += 0.2
-		reasons = append(reasons, "base64_content")
-	}
-
-	if score > 1.0 {
-		score = 1.0
-	}
-	return score, reasons
-}
 
 var base64Pattern = regexp.MustCompile(`[A-Za-z0-9+/]{40,}={0,2}`)

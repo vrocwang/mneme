@@ -23,7 +23,7 @@ export function ChatView() {
 
   const { threads, activeThreadId, createNewThread, deleteSelectedThread, selectThread } = useThreads();
   const { pendingApprovals, decideApproval } = useApprovals();
-  const { messages, streamingContent, streamingThinking, isStreaming, sendMessage } = useChatMessages();
+  const { messages, streamingContent, isStreaming, sendMessage } = useChatMessages();
   const toolCallsByMsg = useSelector((s: RootState) => s.chatRuntime.toolCallsByMsg, shallowEqual);
   const pendingToolCalls = useSelector((s: RootState) => s.chatRuntime.toolCalls[activeThreadId || ''] || [], shallowEqual);
 
@@ -114,16 +114,6 @@ export function ChatView() {
                   )}
                   {isStreaming && (
                     <>
-                      {streamingThinking.length > 0 && (
-                        <details className="mb-2" open>
-                          <summary className="text-xs text-white/40 cursor-pointer hover:text-white/60 transition-colors">
-                            Thinking{streamingContent.length === 0 ? '...' : ''}
-                          </summary>
-                          <div className="mt-1 text-xs text-white/30 whitespace-pre-wrap font-mono leading-relaxed pl-3 border-l border-white/10">
-                            {streamingThinking}
-                          </div>
-                        </details>
-                      )}
                       {streamingContent.length > 0 && (
                         <MessageBubble
                           message={{ id: 0, role: 'assistant', content: streamingContent, created_at: new Date().toISOString() }}

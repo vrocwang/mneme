@@ -224,11 +224,6 @@ func (r *Runner) processEvents(ctx context.Context, threadID, userMessage string
 		}
 	}
 
-	// -- 5. Post-turn: cost tracking ------------------------------------
-	if r.callbacks != nil && r.callbacks.Cost != nil {
-		r.callbacks.Cost.OnTokens("default", inputTokens, outputTokens, 0)
-	}
-
 	// -- 6. Post-turn: memory extraction --------------------------------
 	if r.memMW != nil {
 		r.memMW.OnTurnEnd(ctx, threadID, inputTokens+outputTokens, len(toolCalls))
@@ -413,11 +408,6 @@ func (r *Runner) StreamQuery(ctx context.Context, threadID, userMessage string, 
 		}
 	}
 
-	// -- 5. Post-turn: cost tracking ------------------------------------
-	if r.callbacks != nil && r.callbacks.Cost != nil {
-		r.callbacks.Cost.OnTokens("default", inputTokens, outputTokens, 0)
-	}
-
 	// -- 6. Post-turn: memory extraction --------------------------------
 	if r.memMW != nil {
 		r.memMW.OnTurnEnd(ctx, threadID, inputTokens+outputTokens, len(toolCallResults))
@@ -592,9 +582,6 @@ func (r *Runner) Resume(ctx context.Context, threadID, checkPointID string) (*ag
 		for _, tc := range toolCalls {
 			r.callbacks.Audit.OnToolCall(tc.Name, tc.Output, threadID)
 		}
-	}
-	if r.callbacks != nil && r.callbacks.Cost != nil {
-		r.callbacks.Cost.OnTokens("default", inputTokens, outputTokens, 0)
 	}
 	if r.memMW != nil {
 		r.memMW.OnTurnEnd(ctx, threadID, inputTokens+outputTokens, len(toolCalls))

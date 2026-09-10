@@ -2,7 +2,6 @@ package graph
 
 import (
 	"database/sql"
-	"fmt"
 	"log/slog"
 	"math"
 	"sort"
@@ -365,17 +364,4 @@ func dedupeEntities(entities []string) []string {
 		}
 	}
 	return result
-}
-
-// FormatRelated returns a human-readable summary of related entities.
-func FormatRelated(entity string, edges []Edge) string {
-	if len(edges) == 0 {
-		return fmt.Sprintf("No related entities found for %q.", entity)
-	}
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("Entities related to %q:\n", entity))
-	for _, e := range edges {
-		b.WriteString(fmt.Sprintf("  - %s (weight: %.2f, co-occurrences: %d)\n", e.Target, e.Weight, e.Count))
-	}
-	return b.String()
 }

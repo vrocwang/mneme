@@ -232,91 +232,11 @@ export interface ChatRequest {
   threadId: string;
   message: string;
 }
-export interface ChatResponse {
-  threadId: string;
-  content: string;
-  done: boolean;
-}
-// sendMessage sends a chat message and waits for the full response.
-// Supports optional AbortSignal for cancellation. Uses retry on transient errors.
-export function sendMessage(req: ChatRequest, signal?: AbortSignal) {
-  return invokeWithRetryAndAbort<ChatResponse>('SendMessage', [req], signal, 120_000);
-}
-
 // streamChatMessage initiates a streaming chat turn. Tokens arrive via Wails
 // events: "chat:token", "chat:tool_call", "chat:tool_result", "chat:done", "chat:error".
 // Uses a 120s timeout for long-running agent turns.
 export function streamChatMessage(req: ChatRequest) {
   return invokeWithTimeout<void>('StreamChatMessage', [req], 120_000);
-}
-
-// Event types for streaming chat listeners.
-// Mirrors the Go event bus kinds (pkg/events/bus.go) bridged via Wails events.
-export type ChatStreamEventType =
-  // Core streaming
-  | 'token' | 'text_delta' | 'thinking_delta' | 'tool_args_delta'
-  | 'tool_call' | 'tool_result' | 'done' | 'error'
-  // Turn lifecycle
-  | 'inference_start' | 'iteration_start' | 'iteration_end'
-  | 'turn_started' | 'turn_completed'
-  // Sub-agent events
-  | 'subagent_spawned' | 'subagent_completed' | 'subagent_failed'
-  // Artifact events
-  | 'artifact_started' | 'artifact_progress' | 'artifact_ready' | 'artifact_failed'
-  // Orchestration
-  | 'orchestration_step' | 'awaiting_user'
-  | 'compaction_triggered' | 'session_expired'
-  // Task board
-  | 'task_board_updated';
-
-export interface ChatStreamEvent {
-  threadId: string;
-  content: string;
-  done: boolean;
-  type: ChatStreamEventType;
-  // Extended fields for richer event types.
-  toolName?: string;
-  toolArgs?: Record<string, unknown>;
-  toolCallId?: string;
-  artifactId?: string;
-  subagentName?: string;
-  subagentId?: string;
-  iterationIndex?: number;
-  errorCode?: string;
-  taskBoard?: Record<string, unknown>;
-}
-
-// ── Event bus types ────────────────────────────────────────────────────
-
-export type DomainEventKind =
-  // Agent domain
-  | 'agent.turn_started' | 'agent.turn_completed' | 'agent.error'
-  | 'agent.subagent_spawned' | 'agent.subagent_completed' | 'agent.subagent_failed'
-  | 'agent.orchestration_step' | 'agent.awaiting_user'
-  | 'agent.compaction_triggered' | 'agent.session_expired'
-  // Memory domain
-  | 'memory.stored' | 'memory.recalled'
-  | 'memory.ingestion_started' | 'memory.ingestion_completed'
-  | 'memory.sync_started' | 'memory.sync_completed' | 'memory.sync_failed'
-  | 'memory.archive_completed' | 'memory.tree_rebuilt'
-  | 'memory.entity_extracted' | 'memory.graph_updated'
-  | 'memory.document_canonicalized'
-  // Channel domain
-  | 'channel.inbound_message' | 'channel.connected'
-  | 'channel.disconnected' | 'channel.reaction'
-  // Cron domain
-  | 'cron.triggered'
-  // Approval domain
-  | 'approval.requested' | 'approval.decided'
-  // Tool domain
-  | 'tool.execution_started' | 'tool.execution_completed' | 'tool.execution_failed'
-  // System domain
-  | 'system.startup' | 'system.shutdown' | 'system.health';
-
-export interface DomainEvent {
-  kind: DomainEventKind;
-  timestamp: string;
-  data?: Record<string, unknown>;
 }
 
 // ── Threads ───────────────────────────────────────────────────────────
@@ -336,7 +256,6 @@ export interface MessageRecord {
 }
 export function listThreads() { return invoke<ThreadSummary[]>('ListThreads'); }
 export function createThread(title: string) { return invoke<ThreadSummary>('CreateThread', title); }
-export function updateThreadTitle(threadId: string, title: string) { return invoke<void>('UpdateThreadTitle', threadId, title); }
 export function deleteThread(threadId: string) { return invoke<void>('DeleteThread', threadId); }
 export function getThreadMessages(threadId: string, limit?: number, afterId?: number) {
   return invoke<MessageRecord[]>('GetThreadMessages', threadId, limit ?? 200, afterId ?? 0);
@@ -391,27 +310,19 @@ export interface AgentInfo {
   model?: string;
   toolAllowlist?: string[];
   toolDenylist?: string[];
-  subagents?: { agent_id: string; skills_filter: string; delegate_name?: string }[];
   maxIterations?: number;
   hidden?: boolean;
   forkMode?: boolean;
   timeoutSecs?: number;
   sandboxMode?: string;
 }
-export function listAgents() { return invoke<AgentInfo[]>('ListAgents'); }
-export function upsertAgent(id: string, name: string, description: string, systemPrompt: string) {
-  return invoke<void>('UpsertAgent', id, name, description, systemPrompt);
+export function upsertAgent(
+  id: string, name: string, description: string, systemPrompt: string,
+  tier: string, model: string, maxIterations: number, toolAllowlist: string[],
+) {
+  return invoke<void>('UpsertAgent', id, name, description, systemPrompt, tier, model, maxIterations, toolAllowlist);
 }
 export function removeAgent(id: string) { return invoke<void>('RemoveAgent', id); }
-
-// ── Tools ──────────────────────────────────────────────────────────────
-
-export interface ToolInfo {
-  name: string;
-  description: string;
-  parameters: unknown;
-}
-export function listTools() { return invoke<ToolInfo[]>('ListTools'); }
 
 // ── Memory ────────────────────────────────────────────────────────────
 
@@ -488,14 +399,12 @@ export function getAppStateSnapshot() { return invoke<AppStateSnapshot>('AppStat
 // ── Dashboard / Monitoring ───────────────────────────────────────────
 
 export function health() { return invoke<Record<string, unknown>>('Health'); }
-export function getCostOverview() { return invoke<string>('GetCostOverview'); }
 export function getCronJobs() { return invoke<unknown[]>('GetCronJobs'); }
 export function toggleCronJob(id: string, enabled: boolean) { return invoke<{ ok: boolean; error?: string }>('ToggleCronJob', id, enabled); }
 export function triggerCronJob(id: string) { return invoke<{ ok: boolean; error?: string }>('TriggerCronJob', id); }
 export function addCronJob(name: string, schedule: string, prompt: string) { return invoke<{ ok: boolean; id?: string; error?: string }>('AddCronJob', name, schedule, prompt); }
 export function removeCronJob(id: string) { return invoke<{ ok: boolean; error?: string }>('RemoveCronJob', id); }
 export function getPreferences() { return invoke<unknown[]>('GetPreferences'); }
-export function getSubconsciousStats() { return invoke<Record<string, unknown>>('GetSubconsciousStats'); }
 export function getReflections(limit: number) { return invoke<unknown[]>('GetReflections', limit).catch(() => []); }
 
 // ── Monitor ─────────────────────────────────────────────────────────
@@ -514,7 +423,6 @@ export function listMonitorRuns() { return invoke<MonitorRunList>('ListRuns'); }
 export function startMonitorRun(command: string, timeoutSecs: number) {
   return invoke<{ run_id: string }>('StartRun', { command, timeout_secs: timeoutSecs });
 }
-export function getMonitorRun(runID: string) { return invoke<MonitorRunSummary>('GetRun', runID); }
 export function readMonitorOutput(runID: string) { return invoke<string>('ReadOutput', runID); }
 export function stopMonitorRun(runID: string) { return invoke<void>('StopRun', runID); }
 
@@ -542,7 +450,6 @@ export function startScreenIntel() { return invoke<string>('StartScreenIntel'); 
 export function stopScreenIntel() { return invoke<string>('StopScreenIntel'); }
 export function startScreenIntelligence(intervalSecs: number) { return invoke<string>('StartScreenIntelligence', intervalSecs); }
 export function getVoiceEngines() { return invoke<{ stt: string; tts: string }>('GetVoiceEngines'); }
-export function registerActivateCallback() { return invoke<void>('RegisterActivateCallback'); }
 
 // ── Updates ───────────────────────────────────────────────────────────
 
@@ -589,7 +496,6 @@ export function getAgentLimits() { return invoke<AgentLimitsConfig>('GetAgentLim
 export function setAgentLimits(l: AgentLimitsConfig) { return invoke<void>('SetAgentLimits', l); }
 export function getSecurityCommands() { return invoke<SecurityCommandsConfig>('GetSecurityCommands'); }
 export function setSecurityCommands(c: SecurityCommandsConfig) { return invoke<void>('SetSecurityCommands', c); }
-export function setSecurityTier(tier: string) { return invoke<void>('SetSecurityTier', tier); }
 export function getShellConfig() { return invoke<ShellConfig>('GetShellConfig'); }
 export function setShellConfig(c: ShellConfig) { return invoke<void>('SetShellConfig', c); }
 export function getCircuitBreakerConfig() { return invoke<CircuitBreakerConfig>('GetCircuitBreakerConfig'); }
@@ -636,48 +542,6 @@ export function setModelRoute(kind: string, model: string) { return invoke<void>
 export function getWorkspace() { return invoke<string>('GetWorkspace'); }
 export function setWorkspace(dir: string) { return invoke<void>('SetWorkspace', dir); }
 
-export interface ToolFamilyInfo {
-  id: string;
-  tools: string[];
-  default_enabled: boolean;
-  enabled?: boolean;
-}
-export function listToolFamilies() { return invoke<ToolFamilyInfo[]>('ListToolFamilies'); }
-
-export function getExtensionConfig(name: string) { return invoke<Record<string, unknown>>('GetExtensionConfig', name); }
-export function setExtensionConfig(name: string, cfg: Record<string, unknown>) { return invoke<void>('SetExtensionConfig', name, cfg); }
-
-// ── MCP Server Management ───────────────────────────────────────────────
-
-export interface MCPServerInfo {
-  name: string;
-  transport: string;
-  command?: string;
-  args?: string[];
-  url?: string;
-  enabled: boolean;
-  connected: boolean;
-  toolCount: number;
-}
-export interface MCPServerStatus {
-  name: string;
-  transport: string;
-  enabled: boolean;
-  connected: boolean;
-  tools?: { name: string; description: string; parameters: unknown }[];
-}
-export function listMCPServers() { return invoke<MCPServerInfo[]>('ListMCPServers'); }
-export function installMCPServer(name: string, transport: string, command: string, url: string, args: string[]) {
-  return invoke<void>('InstallMCPServer', name, transport, command, url, args);
-}
-export function uninstallMCPServer(name: string) { return invoke<void>('UninstallMCPServer', name); }
-export function connectMCPServer(name: string) { return invoke<void>('ConnectMCPServer', name); }
-export function disconnectMCPServer(name: string) { return invoke<void>('DisconnectMCPServer', name); }
-export function getMCPServerStatus(name: string) { return invoke<MCPServerStatus>('GetMCPServerStatus', name); }
-export function callMCPTool(serverName: string, toolName: string, args: Record<string, unknown>) {
-  return invoke<{ output: string; isError: boolean }>('CallMCPTool', serverName, toolName, args);
-}
-
 // ── Channels ──────────────────────────────────────────────────────────
 
 export interface ChannelInfo {
@@ -704,25 +568,11 @@ export function listTunnels() { return invoke<{ ok: boolean; tunnels: TunnelInfo
 export function createTunnel(target: string, targetId: string, description: string) {
   return invoke<{ ok: boolean; tunnel: TunnelInfo }>('CreateTunnel', target, targetId, description);
 }
-export function getTunnel(uuid: string) { return invoke<{ ok: boolean; tunnel: TunnelInfo }>('GetTunnel', uuid); }
-export function updateTunnel(uuid: string, enabled?: boolean, description?: string) {
-  return invoke<{ ok: boolean }>('UpdateTunnel', uuid, enabled, description);
-}
 export function deleteTunnel(uuid: string) { return invoke<{ ok: boolean }>('DeleteTunnel', uuid); }
-export function getTunnelBandwidth(uuid: string) { return invoke<{ ok: boolean; bandwidth: Record<string, number> }>('GetTunnelBandwidth', uuid); }
 export function listTunnelActivity(limit?: number) { return invoke<{ ok: boolean; activities: unknown[] }>('ListTunnelActivity', limit || 50); }
 export function clearTunnelActivity() { return invoke<{ ok: boolean }>('ClearTunnelActivity'); }
 
 // ── System ────────────────────────────────────────────────────────────
-
-export interface SystemInfo {
-  ok: boolean;
-  workspace: string;
-  model: string;
-  tier: string;
-  go_version: string;
-}
-export function getSystemInfo() { return invoke<SystemInfo>('SystemInfo'); }
 
 export interface ModelInfo {
   ok: boolean;
@@ -731,37 +581,6 @@ export interface ModelInfo {
   provider_count: number;
 }
 export function listModels() { return invoke<ModelInfo>('ListModels').catch(() => ({ default_model: '', provider_count: 0 }) as ModelInfo); }
-
-export interface InferenceDiagnostics {
-  ok: boolean;
-  provider_ready: boolean;
-  default_model: string;
-  max_output_tokens: number;
-  temperature: number;
-  provider_name?: string;
-  context_guard_ok?: boolean;
-}
-export function getInferenceDiagnostics() { return invoke<InferenceDiagnostics>('InferenceDiagnostics'); }
-export function getInferenceStatus() { return invoke<Record<string, unknown>>('InferenceStatus'); }
-export function getProviderModels() { return invoke<Record<string, unknown>>('ProviderModels'); }
-
-// ── Agent Registry (extended) ──────────────────────────────────────────
-
-export interface AgentDetail {
-  id: string;
-  name: string;
-  description: string;
-  system_prompt: string;
-  tier: string;
-  hidden?: boolean;
-  enabled?: boolean;
-  tool_allowlist?: string[];
-  tool_denylist?: string[];
-}
-export function getAgentDetail(id: string) { return invoke<{ ok: boolean; agent: AgentDetail }>('GetAgentDetail'); }
-export function setAgentEnabled(id: string, enabled: boolean) { return invoke<{ ok: boolean }>('SetAgentEnabled', id, enabled); }
-export function getAgentTools(id: string) { return invoke<{ ok: boolean; tools: string[] }>('GetAgentTools', id); }
-export function deleteAgent(id: string) { return invoke<{ ok: boolean }>('DeleteAgent', id); }
 
 // ── Extensions ───────────────────────────────────────────────
 
@@ -781,9 +600,6 @@ export interface ExtensionInfo {
 export function listExtensions() { return invoke<ExtensionInfo[]>('ListExtensions'); }
 export function installExtension(packagePath: string) { return invoke<void>('InstallExtension', packagePath); }
 export function uninstallExtension(category: string, name: string) { return invoke<void>('UninstallExtension', category, name); }
-
-export function listNamespaces() { return invoke<string[]>('ListNamespaces'); }
-export function clearNamespace(ns: string) { return invoke<void>('ClearNamespace', ns); }
 
 // ── Capability Registry ─────────────────────────────────────────────────
 
@@ -828,10 +644,6 @@ export interface AgentDescriptor {
 }
 
 export function listCapabilitySets() { return invoke<CapabilitySet[]>('ListSets'); }
-export function getCapabilitySet(id: string) { return invoke<CapabilitySet>('GetSet', id); }
-export function listAllTools() { return invoke<ToolDescriptor[]>('ListAllTools'); }
-export function getToolSchema(name: string) { return invoke<unknown>('GetToolSchema', name); }
-export function listAllAgents() { return invoke<AgentDescriptor[]>('ListAllAgents'); }
 export function addMCPServer(name: string, transport: string, command: string, url: string, args: string[]) {
   return invoke<void>('AddMCPServer', name, transport, command, url, args);
 }
@@ -841,29 +653,9 @@ export function disconnectCapMCPServer(name: string) { return invoke<void>('Disc
 
 export function setRetrievalProfile(profile: string) { return invoke<void>('SetRetrievalProfile', profile); }
 
-export function installLegacyExtension(sourcePath: string) { return invoke<void>('InstallLegacyExtension', sourcePath); }
 export function installSkill(url: string) { return invoke<void>('InstallSkill', url); }
 
-export interface SkillCatalogEntry {
-  id: string;
-  name: string;
-  description: string;
-  version?: string;
-  author?: string;
-  source: string;
-  download_url: string;
-  tags?: string[];
-  license?: string;
-}
-
-export function listSkillCatalog() { return invoke<SkillCatalogEntry[]>('ListSkillCatalog'); }
-export function refreshSkillCatalog() { return invoke<SkillCatalogEntry[]>('RefreshSkillCatalog'); }
-export function installSkillFromCatalog(entryId: string) { return invoke<void>('InstallSkillFromCatalog', entryId); }
 export function getSOUL() { return invoke<string>('GetSOUL'); }
 export function setSOUL(content: string) { return invoke<void>('SetSOUL', content); }
 export function getIdentity() { return invoke<string>('GetIdentity'); }
 export function setIdentity(content: string) { return invoke<void>('SetIdentity', content); }
-
-// ── Workflow ──────────────────────────────────────────────────────────
-export function installWorkflowFromURL(url: string) { return invoke<string>('InstallWorkflowFromURL', url); }
-export function uninstallWorkflow(name: string) { return invoke<void>('UninstallWorkflow', name); }

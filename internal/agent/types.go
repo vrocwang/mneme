@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 )
@@ -113,55 +112,12 @@ type AgentToolPolicy struct {
 	MaxToolRounds      int      `json:"maxToolRounds,omitempty"`
 }
 
-// IsToolDenied checks if a tool is explicitly denied for this agent.
-func (p *AgentToolPolicy) IsToolDenied(toolName string) bool {
-	if p == nil {
-		return false
-	}
-	for _, d := range p.DenyTools {
-		if d == toolName {
-			return true
-		}
-	}
-	return false
-}
+// AgentTier labels the spawn hierarchy (chat > reasoning > worker).
+type AgentTier string
 
-// NeedsToolApproval checks if a tool requires user approval for this agent.
-func (p *AgentToolPolicy) NeedsToolApproval(toolName string) bool {
-	if p == nil {
-		return false
-	}
-	for _, a := range p.RequireApprovalFor {
-		if a == toolName {
-			return true
-		}
-	}
-	return false
-}
+const (
+	TierChat      AgentTier = "chat"
+	TierReasoning AgentTier = "reasoning"
+	TierWorker    AgentTier = "worker"
+)
 
-// tierRank returns a numeric rank for comparison (higher = more capable).
-func tierRank(t AgentTier) int {
-	switch t {
-	case TierChat:
-		return 2
-	case TierReasoning:
-		return 1
-	case TierWorker:
-		return 0
-	default:
-		return -1
-	}
-}
-
-// CanSpawn returns whether this tier can spawn a child agent of the given tier.
-func (t AgentTier) CanSpawn(child AgentTier) bool {
-	return tierRank(t) > tierRank(child)
-}
-
-// ValidSpawn validates that parent tier can spawn child tier.
-func ValidSpawn(parent, child AgentTier) error {
-	if !parent.CanSpawn(child) {
-		return fmt.Errorf("tier hierarchy violation: %s agents cannot spawn %s agents (only lower tiers)", parent, child)
-	}
-	return nil
-}

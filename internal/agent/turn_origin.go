@@ -102,25 +102,3 @@ type OriginPolicy struct {
 	// MaxRiskLevel is the highest PermissionLevel auto-approved without prompt.
 	MaxRiskLevel string `json:"max_risk_level,omitempty"` // "none", "read_only", "write"
 }
-
-// DefaultOriginPolicies returns sensible per-origin defaults.
-func DefaultOriginPolicies() map[TurnOriginKind]OriginPolicy {
-	return map[TurnOriginKind]OriginPolicy{
-		OriginWebChat: {
-			MaxRiskLevel: "read_only",
-		},
-		OriginExternalChannel: {
-			RequireApprovalForAll: true,
-			MaxRiskLevel:          "none",
-		},
-		OriginTrustedAutomation: {
-			MaxRiskLevel: "write",
-		},
-		OriginCLI: {
-			MaxRiskLevel: "read_only",
-		},
-		OriginUnknown: {
-			RequireApprovalForAll: true,
-		},
-	}
-}

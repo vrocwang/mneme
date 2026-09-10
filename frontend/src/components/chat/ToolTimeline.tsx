@@ -1,6 +1,4 @@
 import { useState } from 'react';
-import { useSelector } from 'react-redux';
-import type { RootState } from '../../store';
 import type { ToolCallEntry } from '../../store/chatRuntimeSlice';
 
 export function ToolCallItem({ call }: { call: ToolCallEntry }) {
@@ -72,27 +70,5 @@ function StatusBadge({ status }: { status: ToolCallEntry['status'] }) {
     <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${colors[status] || colors.pending}`}>
       {status}
     </span>
-  );
-}
-
-const EMPTY_CALLS: never[] = [];
-
-export function ToolTimeline({ threadId }: { threadId: string }) {
-  const calls = useSelector((s: RootState) => s.chatRuntime.toolCalls[threadId] || EMPTY_CALLS);
-
-  if (calls.length === 0) return null;
-
-  return (
-    <div className="space-y-2 px-6 py-3">
-      <div className="flex items-center gap-2 text-xs text-white/30 font-medium uppercase tracking-wider">
-        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-        </svg>
-        Tool calls
-      </div>
-      {calls.map(call => (
-        <ToolCallItem key={call.id} call={call} />
-      ))}
-    </div>
   );
 }

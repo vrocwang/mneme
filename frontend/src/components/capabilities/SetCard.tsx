@@ -29,10 +29,9 @@ interface Props {
   onDisconnect?: (id: string) => void;
   onRemove?: (id: string) => void;
   onAgentEdit?: (agent: AgentDescriptor) => void;
-  onAgentDelete?: (agentId: string) => void;
 }
 
-export function SetCard({ set, onConnect, onDisconnect, onRemove, onAgentEdit, onAgentDelete }: Props) {
+export function SetCard({ set, onConnect, onDisconnect, onRemove, onAgentEdit }: Props) {
   const { t } = useT();
   const [expanded, setExpanded] = useState(false);
   const [tab, setTab] = useState<'tools' | 'agents'>('tools');
@@ -106,7 +105,7 @@ export function SetCard({ set, onConnect, onDisconnect, onRemove, onAgentEdit, o
             {tab === 'agents' && (
               <div className="divide-y divide-surface-border/50">
                 {(set.agents || []).map((a) => (
-                  <AgentRow key={a.id} agent={a} t={t} onEdit={onAgentEdit} onDelete={onAgentDelete} />
+                  <AgentRow key={a.id} agent={a} t={t} onEdit={onAgentEdit} />
                 ))}
               </div>
             )}
@@ -178,11 +177,10 @@ function ToolRow({ tool, t }: { tool: ToolDescriptor; t: (path: string, fallback
   );
 }
 
-function AgentRow({ agent, t, onEdit, onDelete }: {
+function AgentRow({ agent, t, onEdit }: {
   agent: AgentDescriptor;
   t: (path: string, fallbackOrVars?: string | Record<string, string | number>) => string;
   onEdit?: (agent: AgentDescriptor) => void;
-  onDelete?: (agentId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
 

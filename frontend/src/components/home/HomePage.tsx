@@ -1,13 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useT } from '../../lib/i18n/I18nContext';
-import { useApp } from '../../state/AppContext';
 import { getAppStateSnapshot, AppStateSnapshot } from '../../services/wails';
 
 export function HomePage() {
   const { t } = useT();
   const navigate = useNavigate();
-  const { dispatch } = useApp();
   const [snapshot, setSnapshot] = useState<AppStateSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -58,7 +56,6 @@ export function HomePage() {
             <button
               key={action.view}
               onClick={() => {
-                dispatch({ type: 'SET_VIEW', view: action.view as any });
                 navigate(action.path);
               }}
               className={`flex flex-col items-center gap-3 p-5 rounded-xl border ${action.color} hover:scale-[1.02] active:scale-[0.98] transition-transform text-center`}

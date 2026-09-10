@@ -28,7 +28,7 @@ func TestPipeline_ExtractAtoms_Layered(t *testing.T) {
 		t.Fatal(err)
 	}
 	queue.Migrate(db)
-	p := NewPipeline(log, convStore, memStore, db)
+	p := NewPipelineWithConfig(log, convStore, memStore, db, PipelineConfig{})
 	if p.layered == nil {
 		t.Fatal("layered store should be created when db is provided")
 	}
@@ -83,7 +83,7 @@ func TestPipeline_AggregateScenarios_Layered(t *testing.T) {
 	convStore, _ := conversations.NewStore(db)
 	memStore, _ := store.NewStore(db)
 	queue.Migrate(db)
-	p := NewPipeline(log, convStore, memStore, db)
+	p := NewPipelineWithConfig(log, convStore, memStore, db, PipelineConfig{})
 
 	ctx := context.Background()
 	// Insert enough atoms to cross the aggregation threshold.

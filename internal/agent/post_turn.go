@@ -6,9 +6,6 @@ import (
 	"log/slog"
 	"sync"
 	"time"
-
-	"github.com/simon/mneme/internal/inference"
-	"github.com/simon/mneme/internal/tokenjuice"
 )
 
 // TurnSnapshot is a complete record of a turn for post-turn hooks.
@@ -122,88 +119,3 @@ func (h *CostTrackingHook) OnTurnComplete(ctx context.Context, s *TurnSnapshot) 
 	h.tracker.Record(s.Model, s.InputTokens, s.OutputTokens)
 }
 
-// LearningReflectHook triggers learning reflection after successful turns.
-type LearningReflectHook struct {
-	fn func(ctx context.Context, threadID, userMessage, response string)
-}
-
-func NewLearningReflectHook(reflectFn func(ctx context.Context, threadID, userMessage, response string)) *LearningReflectHook {
-	return &LearningReflectHook{fn: reflectFn}
-}
-
-func (h *LearningReflectHook) Name() string { return "learning-reflect" }
-
-func (h *LearningReflectHook) OnTurnComplete(ctx context.Context, s *TurnSnapshot) {
-	if s.Error != nil || h.fn == nil {
-		return
-	}
-	h.fn(ctx, s.ThreadID, s.UserMessage, s.Response)
-}
-
-// MemoryArchiveHook triggers conversation archiving after turns.
-type MemoryArchiveHook struct {
-	pipeline MemoryArchiver
-}
-
-// MemoryArchiver archives conversations to the memory pipeline.
-type MemoryArchiver interface {
-	ArchiveConversation(threadID string)
-}
-
-func NewMemoryArchiveHook(pipeline MemoryArchiver) *MemoryArchiveHook {
-	return &MemoryArchiveHook{pipeline: pipeline}
-}
-
-func (h *MemoryArchiveHook) Name() string { return "memory-archive" }
-
-func (h *MemoryArchiveHook) OnTurnComplete(ctx context.Context, s *TurnSnapshot) {
-	if s.ThreadID == "" {
-		return
-	}
-	h.pipeline.ArchiveConversation(s.ThreadID)
-}
-
-// ── Turn context helpers ───────────────────────────────────────────────────
-
-// BuildTurnSnapshot creates a snapshot from the raw turn components.
-func BuildTurnSnapshot(
-	threadID, agentName, agentID, model, userMessage, response string,
-	toolCalls []ToolCallResult,
-	totalRounds int,
-	duration time.Duration,
-	inputTokens, outputTokens int,
-	err error,
-	startedAt time.Time,
-) *TurnSnapshot {
-	return &TurnSnapshot{
-		ThreadID:     threadID,
-		AgentName:    agentName,
-		AgentID:      agentID,
-		Model:        model,
-		UserMessage:  userMessage,
-		Response:     response,
-		ToolCalls:    toolCalls,
-		TotalRounds:  totalRounds,
-		Duration:     duration,
-		InputTokens:  inputTokens,
-		OutputTokens: outputTokens,
-		Error:        err,
-		StartedAt:    startedAt,
-		CompletedAt:  time.Now(),
-	}
-}
-
-// EstimateTokens returns a proper token count for text using the
-// CJK-aware heuristic (substantially more accurate than the old len/4).
-func EstimateTokens(text string) int {
-	return tokenjuice.CountTokens(text)
-}
-
-// EstimateMessagesTokens sums token counts for a message list.
-func EstimateMessagesTokens(messages []inference.Message) int {
-	total := 0
-	for _, m := range messages {
-		total += tokenjuice.CountTokens(m.Content)
-	}
-	return total
-}

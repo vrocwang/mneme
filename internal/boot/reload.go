@@ -101,7 +101,7 @@ func ReloadEino(a *AppCore) {
 		Exp:        a.ExperienceInjector,
 		Workflows:  a.WorkflowInjector,
 	}
-	cbm := einocb.NewManager(a.AuditLogger, nil, a.Learning)
+	cbm := einocb.NewManager(a.AuditLogger, a.Learning)
 	a.Callbacks = cbm
 
 	agentSet, agentSetErr := eino.NewAgentSet(context.Background(), &eino.AgentSetConfig{

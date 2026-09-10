@@ -9,7 +9,6 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -115,8 +114,8 @@ type DiscoveredExtension struct {
 // ExtensionDiscovery scans the extensions directory and discovers installed
 // extensions by reading their manifest.json files. The capability package
 // uses ExtensionManifest directly (via this package) for startup discovery.
-// ExtensionDiscovery and ExtensionProcess provide the runtime management API
-// for install, uninstall, and lifecycle operations exposed via the frontend.
+// ExtensionDiscovery provides the runtime management API for install and
+// uninstall operations exposed via the frontend.
 type ExtensionDiscovery struct {
 	baseDir string // parent of the extensions/ directory (workspace root)
 }
@@ -180,11 +179,6 @@ func (d *ExtensionDiscovery) Discover() ([]DiscoveredExtension, error) {
 		return result[i].Manifest.Name < result[j].Manifest.Name
 	})
 	return result, nil
-}
-
-// ResolveBinary returns the full path to an extension's binary.
-func (d *ExtensionDiscovery) ResolveBinary(manifest ExtensionManifest) string {
-	return filepath.Join(d.ExtensionsDir(), manifest.Category, manifest.Name, manifest.Binary)
 }
 
 // AutoBuild ensures the extension binary exists. If the binary is missing
@@ -264,78 +258,9 @@ func execCommand(cmdStr string) *exec.Cmd {
 	return exec.Command(parts[0], parts[1:]...)
 }
 
-// ── Category helpers ────────────────────────────────────────────────────
-
-// InferCategory derives the extension category from its path relative to the
-// extensions root directory.
-func InferCategory(extPath, extRoot string) ExtensionCategory {
-	rel, err := filepath.Rel(extRoot, extPath)
-	if err != nil {
-		return ""
-	}
-	parts := strings.SplitN(rel, string(filepath.Separator), 3)
-	if len(parts) >= 2 {
-		return ExtensionCategory(parts[0])
-	}
-	return ""
-}
-
 // ExtensionDir returns the expected installation path for an extension.
 func ExtensionDir(workspaceDir string, category ExtensionCategory, name string) string {
 	return filepath.Join(workspaceDir, ExtensionsDirName, string(category), name)
-}
-
-// ── Extension Process ───────────────────────────────────────────────────
-
-// ExtensionProcess manages a running extension backend process.
-type ExtensionProcess struct {
-	Manifest  ExtensionManifest
-	Cmd       *exec.Cmd
-	StartTime time.Time
-	mu        sync.Mutex
-	running   bool
-}
-
-// Start launches the extension binary via the JSON-RPC subprocess protocol.
-func (ep *ExtensionProcess) Start() error {
-	ep.mu.Lock()
-	defer ep.mu.Unlock()
-
-	if ep.running {
-		return nil
-	}
-
-	ep.Cmd = exec.Command(ep.Manifest.Binary)
-	ep.Cmd.Stdin = strings.NewReader("")
-	ep.StartTime = time.Now()
-
-	if err := ep.Cmd.Start(); err != nil {
-		return fmt.Errorf("start extension %q: %w", ep.Manifest.Name, err)
-	}
-	ep.running = true
-	return nil
-}
-
-// Stop terminates the extension process.
-func (ep *ExtensionProcess) Stop() error {
-	ep.mu.Lock()
-	defer ep.mu.Unlock()
-
-	if !ep.running || ep.Cmd == nil || ep.Cmd.Process == nil {
-		return nil
-	}
-	if err := ep.Cmd.Process.Kill(); err != nil {
-		return fmt.Errorf("stop extension %q: %w", ep.Manifest.Name, err)
-	}
-	ep.running = false
-	return nil
-}
-
-// IsRunning returns true if the extension process is active.
-func (ep *ExtensionProcess) IsRunning() bool {
-	ep.mu.Lock()
-	defer ep.mu.Unlock()
-	return ep.running
 }
 
 // ── Install / Uninstall ─────────────────────────────────────────────────
@@ -390,15 +315,6 @@ func (d *ExtensionDiscovery) UninstallExtension(category, name string) error {
 		return fmt.Errorf("extension %q not found", name)
 	}
 	return os.RemoveAll(extDir)
-}
-
-// ── Extension Tool Interface ─────────────────────────────────────
-
-// ExtensionTool is implemented by extensions that provide tools.
-type ExtensionTool interface {
-	Name() string
-	Version() string
-	Tools() []Tool
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────

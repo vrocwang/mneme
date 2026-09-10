@@ -17,14 +17,13 @@ type ChannelProvider interface {
 	SupportsConfig(cfg ChannelConfig) bool
 }
 
-// ChannelConfig is a generic key-value config for channel initialization.
-// Mirrors config.ChannelConfig but avoids circular imports.
+// ChannelConfig is a generic config for channel initialization. Token and
+// WebhookURL cover the common credential shapes; Extras carries anything
+// provider-specific.
 type ChannelConfig struct {
-	Token         string
-	SigningSecret string
-	WebhookURL    string
-	PhoneNumberID string
-	Extras        map[string]string
+	Token      string
+	WebhookURL string
+	Extras     map[string]string
 }
 
 // Channel is the seam Definition for messaging channels, shared with the

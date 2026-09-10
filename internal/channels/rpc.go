@@ -23,7 +23,7 @@ func (r *ChannelRPC) ListChannels() map[string]interface{} {
 	var list []chInfo
 	if r.cfg != nil {
 		for name, c := range r.cfg.Channels {
-			list = append(list, chInfo{Name: name, Enabled: c.Enabled, Type: name})
+			list = append(list, chInfo{Name: name, Enabled: !c.Disabled, Type: name})
 		}
 	}
 	return map[string]interface{}{
@@ -42,7 +42,7 @@ func (r *ChannelRPC) EnableChannel(name string) map[string]interface{} {
 	if !ok {
 		return map[string]interface{}{"ok": false, "error": "channel not found: " + name}
 	}
-	ch.Enabled = true
+	ch.Disabled = false
 	r.cfg.Channels[name] = ch
 	if err := r.cfg.Save(r.confPath); err != nil {
 		return map[string]interface{}{"ok": false, "error": err.Error()}
@@ -59,7 +59,7 @@ func (r *ChannelRPC) DisableChannel(name string) map[string]interface{} {
 	if !ok {
 		return map[string]interface{}{"ok": false, "error": "channel not found: " + name}
 	}
-	ch.Enabled = false
+	ch.Disabled = true
 	r.cfg.Channels[name] = ch
 	if err := r.cfg.Save(r.confPath); err != nil {
 		return map[string]interface{}{"ok": false, "error": err.Error()}

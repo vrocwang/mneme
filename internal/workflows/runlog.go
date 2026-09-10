@@ -3,8 +3,6 @@ package workflows
 import (
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 )
 
 const defaultMaxLogBytes = 65536
@@ -68,17 +66,4 @@ func ReadLogSlice(logPath string, offset int64, maxBytes int) (LogSlice, error) 
 		NextOffset: nextOffset,
 		EOF:        eof,
 	}, nil
-}
-
-// FindLogPath finds the log file path for a run ID in the logs directory.
-func FindLogPath(logsDir, runID string) (string, bool) {
-	// Sanitize runID to prevent path traversal.
-	if strings.Contains(runID, "/") || strings.Contains(runID, "\\") || strings.Contains(runID, "..") {
-		return "", false
-	}
-	path := filepath.Join(logsDir, runID+".log")
-	if _, err := os.Stat(path); err == nil {
-		return path, true
-	}
-	return "", false
 }

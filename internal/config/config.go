@@ -22,21 +22,14 @@ type ProviderConfig struct {
 	Models  []string `toml:"models" json:"models"` // model names this provider supports
 }
 
-// ChannelConfig holds credentials for a messaging channel.
+// ChannelConfig holds credentials for a messaging channel. The map key is
+// the channel name; consumers (core web/cli and channel extensions) read
+// the fields they need and ignore the rest.
 type ChannelConfig struct {
-	Enabled       bool   `toml:"enabled"` // Deprecated: channels are registered regardless of this flag
-	Token         string `toml:"token"`
-	SigningSecret string `toml:"signing_secret"`  // Slack only
-	WebhookURL    string `toml:"webhook_url"`     // Discord/WhatsApp
-	PhoneNumberID string `toml:"phone_number_id"` // WhatsApp Business API
-
-	// Signal-specific fields. Deprecated: no Signal channel backend exists.
-	SignalHTTPURL       string   `toml:"signal_http_url"`           // signal-cli daemon REST API URL
-	SignalAccount       string   `toml:"signal_account"`            // E.164 phone number
-	SignalGroupID       string   `toml:"signal_group_id"`           // restrict to group/dm
-	SignalAllowedFrom   []string `toml:"signal_allowed_from"`       // allowed sender whitelist
-	SignalIgnoreAttach  bool     `toml:"signal_ignore_attachments"` // skip attachment-only msgs
-	SignalIgnoreStories bool     `toml:"signal_ignore_stories"`     // skip story msgs
+	Disabled   bool              `toml:"disabled"` // generic off switch, honored by channel consumers
+	Token      string            `toml:"token"`
+	WebhookURL string            `toml:"webhook_url"`
+	Extra      map[string]string `toml:"extra"` // provider-specific credentials by key
 }
 
 // MCPServerEntry mirrors the registry's ServerEntry for TOML serialization.
@@ -60,10 +53,8 @@ type Config struct {
 	Search             SearchConfig             `toml:"search"`
 	Memory             MemoryConfig             `toml:"memory"`
 	Embedding          EmbeddingConfig          `toml:"embedding"`
-	Browser            BrowserConfig            `toml:"browser"`
 	Voice              VoiceConfig              `toml:"voice"`
 	Webhook            WebhookConfig            `toml:"webhook"`
-	Context            ContextConfig            `toml:"context"`
 	Learning           LearningConfig           `toml:"learning_cfg"`
 	Cron               CronConfig               `toml:"cron"`
 	Tools              ToolsConfig              `toml:"tools"`
@@ -74,12 +65,7 @@ type Config struct {
 	ActionDir          ActionDirConfig          `toml:"action_dir"`
 	Observability      ObservabilityConfig      `toml:"observability"`
 	Proxy              ProxyConfig              `toml:"proxy"`
-	Dashboard          DashboardConfig          `toml:"dashboard"`
-	Update             UpdateConfig             `toml:"update"`
-	Meet               MeetConfig               `toml:"meet"`
 	ScreenIntelligence ScreenIntelligenceConfig `toml:"screen_intelligence"`
-	Runtime            RuntimeConfig            `toml:"runtime"`
-	TaskSources        TaskSourcesConfig        `toml:"task_sources"`
 	InferenceHTTP      InferenceHTTPConfig      `toml:"inference_http"`
 	Bundles            BundleConfig             `toml:"bundles"`
 }
@@ -123,14 +109,6 @@ type ToolsConfig struct {
 	OptionalTools []string         `toml:"optional_tools"` // empty=all (backward compat), non-empty=only listed, ["none"]=disable all
 }
 
-// BrowserConfig holds settings for the headless browser tool.
-// Deprecated: parsed for config-file compatibility but not wired to any
-// consumer; the browser tool is hardcoded via tools.NewBrowserOpen.
-type BrowserConfig struct {
-	Headless    bool `toml:"headless"`     // run browser in headless mode
-	TimeoutSecs int  `toml:"timeout_secs"` // page load timeout, 0 = default
-}
-
 // VoiceConfig holds settings for speech-to-text and text-to-speech.
 type VoiceConfig struct {
 	// STTProvider selects the speech-to-text engine: "system", "whisper", or "openai".
@@ -159,17 +137,6 @@ type WebhookConfig struct {
 	Enabled    bool   `toml:"enabled"`     // start the local HTTP listener
 	Port       int    `toml:"port"`        // HTTP listen port, default 9500
 	Secret     string `toml:"secret"`      // HMAC secret for signature verification
-	RelayURL   string `toml:"relay_url"`   // Deprecated: parsed but never read by the webhook server
-	RelayToken string `toml:"relay_token"` // Deprecated: parsed but never read by the webhook server
-}
-
-// ContextConfig controls the context manager's token budget and compaction.
-// Deprecated: parsed for config-file compatibility but not wired to any
-// consumer (the eino agent manages its own context via tokenjuice compaction).
-type ContextConfig struct {
-	MaxTokens           int     `toml:"max_tokens"`           // max context window, default 128000
-	CompactionThreshold float64 `toml:"compaction_threshold"` // fraction of max that triggers compaction, default 0.90
-	KeepRecent          int     `toml:"keep_recent"`          // recent messages to always preserve during compaction
 }
 
 // LearningConfig controls the post-turn learning engine.
@@ -240,12 +207,7 @@ func DefaultConfig() *Config {
 		Autonomy:           defaultAutonomyConfig(),
 		Sandbox:            defaultSandboxConfig(),
 		Observability:      defaultObservabilityConfig(),
-		Dashboard:          defaultDashboardConfig(),
-		Update:             defaultUpdateConfig(),
-		Meet:               defaultMeetConfig(),
 		ScreenIntelligence: defaultScreenIntelligenceConfig(),
-		Runtime:            RuntimeConfig{AutoInstall: false},
-		TaskSources:        defaultTaskSourcesConfig(),
 		InferenceHTTP:      defaultInferenceHTTPConfig(),
 		Webhook: WebhookConfig{
 			Port:    9500,
@@ -561,17 +523,6 @@ func (c *Config) mergeEnvOverrides() {
 	if v := os.Getenv("MNEME_WEBHOOK_SECRET"); v != "" {
 		c.Webhook.Secret = v
 	}
-	if v := os.Getenv("MNEME_WEBHOOK_RELAY_URL"); v != "" {
-		c.Webhook.RelayURL = v
-	}
-	if v := os.Getenv("MNEME_WEBHOOK_RELAY_TOKEN"); v != "" {
-		c.Webhook.RelayToken = v
-	}
-	if v := os.Getenv("MNEME_CONTEXT_TOKENS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			c.Context.MaxTokens = n
-		}
-	}
 	if v := os.Getenv("MNEME_LEARNING_ENABLED"); v != "" {
 		c.Learning.Enabled = v == "1" || v == "true"
 	}
@@ -580,51 +531,6 @@ func (c *Config) mergeEnvOverrides() {
 			c.Cron.HeartbeatIntervalSecs = n
 		}
 	}
-	// ── Channels ──
-	if c.Channels == nil {
-		c.Channels = make(map[string]ChannelConfig)
-	}
-	// Telegram
-	if token := os.Getenv("TELEGRAM_BOT_TOKEN"); token != "" {
-		ch := c.Channels["telegram"]
-		ch.Enabled = true
-		ch.Token = token
-		c.Channels["telegram"] = ch
-	}
-	// Discord
-	if token := os.Getenv("DISCORD_BOT_TOKEN"); token != "" {
-		ch := c.Channels["discord"]
-		ch.Enabled = true
-		ch.Token = token
-		c.Channels["discord"] = ch
-	}
-	// Slack
-	if token := os.Getenv("SLACK_BOT_TOKEN"); token != "" {
-		ch := c.Channels["slack"]
-		ch.Enabled = true
-		ch.Token = token
-		if secret := os.Getenv("SLACK_SIGNING_SECRET"); secret != "" {
-			ch.SigningSecret = secret
-		}
-		c.Channels["slack"] = ch
-	}
-	// WhatsApp
-	if token := os.Getenv("WHATSAPP_TOKEN"); token != "" {
-		ch := c.Channels["whatsapp"]
-		ch.Enabled = true
-		ch.Token = token
-		if phoneID := os.Getenv("WHATSAPP_PHONE_NUMBER_ID"); phoneID != "" {
-			ch.PhoneNumberID = phoneID
-		}
-		c.Channels["whatsapp"] = ch
-	}
-	// Signal
-	if path := os.Getenv("SIGNAL_CLI_PATH"); path != "" {
-		ch := c.Channels["signal"]
-		ch.Enabled = true
-		c.Channels["signal"] = ch
-	}
-
 	// ── Search ──
 	// Brave: MNEME_SEARCH_BRAVE_KEY preferred; BRAVE_API_KEY as back-compat alias.
 	if v := os.Getenv("MNEME_SEARCH_BRAVE_KEY"); v != "" {

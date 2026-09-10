@@ -476,3 +476,20 @@ func (d *TaskDispatcher) removePending(id string) {
 	}
 	d.pending = filtered
 }
+
+// priorityWeight maps a triage priority to a dispatch ordering weight;
+// lower weights are dispatched first.
+func priorityWeight(p string) int {
+	switch p {
+	case "critical":
+		return 0
+	case "high":
+		return 1
+	case "normal":
+		return 2
+	case "low":
+		return 3
+	default:
+		return 2
+	}
+}

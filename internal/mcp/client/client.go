@@ -40,11 +40,6 @@ type Client struct {
 	httpURL string
 	http    *http.Client
 
-	// Optional auth provider for Bearer/Basic/OAuth/Header authentication.
-	// Set via WithAuth before the first ListTools or CallTool invocation.
-	auth  AuthProvider
-	creds *AuthResult // cached credentials from Authenticate()
-
 	mu     sync.Mutex // serializes stdio request/response pairs
 	nextID int64
 }
@@ -144,9 +139,6 @@ func (c *Client) Initialize(ctx context.Context) error {
 		}
 		req, _ := http.NewRequestWithContext(ctx, "POST", c.httpURL, bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
-		if err := c.applyAuth(req); err != nil {
-			return fmt.Errorf("mcp init auth: %w", err)
-		}
 		resp, err := c.http.Do(req)
 		if err != nil {
 			return fmt.Errorf("mcp init %s: %w", c.name, err)
@@ -157,45 +149,6 @@ func (c *Client) Initialize(ctx context.Context) error {
 		}
 	}
 	// stdio clients are already initialized in NewStdio; no-op here.
-	return nil
-}
-
-// WithAuth attaches an AuthProvider to the MCP client. The provider is called
-// lazily — Authenticate() runs on the first ListTools or CallTool invocation.
-// Credentials are cached and Refresh() is called automatically on 401 responses.
-func (c *Client) WithAuth(auth AuthProvider) *Client {
-	c.auth = auth
-	return c
-}
-
-// applyAuth adds authentication headers/params to an HTTP request based on
-// the cached credentials. Returns an error if authentication is needed but
-// has not been performed yet. On 401, triggers Refresh() or re-authentication.
-func (c *Client) applyAuth(req *http.Request) error {
-	if c.auth == nil {
-		return nil
-	}
-	// Lazy authenticate on first call.
-	if c.creds == nil {
-		creds, err := c.auth.Authenticate(req.Context(), c.httpURL, AuthHints{})
-		if err != nil {
-			return fmt.Errorf("mcp auth: %w", err)
-		}
-		c.creds = &creds
-	}
-	if c.creds.AccessToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.creds.AccessToken)
-	} else if c.creds.HeaderName != "" {
-		req.Header.Set(c.creds.HeaderName, c.creds.HeaderValue)
-	} else if c.creds.Username != "" {
-		req.SetBasicAuth(c.creds.Username, c.creds.Password)
-	}
-	if c.creds.QueryParam != "" {
-		// Preserve existing query parameters already on the URL.
-		q := req.URL.Query()
-		q.Set(c.creds.QueryParam, c.creds.QueryValue)
-		req.URL.RawQuery = q.Encode()
-	}
 	return nil
 }
 
@@ -263,39 +216,12 @@ func (c *Client) callHTTP(ctx context.Context, method string, params, result int
 
 	req, _ := http.NewRequestWithContext(ctx, "POST", c.httpURL, bytes.NewReader(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
-	if err := c.applyAuth(req); err != nil {
-		return err
-	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-
-	// On 401, attempt token refresh or re-authentication.
-	if resp.StatusCode == http.StatusUnauthorized && c.auth != nil && c.creds != nil {
-		if c.creds.RefreshToken != "" {
-			newCreds, refreshErr := c.auth.Refresh(context.Background(), c.httpURL, c.creds.RefreshToken)
-			if refreshErr == nil {
-				c.creds = &newCreds
-			}
-		}
-		// Re-authenticate regardless — Refresh may have failed or the token
-		// may not be refreshable (Basic auth, etc.).
-		newCreds, authErr := c.auth.Authenticate(context.Background(), c.httpURL, AuthHints{})
-		if authErr == nil {
-			c.creds = &newCreds
-			// Retry the request once with fresh credentials.
-			req2, _ := http.NewRequestWithContext(ctx, "POST", c.httpURL, bytes.NewReader(jsonBody))
-			req2.Header.Set("Content-Type", "application/json")
-			_ = c.applyAuth(req2)
-			if resp2, err2 := c.http.Do(req2); err2 == nil {
-				resp.Body.Close()
-				resp = resp2
-			}
-		}
-	}
 
 	var rpcResp struct {
 		Result json.RawMessage `json:"result"`

@@ -2,11 +2,10 @@ import React, { createContext, useContext, useReducer, useCallback, useRef, useE
 import { load, save } from '../lib/persist';
 
 // ── State ─────────────────────────────────────────────────────────────────
-// AppContext retains only transient UI state (view, sidebar, toasts).
+// AppContext retains only transient UI state (sidebar, toasts).
 // All domain data — threads, messages, streaming, approvals — lives in Redux.
 
 interface AppState {
-  view: 'home' | 'chat' | 'settings' | 'dashboard' | 'memory' | 'capabilities' | 'notifications';
   sidebarOpen: boolean;
   toasts: Toast[];
 }
@@ -19,16 +18,12 @@ export interface Toast {
 }
 
 type Action =
-  | { type: 'SET_VIEW'; view: AppState['view'] }
   | { type: 'TOGGLE_SIDEBAR' }
   | { type: 'ADD_TOAST'; toast: Toast }
   | { type: 'REMOVE_TOAST'; id: string };
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
-    case 'SET_VIEW':
-      save('view', action.view);
-      return { ...state, view: action.view };
     case 'TOGGLE_SIDEBAR':
       save('sidebar', String(!state.sidebarOpen));
       return { ...state, sidebarOpen: !state.sidebarOpen };
@@ -42,7 +37,6 @@ function reducer(state: AppState, action: Action): AppState {
 }
 
 const initialState: AppState = {
-  view: (load('view') as AppState['view']) || 'chat',
   sidebarOpen: load('sidebar') !== 'false',
   toasts: [],
 };
@@ -56,7 +50,6 @@ interface AppContextValue {
 }
 
 export interface AppActions {
-  setView: (view: AppState['view']) => void;
   toggleSidebar: () => void;
   addToast: (kind: Toast['kind'], title: string, body: string) => void;
 }
@@ -75,10 +68,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const toastIdRef = useRef(0);
 
-  const setView = useCallback((view: AppState['view']) => {
-    dispatch({ type: 'SET_VIEW', view });
-  }, []);
-
   const toggleSidebar = useCallback(() => {
     dispatch({ type: 'TOGGLE_SIDEBAR' });
   }, []);
@@ -90,12 +79,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    save('view', state.view);
     save('sidebar', String(state.sidebarOpen));
-  }, [state.view, state.sidebarOpen]);
+  }, [state.sidebarOpen]);
 
   return (
-    <AppContext.Provider value={{ state, dispatch, actions: { setView, toggleSidebar, addToast } }}>
+    <AppContext.Provider value={{ state, dispatch, actions: { toggleSidebar, addToast } }}>
       {children}
     </AppContext.Provider>
   );

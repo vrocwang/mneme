@@ -8,7 +8,6 @@ type FilterTab = 'all' | 'fts5' | 'vector' | 'graph';
 interface MemoryStats {
   config: Record<string, unknown> | null;
   weights: Record<string, string> | null;
-  checkpoints: unknown[];
 }
 
 export function MemorySearch() {
@@ -19,21 +18,17 @@ export function MemorySearch() {
   const [loading, setLoading] = useState(false);
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
   const [hasSearched, setHasSearched] = useState(false);
-  const [stats, setStats] = useState<MemoryStats>({ config: null, weights: null, checkpoints: [] });
+  const [stats, setStats] = useState<MemoryStats>({ config: null, weights: null });
   const [showStats, setShowStats] = useState(false);
 
   const loadStats = useCallback(async () => {
-    const [cfg, w, cp] = await Promise.allSettled([
+    const [cfg, w] = await Promise.allSettled([
       api.getMemoryPipelineConfig(),
       api.getRetrievalWeights(),
-      (async () => {
-        try { return await api.getAppStateSnapshot(); } catch { return null; }
-      })(),
     ]);
     setStats({
       config: cfg.status === 'fulfilled' ? cfg.value as unknown as Record<string, unknown> : null,
       weights: w.status === 'fulfilled' ? w.value as unknown as Record<string, string> : null,
-      checkpoints: [],
     });
   }, []);
 

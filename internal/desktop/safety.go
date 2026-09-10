@@ -2,7 +2,6 @@ package desktop
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 )
@@ -54,15 +53,6 @@ func clampCoord(x, y int) (int, int) {
 	}
 	return x, y
 }
-
-// ValidateClickCoords returns an error if coordinates are out of bounds.
-func ValidateClickCoords(x, y int) error {
-	if x < 0 || x > 16384 || y < 0 || y > 16384 {
-		return fmt.Errorf("coordinates (%d,%d) out of valid range (0..16384)", x, y)
-	}
-	return nil
-}
-
 // SettleWait polls the accessibility element count until it stabilises,
 // matching the Rust ax_wait_settled behaviour. Polls at 300ms intervals,
 // declares settled after 2 consecutive identical counts. Falls back to

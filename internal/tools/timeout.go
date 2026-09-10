@@ -70,42 +70,6 @@ func SetToolTimeoutSecs(configSecs int) {
 		"old_secs", old, "new_secs", configSecs, "source", "config")
 }
 
-// EnvOverrideActive returns true when the env var is controlling the timeout.
-func EnvOverrideActive() bool {
-	return envOverrideActive.Load()
-}
-
-// ResetTimeoutToDefault clears config push and restores default or env override.
-func ResetTimeoutToDefault() {
-	envOverrideActive.Store(false)
-	if envVal := os.Getenv(TimeoutEnvVar); envVal != "" {
-		if secs, err := strconv.Atoi(envVal); err == nil {
-			globalTimeoutSecs.Store(int64(clampTimeout(secs)))
-			envOverrideActive.Store(true)
-			return
-		}
-	}
-	globalTimeoutSecs.Store(DefaultTimeoutSecs)
-}
-
-// WithTimeout wraps a tool with a fixed timeout (for callers with specific needs).
-func WithTimeout(t Tool, d time.Duration) Tool {
-	return &timeoutTool{tool: t, timeout: d}
-}
-
-type timeoutTool struct {
-	tool    Tool
-	timeout time.Duration
-}
-
-func (t *timeoutTool) Schema() Schema { return t.tool.Schema() }
-
-func (t *timeoutTool) Execute(ctx context.Context, args map[string]interface{}) Result {
-	ctx, cancel := context.WithTimeout(ctx, t.timeout)
-	defer cancel()
-	return executeWithContext(ctx, t.tool, args)
-}
-
 // ExecuteWithTimeout runs a tool with the global timeout (or per-call override).
 func ExecuteWithTimeout(ctx context.Context, tool Tool, args map[string]interface{}, opts *ToolCallOptions) Result {
 	timeout := ToolTimeoutDuration()

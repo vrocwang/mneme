@@ -45,21 +45,3 @@ func TestWrapCommandContainsOriginalArgs(t *testing.T) {
 	}
 	t.Logf("wrapped command: %v", cmd.Args)
 }
-
-func TestEscapeShellArgAlwaysEscapes(t *testing.T) {
-	// EscapeShellArg wraps the argument in single quotes for safety.
-	tests := []string{"hello", "hello world", "it's", "$PATH", "safe"}
-	for _, input := range tests {
-		got := EscapeShellArg(input)
-		if len(got) < len(input) {
-			t.Errorf("EscapeShellArg(%q) = %q — escaping produced shorter string", input, got)
-		}
-		t.Logf("EscapeShellArg(%q) = %q", input, got)
-	}
-}
-
-func TestPathExistsRoot(t *testing.T) {
-	if !pathExists("/") {
-		t.Error("root should exist")
-	}
-}

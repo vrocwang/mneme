@@ -7,8 +7,6 @@ export function ConnectivityIndicator() {
   const [coreStatus, setCoreStatus] = useState<Status>('checking');
   const [backendStatus, setBackendStatus] = useState<Status>('checking');
   const [internetStatus, setInternetStatus] = useState<Status>('checking');
-  const [startupErrors, setStartupErrors] = useState<string[]>([]);
-  const [showErrors, setShowErrors] = useState(false);
 
   const check = useCallback(async () => {
     setInternetStatus(navigator.onLine ? 'online' : 'offline');
@@ -19,7 +17,6 @@ export function ConnectivityIndicator() {
         setCoreStatus('degraded');
       } else {
         setCoreStatus('online');
-        setStartupErrors([]);
       }
       // API dot reflects the LLM provider health check
       const providerCheck = (report.checks as Array<{name: string; status: string; message: string}>)?.find(
@@ -61,36 +58,6 @@ export function ConnectivityIndicator() {
 
   return (
     <div className="flex items-center gap-3 text-xs text-white/30">
-      {startupErrors.length > 0 && (
-        <div className="relative">
-          <button
-            onClick={() => setShowErrors(!showErrors)}
-            className="flex items-center gap-1 text-amber-400 hover:text-amber-300 transition-colors"
-            title="Startup errors detected"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
-            </svg>
-            <span>{startupErrors.length}</span>
-          </button>
-          {showErrors && (
-            <div className="absolute bottom-full left-0 mb-2 w-80 bg-surface-elevated border border-surface-border rounded-lg shadow-xl p-3 z-50">
-              <p className="text-xs font-medium text-amber-400 mb-1.5">Startup Errors</p>
-              <ul className="space-y-1 max-h-48 overflow-y-auto">
-                {startupErrors.map((err, i) => (
-                  <li key={i} className="text-xs text-white/50 font-mono break-all">{err}</li>
-                ))}
-              </ul>
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowErrors(false); }}
-                className="mt-2 text-xs text-white/40 hover:text-white/60"
-              >
-                Dismiss
-              </button>
-            </div>
-          )}
-        </div>
-      )}
       <span className="flex items-center gap-1">
         <span className={`inline-block w-1.5 h-1.5 rounded-full ${dot(internetStatus)}`} />
         <span className="sr-only">Internet</span>

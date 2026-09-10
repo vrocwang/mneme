@@ -2,7 +2,7 @@ import { useCallback, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState } from '../store';
 import { setThreads, addThread, removeThread, setActiveThread } from '../store/threadSlice';
-import { setMessages, setLoading } from '../store/chatSlice';
+import { setMessages } from '../store/chatSlice';
 import * as api from '../services/wails';
 import type { ThreadSummary } from '../services/wails';
 import { useApp } from '../state/AppContext';
@@ -30,14 +30,11 @@ export function useThreads() {
 
   const selectThread = useCallback(async (id: string) => {
     dispatch(setActiveThread(id));
-    dispatch(setLoading({ threadId: id, loading: true }));
     try {
       const msgs = await api.getThreadMessages(id);
       dispatch(setMessages({ threadId: id, messages: msgs }));
     } catch {
       // new thread may have no messages
-    } finally {
-      dispatch(setLoading({ threadId: id, loading: false }));
     }
   }, [dispatch]);
 

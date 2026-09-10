@@ -91,32 +91,7 @@ var (
 
 func init() {
 	consentLog = slog.Default()
-}
-
-// SetConsentLogger sets the logger for consent events.
-func SetConsentLogger(log *slog.Logger) {
-	if log != nil {
-		consentLog = log
-	}
-}
-
-// SetConsentEventPublisher sets the event publisher for consent events.
-func SetConsentEventPublisher(pub ConsentEventPublisher) {
-	consentEventPub = pub
-}
-
-// ── Policy ─────────────────────────────────────────────────────────────
-
-// Initialize pre-populates the consent cache from persisted app state.
-// Call once at startup after config is loadable.
-func Initialize(consent *ConsentPreference) {
-	consentLog.Info("[keyring_consent] initialize",
-		"cached_consent", consentModeString(consent))
-	consentCache.Lock()
-	consentPref = consent
-	consentCache.Unlock()
-}
-
+}// ── Policy ─────────────────────────────────────────────────────────────
 // CheckSecretAccess returns whether the caller may proceed with secret
 // storage. On platforms with a native keyring (macOS Keychain, Linux
 // Secret Service), it checks keyring availability and falls back to the
@@ -249,33 +224,7 @@ func RetryProbe() KeyringStatus {
 	ResetAvailabilityCache()
 	consentEventPublished.Store(false)
 	return CurrentStatus()
-}
-
-// NotifyMasterKeyUnavailable surfaces a master-key load failure to the
-// frontend by publishing the consent-required event. Call proactively at
-// startup when the encrypted-file backend cannot load its master key.
-func NotifyMasterKeyUnavailable(reason string) {
-	consentLog.Warn("[keyring_consent] master key unavailable: " + reason)
-	if !consentEventPublished.Swap(true) {
-		consentLog.Info("[keyring_consent] publishing KeyringConsentRequired event (master key unavailable)")
-		if consentEventPub != nil {
-			consentEventPub.PublishKeyringConsentRequired()
-		}
-	}
-}
-
-// NotifyDecryptFailure publishes a decrypt-failure event for frontend
-// notification.
-func NotifyDecryptFailure(fieldName, reason string) {
-	consentLog.Warn("[keyring_consent] decrypt failure",
-		"field", fieldName,
-		"reason", reason)
-	if consentEventPub != nil {
-		consentEventPub.PublishKeyringDecryptFailed(fieldName, reason)
-	}
-}
-
-// ── Backend integration ────────────────────────────────────────────────
+}// ── Backend integration ────────────────────────────────────────────────
 
 // IsAvailable checks whether any OS keyring backend is available.
 //
@@ -329,11 +278,4 @@ func classifyFailureReason(backendName string) KeyringFailureReason {
 	default:
 		return FailureUnknown
 	}
-}
-
-func consentModeString(pref *ConsentPreference) string {
-	if pref == nil {
-		return "none"
-	}
-	return pref.StorageMode
 }

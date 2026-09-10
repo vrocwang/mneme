@@ -27,7 +27,7 @@ func TestPipeline_IndexAndSearch(t *testing.T) {
 		t.Fatal(err)
 	}
 	queue.Migrate(db)
-	p := NewPipeline(log, convStore, memStore, db)
+	p := NewPipelineWithConfig(log, convStore, memStore, db, PipelineConfig{})
 
 	// Insert directly (synchronous) for test
 	memStore.Insert(store.MemoryChunk{Source: "manual", Content: "Bitcoin uses proof-of-work"})
@@ -49,7 +49,7 @@ func TestPipeline_ArchiveAndSearch(t *testing.T) {
 	convStore, _ := conversations.NewStore(db)
 	memStore, _ := store.NewStore(db)
 	queue.Migrate(db)
-	p := NewPipeline(log, convStore, memStore, db)
+	p := NewPipelineWithConfig(log, convStore, memStore, db, PipelineConfig{})
 
 	// Insert directly (synchronous) — queue workers run async and require
 	// long polling which is tested separately.

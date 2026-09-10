@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/simon/mneme/internal/memory"
 )
@@ -112,24 +111,6 @@ func truncateStr(s string, max int) string {
 	}
 	return s[:max] + "..."
 }
-
-// MemoryContextQuery searches memory and returns relevant snippets for prompt injection.
-func MemoryContextQuery(p *memory.Pipeline, query string) string {
-	if p == nil || query == "" {
-		return ""
-	}
-	result, err := p.Search(context.Background(), query, 5)
-	if err != nil || result.TotalResults() == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("Relevant memories:\n")
-	for _, c := range result.Chunks {
-		b.WriteString(fmt.Sprintf("- [%s] %s\n", c.Source, truncateStr(c.Content, 300)))
-	}
-	return b.String()
-}
-
 // ── Advanced memory tools ──────────────────────────────────────────────
 
 // MemoryRecallTool performs semantic search via embeddings + FTS5 hybrid.

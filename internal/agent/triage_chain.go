@@ -2,8 +2,11 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/compose"
@@ -236,4 +239,105 @@ loop:
 	}
 
 	return parseTriageResponse(text)
+}
+
+// triageSystemPrompt instructs the small model to classify events into a
+// JSON routing decision.
+const triageSystemPrompt = `You are a routing classifier. Analyze the incoming event and return a JSON decision.
+{
+  "action": "route" | "drop" | "defer" | "escalate",
+  "target_agent": "agent_name" (for route action),
+  "priority": "critical" | "high" | "normal" | "low",
+  "confidence": 0.0-1.0,
+  "reason": "brief explanation"
+}
+
+Routing guidelines:
+- "route": event matches a known agent capability — include target_agent
+- "drop": spam, test events, or irrelevant content
+- "defer": cannot classify now, re-queue for later
+- "escalate": needs human attention (error, security issue, unknown format)
+
+Target agents: general, researcher, coder, planner, archivist, summarizer, help, morning_briefing, desktop_control, integrations, trigger_reactor`
+
+func buildTriagePrompt(envelope *TriageEnvelope) string {
+	// Truncate payload to 2000 chars for classification.
+	payload := envelope.Payload
+	if len(payload) > 2000 {
+		payload = payload[:2000] + "..."
+	}
+
+	return fmt.Sprintf(`Classify this event:
+
+Source: %s
+Event Kind: %s
+Received: %s
+
+Payload:
+%s`, envelope.Source, envelope.EventKind, envelope.ReceivedAt.Format(time.RFC3339), payload)
+}
+
+// ── Forgiving JSON parser ────────────────────────────────────────────────
+
+var (
+	jsonFenceRe       = regexp.MustCompile("(?s)`{3,}\\s*(?:json)?\\s*\n?(.*?)\n?`{3,}")
+	trailingCommaRe   = regexp.MustCompile(`,(\s*[}\]])`)
+	wrongCaseActionRe = regexp.MustCompile(`"action"\s*:\s*"(\w+)"`)
+)
+
+// parseTriageResponse extracts a TriageDecision from LLM output, applying
+// forgiving parsing for small-model quirks.
+func parseTriageResponse(raw string) (*TriageDecision, error) {
+	cleaned := raw
+
+	// 1. Extract from fenced JSON blocks
+	if m := jsonFenceRe.FindStringSubmatch(cleaned); len(m) > 1 {
+		cleaned = m[1]
+	}
+
+	// 2. Trim prose wrapping
+	if idx := strings.Index(cleaned, "{"); idx >= 0 {
+		cleaned = cleaned[idx:]
+	}
+	if idx := strings.LastIndex(cleaned, "}"); idx >= 0 {
+		cleaned = cleaned[:idx+1]
+	}
+
+	// 3. Fix trailing commas
+	cleaned = trailingCommaRe.ReplaceAllString(cleaned, "$1")
+
+	// 4. Normalize action case
+	cleaned = wrongCaseActionRe.ReplaceAllStringFunc(cleaned, func(match string) string {
+		// match is like `"action": "Route"` → `"action": "route"`
+		parts := wrongCaseActionRe.FindStringSubmatch(match)
+		if len(parts) > 1 {
+			lower := strings.ToLower(parts[1])
+			return fmt.Sprintf(`"action": "%s"`, lower)
+		}
+		return match
+	})
+
+	var decision TriageDecision
+	if err := json.Unmarshal([]byte(cleaned), &decision); err != nil {
+		return nil, fmt.Errorf("parse triage response: %w (raw: %.200s)", err, raw)
+	}
+
+	// Validate action
+	switch decision.Action {
+	case TriageRoute, TriageDrop, TriageDefer, TriageEscalate:
+		// valid
+	default:
+		decision.Action = TriageEscalate
+		decision.Reason = "unknown action in LLM output: " + string(decision.Action)
+	}
+
+	// Clamp confidence
+	if decision.Confidence < 0 {
+		decision.Confidence = 0
+	}
+	if decision.Confidence > 1.0 {
+		decision.Confidence = 1.0
+	}
+
+	return &decision, nil
 }

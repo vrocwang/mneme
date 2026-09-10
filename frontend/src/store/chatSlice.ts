@@ -3,12 +3,10 @@ import type { MessageRecord } from '../services/wails';
 
 interface ChatState {
   messages: Record<string, MessageRecord[]>; // threadId → messages
-  loading: Record<string, boolean>;            // threadId → loading state
 }
 
 const initialState: ChatState = {
   messages: {},
-  loading: {},
 };
 
 const chatSlice = createSlice({
@@ -23,11 +21,8 @@ const chatSlice = createSlice({
     setMessages(state, action: PayloadAction<{ threadId: string; messages: MessageRecord[] }>) {
       state.messages[action.payload.threadId] = action.payload.messages;
     },
-    setLoading(state, action: PayloadAction<{ threadId: string; loading: boolean }>) {
-      state.loading[action.payload.threadId] = action.payload.loading;
-    },
   },
 });
 
-export const { addMessage, setMessages, setLoading } = chatSlice.actions;
+export const { addMessage, setMessages } = chatSlice.actions;
 export default chatSlice.reducer;

@@ -5,7 +5,6 @@ package keyring
 
 import (
 	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 
 	"golang.org/x/crypto/chacha20poly1305"
@@ -57,23 +56,4 @@ func chacha20Decrypt(key *[keyLen]byte, blob []byte) ([]byte, error) {
 		return nil, fmt.Errorf("decryption failed — wrong key or tampered data")
 	}
 	return plaintext, nil
-}
-
-// generateRandomKey generates a 32-byte cryptographically random key.
-func generateRandomKey() (*[keyLen]byte, error) {
-	var key [keyLen]byte
-	if _, err := rand.Read(key[:]); err != nil {
-		return nil, fmt.Errorf("generate key: %w", err)
-	}
-	return &key, nil
-}
-
-// hexEncode encodes bytes as lowercase hex.
-func hexEncode(data []byte) string {
-	return hex.EncodeToString(data)
-}
-
-// hexDecode decodes a hex string into bytes.
-func hexDecode(s string) ([]byte, error) {
-	return hex.DecodeString(s)
-}
+}// hexDecode decodes a hex string into bytes.

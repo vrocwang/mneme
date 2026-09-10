@@ -19,14 +19,12 @@ interface ChatRuntimeState {
   toolCalls: Record<string, ToolCallEntry[]>;           // threadId → pending tool calls (current turn)
   toolCallsByMsg: Record<number, ToolCallEntry[]>;      // messageId → tool calls for that assistant message
   streaming: Record<string, string>;                     // threadId → streaming content
-  streamingThinking: Record<string, string>;              // threadId → streaming thinking content
 }
 
 const initialState: ChatRuntimeState = {
   toolCalls: {},
   toolCallsByMsg: {},
   streaming: {},
-  streamingThinking: {},
 };
 
 const chatRuntimeSlice = createSlice({
@@ -76,21 +74,16 @@ const chatRuntimeSlice = createSlice({
       const { threadId, token } = action.payload;
       state.streaming[threadId] = (state.streaming[threadId] || '') + token;
     },
-    appendThinkingToken(state, action: PayloadAction<{ threadId: string; token: string }>) {
-      const { threadId, token } = action.payload;
-      state.streamingThinking[threadId] = (state.streamingThinking[threadId] || '') + token;
-    },
     commitStreaming(state, action: PayloadAction<string>) {
       const threadId = action.payload;
       delete state.streaming[threadId];
-      delete state.streamingThinking[threadId];
     },
   },
 });
 
 export const {
   toolCallStarted, toolCallCompleted, toolCallFailed, commitToolCalls,
-  appendStreamToken, appendThinkingToken, commitStreaming,
+  appendStreamToken, commitStreaming,
 } = chatRuntimeSlice.actions;
 
 export default chatRuntimeSlice.reducer;

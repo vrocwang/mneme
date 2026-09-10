@@ -403,15 +403,6 @@ func cronPartMatches(part string, value, min, max int) bool {
 	}
 	return v == value
 }
-
-// FormatNextRun returns a human-readable description of the next run time.
-func FormatNextRun(job *Job) string {
-	if !job.Enabled {
-		return "disabled"
-	}
-	return fmt.Sprintf("%s (%s)", job.NextRun.Format(time.RFC3339), job.Schedule)
-}
-
 // parseInterval handles patterns: "*/5m", "5m", "30s", "2h", "*/30s"
 func parseInterval(s string) (time.Duration, error) {
 	s = strings.TrimPrefix(s, "*/") // strip recurring prefix

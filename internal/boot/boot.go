@@ -28,7 +28,6 @@ import (
 	"github.com/simon/mneme/internal/file_state"
 	"github.com/simon/mneme/internal/http_host"
 	"github.com/simon/mneme/internal/inference"
-	"github.com/simon/mneme/internal/integration"
 	mcpregistry "github.com/simon/mneme/internal/mcp/registry"
 	mcpstore "github.com/simon/mneme/internal/mcp/store"
 	mcptools "github.com/simon/mneme/internal/mcp/tools"
@@ -222,17 +221,6 @@ func ReconnectPersistedServers(reg *capability.CapabilityRegistry, mcpStore *mcp
 		}
 		log.Info("mcp boot: connected", "name", s.QualifiedName, "tools", set.ToolCount)
 	}
-}
-
-// WireIntegrations registers integration-level providers (OAuth, sync)
-// into the integration registry. Called after BootstrapAll when the
-// capability registry is fully initialised.
-func WireIntegrations(capReg *capability.CapabilityRegistry, intReg integration.IntegrationRegistry) {
-	if capReg == nil || intReg == nil {
-		return
-	}
-	// Integration providers (OAuth, sync) are registered via extensions
-	// (e.g. extensions/composio/). No core registration needed.
 }
 
 // RegisterLateTools registers tools that need runtime objects created after

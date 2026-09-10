@@ -25,7 +25,7 @@ func (m *mockPipeline) HasExternalContent(ctx context.Context, since time.Time) 
 
 func TestEngine_Think(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	eng := New(log)
+	eng := NewPersistent(log, t.TempDir())
 
 	pipe := &mockPipeline{
 		results: map[string]int{
@@ -63,7 +63,7 @@ func TestEngine_Think(t *testing.T) {
 
 func TestEngine_NoGapsNoActions(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	eng := New(log)
+	eng := NewPersistent(log, t.TempDir())
 
 	pipe := &mockPipeline{
 		results: map[string]int{
@@ -90,7 +90,7 @@ func TestEngine_NoGapsNoActions(t *testing.T) {
 
 func TestEngine_RateLimiting(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	eng := New(log)
+	eng := NewPersistent(log, t.TempDir())
 
 	pipe := &mockPipeline{
 		results: map[string]int{
@@ -142,7 +142,7 @@ func TestReflectionStore(t *testing.T) {
 
 func TestEngine_Stats(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	eng := New(log)
+	eng := NewPersistent(log, t.TempDir())
 
 	eng.Think(context.Background())
 	eng.Think(context.Background())
@@ -155,7 +155,7 @@ func TestEngine_Stats(t *testing.T) {
 
 func TestEngine_IdleReminder(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	eng := New(log)
+	eng := NewPersistent(log, t.TempDir())
 
 	idleEval := NewIdleReminderEvaluator(log)
 	idleEval.idleThreshold = 0 // immediately considered idle
@@ -176,7 +176,7 @@ func TestEngine_IdleReminder(t *testing.T) {
 
 func TestConversationDigestEvaluator(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	eng := New(log)
+	eng := NewPersistent(log, t.TempDir())
 
 	pipe := &mockPipeline{
 		results: map[string]int{

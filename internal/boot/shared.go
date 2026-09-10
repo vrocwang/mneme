@@ -227,16 +227,6 @@ func ProviderDiagnostics(cfg *config.Config, provider inference.Provider, compan
 	out["companion_available"] = companionLoop != nil
 	return out
 }
-
-// ResolveCompanionModel returns the model for desktop companion voice/vision.
-// Uses the config's ModelRoutes["chat"] if set, otherwise DefaultModel.
-func ResolveCompanionModel(cfg *config.Config) string {
-	if m, ok := cfg.Agent.ModelRoutes["chat"]; ok && m != "" {
-		return m
-	}
-	return cfg.Agent.DefaultModel
-}
-
 // VisionModel returns the model for vision/screenshot analysis.
 // Uses ModelRoutes["vision"] if configured, otherwise DefaultModel.
 func VisionModel(cfg *config.Config) string {
@@ -245,23 +235,6 @@ func VisionModel(cfg *config.Config) string {
 	}
 	return cfg.Agent.DefaultModel
 }
-
-// LoadHistoryFromGetter returns a LoadHistory function that resolves the store lazily.
-func LoadHistoryFromGetter(getStore func() *conversations.Store) func(string, int) []inference.Message {
-	return func(threadID string, limit int) []inference.Message {
-		s := getStore()
-		if s == nil {
-			return nil
-		}
-		msgs, _ := s.GetMessages(threadID, limit)
-		out := make([]inference.Message, len(msgs))
-		for i, m := range msgs {
-			out[i] = inference.Message{Role: m.Role, Content: m.Content}
-		}
-		return out
-	}
-}
-
 // SaveUserMessage returns a function that persists a user message via the store getter.
 // If the thread doesn't exist yet (e.g. restored from frontend persist without a
 // matching DB row), it creates one so the FK constraint on messages is satisfied.

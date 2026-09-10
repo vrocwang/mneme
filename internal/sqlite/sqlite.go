@@ -12,8 +12,6 @@
 package sqlite
 
 import (
-	"database/sql"
-
 	sqlite3 "github.com/ncruces/go-sqlite3"
 	_ "github.com/ncruces/go-sqlite3/driver"
 	"github.com/ncruces/go-sqlite3/ext/fts5"
@@ -25,24 +23,4 @@ func init() {
 	// the driver opens, so FTS5 and vec1 virtual tables are always available.
 	sqlite3.AutoExtension(fts5.Register)
 	sqlite3.AutoExtension(vec1.Register)
-}
-
-// Open opens a SQLite database by path, enabling WAL and a busy timeout. It is
-// a thin convenience wrapper so callers do not need to remember the pragmas.
-// The ncruces driver treats a plain path as a filename, so PRAGMAs must be
-// issued explicitly (mattn-style `?_journal=WAL` query strings are not parsed).
-func Open(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", path)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
-		db.Close()
-		return nil, err
-	}
-	return db, nil
 }

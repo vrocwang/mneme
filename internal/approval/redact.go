@@ -52,32 +52,6 @@ func RedactArgsJSON(argsJSON string) string {
 	}
 	return string(out)
 }
-
-// SummarizeAction builds a short human-readable summary of a tool call.
-// Pulls a handful of safe fields and tacks on a byte-count hint so the
-// user knows *what* the agent wants to do without exposing content.
-func SummarizeAction(toolName string, argsJSON string) string {
-	var args map[string]interface{}
-	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return fmt.Sprintf("%s (unparseable args)", toolName)
-	}
-
-	var parts []string
-	for _, key := range safeSummaryKeys {
-		if v, ok := args[key]; ok {
-			if s, ok := v.(string); ok {
-				parts = append(parts, fmt.Sprintf("%s=%s", key, s))
-			}
-		}
-	}
-
-	byteCount := len(argsJSON)
-	if len(parts) == 0 {
-		return fmt.Sprintf("%s (%d bytes of arguments)", toolName, byteCount)
-	}
-	return fmt.Sprintf("%s(%s, %d bytes)", toolName, strings.Join(parts, ", "), byteCount)
-}
-
 // ── walk helpers ─────────────────────────────────────────────────────
 
 func walkMap(m map[string]interface{}) interface{} {

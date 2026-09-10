@@ -21,7 +21,7 @@ func runServer(args []string) error {
 	}
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	bus := events.NewBus(256)
+	bus := events.NewBus()
 
 	srv := jsonrpc.NewServer(log, core.Cfg.InferenceHTTP.Bind, core.Cfg.InferenceHTTP.Port, core.Provider, bus)
 	if srv == nil {

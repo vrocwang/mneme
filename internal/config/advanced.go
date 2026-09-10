@@ -171,41 +171,6 @@ type ProxyConfig struct {
 	NoProxy    string `toml:"no_proxy" json:"no_proxy"`
 }
 
-// DashboardConfig controls the dashboard display.
-// Deprecated: parsed for config-file compatibility but not wired to any consumer.
-type DashboardConfig struct {
-	Enabled         bool `toml:"enabled" json:"enabled"`
-	RefreshInterval int  `toml:"refresh_interval_secs" json:"refresh_interval_secs"`
-}
-
-func defaultDashboardConfig() DashboardConfig {
-	return DashboardConfig{Enabled: true, RefreshInterval: 30}
-}
-
-// UpdateConfig controls automatic update checking.
-// Deprecated: parsed for config-file compatibility but not wired to any consumer.
-type UpdateConfig struct {
-	CheckIntervalSecs int    `toml:"check_interval_secs" json:"check_interval_secs"`
-	Channel           string `toml:"channel" json:"channel"`
-}
-
-func defaultUpdateConfig() UpdateConfig {
-	return UpdateConfig{CheckIntervalSecs: 86400, Channel: "stable"}
-}
-
-// MeetConfig controls meeting assistant behaviour.
-// Deprecated: parsed for config-file compatibility but not wired to any consumer.
-type MeetConfig struct {
-	AutoJoin   bool   `toml:"auto_join" json:"auto_join"`
-	ListenOnly bool   `toml:"listen_only" json:"listen_only"`
-	WakePhrase string `toml:"wake_phrase" json:"wake_phrase"`
-	MascotID   string `toml:"mascot_id" json:"mascot_id"`
-}
-
-func defaultMeetConfig() MeetConfig {
-	return MeetConfig{AutoJoin: false, ListenOnly: true}
-}
-
 // ScreenIntelligenceConfig controls screen capture settings.
 type ScreenIntelligenceConfig struct {
 	Enabled             bool `toml:"enabled" json:"enabled"`
@@ -214,42 +179,6 @@ type ScreenIntelligenceConfig struct {
 
 func defaultScreenIntelligenceConfig() ScreenIntelligenceConfig {
 	return ScreenIntelligenceConfig{Enabled: false, CaptureIntervalSecs: 5}
-}
-
-// RuntimeConfig controls managed runtime (Node/Python) settings.
-// Deprecated: parsed for config-file compatibility; internal/runtime uses its
-// own bootstrap configs rather than this struct.
-type RuntimeConfig struct {
-	AutoInstall bool                `toml:"auto_install" json:"auto_install"`
-	Version     string              `toml:"version" json:"version,omitempty"`
-	Node        NodeRuntimeConfig   `toml:"node" json:"node"`
-	Python      PythonRuntimeConfig `toml:"python" json:"python"`
-}
-
-// NodeRuntimeConfig controls managed Node.js runtime settings.
-type NodeRuntimeConfig struct {
-	AutoInstall bool   `toml:"auto_install" json:"auto_install"`
-	Version     string `toml:"version" json:"version,omitempty"`
-	InstallDir  string `toml:"install_dir" json:"install_dir,omitempty"`
-}
-
-// PythonRuntimeConfig controls managed Python runtime settings.
-type PythonRuntimeConfig struct {
-	AutoInstall bool   `toml:"auto_install" json:"auto_install"`
-	Version     string `toml:"version" json:"version,omitempty"`
-	InstallDir  string `toml:"install_dir" json:"install_dir,omitempty"`
-	VenvPath    string `toml:"venv_path" json:"venv_path,omitempty"`
-}
-
-// TaskSourcesConfig controls proactive task ingestion from external tools.
-// Deprecated: parsed for config-file compatibility but not wired to any consumer.
-type TaskSourcesConfig struct {
-	Enabled     bool `toml:"enabled" json:"enabled"`
-	PollMinutes int  `toml:"poll_minutes" json:"poll_minutes"`
-}
-
-func defaultTaskSourcesConfig() TaskSourcesConfig {
-	return TaskSourcesConfig{Enabled: false, PollMinutes: 30}
 }
 
 // InferenceHTTPConfig controls the local inference HTTP server.

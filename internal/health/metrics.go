@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"sync"
 	"sync/atomic"
-	"time"
 )
 
 // ── Counter ──────────────────────────────────────────────────────────────
@@ -148,28 +147,7 @@ type BucketSnapshot struct {
 // The zero value is safe but no-op until configured.
 type Timer struct {
 	hist *Histogram
-}
-
-// NewTimer creates a timer backed by the given histogram.
-func NewTimer(hist *Histogram) *Timer {
-	return &Timer{hist: hist}
-}
-
-// Duration records a completed duration.
-func (t *Timer) Duration(d time.Duration) {
-	if t.hist != nil {
-		t.hist.Observe(d.Milliseconds())
-	}
-}
-
-// Since records the duration since the given start time.
-func (t *Timer) Since(start time.Time) {
-	if t.hist != nil {
-		t.hist.Observe(time.Since(start).Milliseconds())
-	}
-}
-
-// ── Registry ─────────────────────────────────────────────────────────────
+}// Since records the duration since the given start time.// ── Registry ─────────────────────────────────────────────────────────────
 
 // Registry is a thread-safe collection of named metrics.
 type Registry struct {
@@ -280,18 +258,4 @@ func DefaultAgentMetrics(r *Registry) (turns *Counter, turnDuration *Histogram, 
 	return r.Counter("agent_turns_total"),
 		r.Histogram("agent_turn_duration_ms"),
 		r.Counter("agent_errors_total")
-}
-
-// DefaultToolMetrics creates the standard set of tool-related metrics.
-func DefaultToolMetrics(r *Registry) (calls *Counter, callDuration *Histogram, failures *Counter) {
-	return r.Counter("tool_calls_total"),
-		r.Histogram("tool_call_duration_ms"),
-		r.Counter("tool_failures_total")
-}
-
-// DefaultMemoryMetrics creates the standard set of memory-related metrics.
-func DefaultMemoryMetrics(r *Registry) (ingested *Counter, searches *Counter, searchDuration *Histogram) {
-	return r.Counter("memory_ingested_total"),
-		r.Counter("memory_searches_total"),
-		r.Histogram("memory_search_duration_ms")
 }

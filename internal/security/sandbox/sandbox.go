@@ -260,18 +260,3 @@ func (d *dockerBackend) WrapCommand(ctx context.Context, workspaceRoot string, c
 
 	return exec.CommandContext(ctx, "docker", dockerArgs...), nil
 }
-
-// ── Helpers ─────────────────────────────────────────────────────────────
-
-// PathExists reports whether a path exists on the filesystem.
-func PathExists(p string) bool {
-	_, err := os.Stat(p)
-	return err == nil
-}
-
-// EscapeShellArg escapes a string for safe use in a shell command.
-// This is a convenience for callers that need to compose shell invocations.
-func EscapeShellArg(s string) string {
-	// Wrap in single quotes, escaping any embedded single quotes.
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
-}

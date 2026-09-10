@@ -34,7 +34,6 @@ export default defineConfig({
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
           'redux': ['@reduxjs/toolkit', 'react-redux', 'redux-persist'],
           'markdown': ['react-markdown'],
-          'charts': ['recharts'],
         },
       },
     },

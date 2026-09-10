@@ -2,7 +2,6 @@ package memory
 
 import (
 	"regexp"
-	"strings"
 )
 
 // Redactor applies privacy-preserving transformations to text before storage.
@@ -67,16 +66,3 @@ func (r *Redactor) Redact(text string) (string, []string) {
 }
 
 var unsafeFilenameChars = regexp.MustCompile(`[<>:"/\\|?*\x00-\x1f]`)
-
-// SanitizeFilename removes characters that are unsafe in file paths.
-func SanitizeFilename(name string) string {
-	name = unsafeFilenameChars.ReplaceAllString(name, "_")
-	name = strings.TrimSpace(name)
-	if len(name) > 200 {
-		name = name[:200]
-	}
-	if name == "" {
-		name = "unnamed"
-	}
-	return name
-}

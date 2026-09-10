@@ -1,7 +1,6 @@
 package callbacks
 
 import (
-	"github.com/simon/mneme/internal/agent"
 	"github.com/simon/mneme/internal/learning"
 	"github.com/simon/mneme/internal/security"
 )
@@ -14,7 +13,6 @@ import (
 // because the Runner never reads from it (the caller provides its own sink).
 type Manager struct {
 	Audit    *AuditCallback
-	Cost     *CostCallback
 	Learning *LearningCallback
 }
 
@@ -22,12 +20,10 @@ type Manager struct {
 // Any nil argument is accepted; the corresponding callback simply no-ops.
 func NewManager(
 	auditLogger *security.AuditLogger,
-	costTracker *agent.DailyCostTracker,
 	learningEngine *learning.Engine,
 ) *Manager {
 	return &Manager{
 		Audit:    NewAuditCallback(auditLogger),
-		Cost:     NewCostCallback(costTracker),
 		Learning: NewLearningCallback(learningEngine),
 	}
 }

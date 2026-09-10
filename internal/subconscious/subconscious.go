@@ -76,16 +76,6 @@ func (a *Action) Nudge() string {
 }
 
 // ── Constructor ────────────────────────────────────────────────────
-
-// New creates a subconscious engine with in-memory storage.
-func New(log *slog.Logger) *Engine {
-	return &Engine{
-		log:      log,
-		store:    NewStore(),
-		refStore: NewReflectionStore(),
-	}
-}
-
 // NewPersistent creates a subconscious engine with SQLite-backed persistence.
 // Falls back to in-memory storage if the SQLite store cannot be opened.
 func NewPersistent(log *slog.Logger, workspaceDir string) *Engine {

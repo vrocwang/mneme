@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/simon/mneme/internal/capability"
 	"github.com/simon/mneme/internal/inference"
@@ -125,25 +122,4 @@ func NewGraphTriagePipeline(
 	slog.Info("triage pipeline initialized with eino graph classifier",
 		"cloud_model", cloudModel)
 	return pipeline, nil
-}
-
-// EnqueueWebhookTask creates a dispatch task from a triage decision and
-// enqueues it in the dispatcher.
-func EnqueueWebhookTask(disp *TaskDispatcher, decision *TriageDecision, envelope *TriageEnvelope) error {
-	if decision.Action != TriageRoute {
-		return nil
-	}
-
-	task := &DispatchTask{
-		ID:          uuid.New().String(),
-		AgentID:     decision.TargetAgent,
-		Prompt:      envelope.Payload,
-		Priority:    decision.Priority,
-		Status:      "pending",
-		MaxRetries:  1,
-		ScheduledAt: time.Now().UTC(),
-		CreatedAt:   time.Now().UTC(),
-	}
-
-	return disp.Enqueue(task)
 }

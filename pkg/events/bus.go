@@ -10,29 +10,12 @@ import (
 type Domain string
 
 const (
-	DomainAgent        Domain = "agent"
-	DomainMemory       Domain = "memory"
-	DomainChannel      Domain = "channel"
-	DomainCron         Domain = "cron"
-	DomainSkill        Domain = "skill"
-	DomainTool         Domain = "tool"
-	DomainVoice        Domain = "voice"
-	DomainWebhook      Domain = "webhook"
-	DomainTriage       Domain = "triage"
-	DomainTreeSummary  Domain = "tree_summarizer"
-	DomainNotification Domain = "notification"
-	DomainDevice       Domain = "device"
-	DomainCompanion    Domain = "companion"
-	DomainSystem       Domain = "system"
-	DomainKeyring      Domain = "keyring"
-	DomainAuth         Domain = "auth"
-	DomainApproval     Domain = "approval"
-	DomainLearning     Domain = "learning"
-	DomainMCP          Domain = "mcp"
-	DomainDesktop      Domain = "desktop"
-	DomainTaskSource   Domain = "task_source"
-	DomainCouncil      Domain = "council"
-	DomainEmbedding    Domain = "embedding"
+	DomainSystem   Domain = "system"
+	DomainWebhook  Domain = "webhook"
+	DomainApproval Domain = "approval"
+	DomainLearning Domain = "learning"
+	DomainMCP      Domain = "mcp"
+	DomainAgent    Domain = "agent" // reserved for future agent-lifecycle events
 )
 
 // EventKind identifies a specific event within a domain.
@@ -40,148 +23,22 @@ type EventKind string
 
 // Common event kinds across domains.
 const (
-	// Agent domain
-	KindAgentTurnStarted         EventKind = "agent.turn_started"
-	KindAgentTurnCompleted       EventKind = "agent.turn_completed"
-	KindAgentError               EventKind = "agent.error"
-	KindSubagentSpawned          EventKind = "agent.subagent_spawned"
-	KindSubagentCompleted        EventKind = "agent.subagent_completed"
-	KindSubagentFailed           EventKind = "agent.subagent_failed"
-	KindAgentOrchestrationStep   EventKind = "agent.orchestration_step"
-	KindAgentAwaitingUser        EventKind = "agent.awaiting_user"
-	KindAgentCompactionTriggered EventKind = "agent.compaction_triggered"
-	KindAgentSessionExpired      EventKind = "agent.session_expired"
-
-	// Memory domain
-	KindMemoryStored                EventKind = "memory.stored"
-	KindMemoryRecalled              EventKind = "memory.recalled"
-	KindMemoryIngestionStarted      EventKind = "memory.ingestion_started"
-	KindMemoryIngestionCompleted    EventKind = "memory.ingestion_completed"
-	KindMemorySyncStarted           EventKind = "memory.sync_started"
-	KindMemorySyncCompleted         EventKind = "memory.sync_completed"
-	KindMemorySyncFailed            EventKind = "memory.sync_failed"
-	KindMemoryArchiveCompleted      EventKind = "memory.archive_completed"
-	KindMemoryTreeRebuilt           EventKind = "memory.tree_rebuilt"
-	KindMemoryEntityExtracted       EventKind = "memory.entity_extracted"
-	KindMemoryGraphUpdated          EventKind = "memory.graph_updated"
-	KindMemoryDocumentCanonicalized EventKind = "memory.document_canonicalized"
-
-	// Channel domain
-	KindChannelInbound      EventKind = "channel.inbound_message"
-	KindChannelConnected    EventKind = "channel.connected"
-	KindChannelDisconnected EventKind = "channel.disconnected"
-	KindChannelReaction     EventKind = "channel.reaction"
-
-	// Cron domain
-	KindCronTriggered EventKind = "cron.triggered"
-	KindCronCompleted EventKind = "cron.completed"
-	KindCronFailed    EventKind = "cron.failed"
-
-	// Tool domain
-	KindToolExecutionStarted   EventKind = "tool.execution_started"
-	KindToolExecutionCompleted EventKind = "tool.execution_completed"
-	KindToolExecutionFailed    EventKind = "tool.execution_failed"
-	KindToolPolicyBlocked      EventKind = "tool.policy_blocked"
-
 	// System domain
 	KindSystemStartup  EventKind = "system.startup"
 	KindSystemShutdown EventKind = "system.shutdown"
-	KindHealthChanged  EventKind = "system.health_changed"
+
+	// Webhook domain
+	KindWebhookRegistered   EventKind = "webhook.registered"
+	KindWebhookUnregistered EventKind = "webhook.unregistered"
 
 	// Approval domain
 	KindApprovalRequested EventKind = "approval.requested"
 	KindApprovalDecided   EventKind = "approval.decided"
-	KindApprovalExpired   EventKind = "approval.expired"
 
 	// Learning domain
-	KindPreferenceLearned    EventKind = "learning.preference_learned"
-	KindLearningCacheRebuilt EventKind = "learning.cache_rebuilt"
+	KindPreferenceLearned EventKind = "learning.preference_learned"
 
-	// MCP domain
-	KindMCPServerConnected    EventKind = "mcp.server_connected"
-	KindMCPServerDisconnected EventKind = "mcp.server_disconnected"
-	KindMCPToolListed         EventKind = "mcp.tools_listed"
-	KindMCPToolCalled         EventKind = "mcp.tool_called"
-
-	// Desktop domain
-	KindDesktopCompanionActivated   EventKind = "desktop.companion_activated"
-	KindDesktopCompanionDeactivated EventKind = "desktop.companion_deactivated"
-	KindDesktopScreenCaptured       EventKind = "desktop.screen_captured"
-
-	// Device domain
-	KindDevicePaired       EventKind = "device.paired"
-	KindDeviceUnpaired     EventKind = "device.unpaired"
-	KindDeviceConnected    EventKind = "device.connected"
-	KindDeviceDisconnected EventKind = "device.disconnected"
-
-	// Keyring domain
-	KindKeyringStore    EventKind = "keyring.store"
-	KindKeyringRetrieve EventKind = "keyring.retrieve"
-	KindKeyringDelete   EventKind = "keyring.delete"
-
-	// Auth domain
-	KindAuthSessionExpired EventKind = "auth.session_expired"
-	KindAuthTokenRefreshed EventKind = "auth.token_refreshed"
-
-	// Notification domain
-	KindNotificationCreated   EventKind = "notification.created"
-	KindNotificationDismissed EventKind = "notification.dismissed"
-
-	// Triage domain
-	KindTriageClassified EventKind = "triage.classified"
-	KindTriageRouted     EventKind = "triage.routed"
-
-	// Task source domain
-	KindTaskSourceCreated EventKind = "task_source.created"
-	KindTaskSourceUpdated EventKind = "task_source.updated"
-
-	// Webhook domain
-	KindWebhookDelivered EventKind = "webhook.delivered"
-	KindWebhookFailed    EventKind = "webhook.failed"
-
-	// Skill domain
-	KindSkillExecuted   EventKind = "skill.executed"
-	KindSkillRegistered EventKind = "skill.registered"
-
-	// Trigger / subconscious domain
-	KindTriggerEvaluated EventKind = "trigger.evaluated"
-	KindTriggerEscalated EventKind = "trigger.escalated"
-
-	// Model council domain
-	KindCouncilDeliberationStarted   EventKind = "council.deliberation_started"
-	KindCouncilDeliberationCompleted EventKind = "council.deliberation_completed"
-
-	// Embedding domain
-	KindEmbeddingModelUnhealthy EventKind = "embedding.model_unhealthy"
-	KindEmbeddingModelRecovered EventKind = "embedding.model_recovered"
-
-	// Channel domain — incoming message events
-	KindChannelMessageReceived  EventKind = "channel.message_received"
-	KindChannelMessageProcessed EventKind = "channel.message_processed"
-	KindChannelReactionReceived EventKind = "channel.reaction_received"
-	KindChannelReactionSent     EventKind = "channel.reaction_sent"
-
-	// Webhook domain — tunnel lifecycle
-	KindWebhookIncomingRequest EventKind = "webhook.incoming_request"
-	KindWebhookRegistered      EventKind = "webhook.registered"
-	KindWebhookUnregistered    EventKind = "webhook.unregistered"
-	KindWebhookProcessed       EventKind = "webhook.processed"
-
-	// Notification domain — triage
-	KindNotificationTriaged EventKind = "notification.triaged"
-
-	// System domain — config changes
-	KindSystemAutonomyConfigChanged EventKind = "system.autonomy_config_changed"
-	KindSystemAgentPathsChanged     EventKind = "system.agent_paths_changed"
-	KindSystemHealthRestarted       EventKind = "system.health_restarted"
-
-	// Keyring domain — error events
-	KindKeyringDecryptFailed EventKind = "keyring.decrypt_failed"
-
-	// Task source domain — sync events
-	KindTaskSourceFetched        EventKind = "task_source.fetched"
-	KindTaskSourceTaskIngested   EventKind = "task_source.task_ingested"
-	KindTaskPlanAwaitingApproval EventKind = "task_source.plan_awaiting_approval"
+	// MCP domain (kinds are emitted as raw strings by the MCP audit hook)
 )
 
 // Event is a structured domain event.
@@ -211,8 +68,8 @@ type Bus struct {
 	nextID      int
 }
 
-// NewBus creates an event bus with the given channel capacity (unused, kept for API compat).
-func NewBus(capacity int) *Bus {
+// NewBus creates an event bus.
+func NewBus() *Bus {
 	return &Bus{
 		subscribers: make(map[string]map[int]Handler),
 		domainSubs:  make(map[Domain]map[int]Handler),
@@ -304,33 +161,7 @@ func (b *Bus) PublishTyped(domain Domain, kind EventKind, data interface{}) {
 	})
 }
 
-// PublishWorkspace publishes a workspace-scoped event. The workspace path is
-// added to the event metadata so subscribers can filter by workspace.
-func (b *Bus) PublishWorkspace(domain Domain, kind EventKind, workspace string, data interface{}) {
-	meta := map[string]string{"workspace": workspace}
-	b.Publish(Event{
-		Topic:    string(kind),
-		Domain:   domain,
-		Kind:     kind,
-		Data:     data,
-		Metadata: meta,
-	})
-}
 
-// PublishAgent publishes an agent-scoped event with thread context.
-func (b *Bus) PublishAgent(kind EventKind, threadID, model string, data interface{}) {
-	meta := map[string]string{"thread_id": threadID}
-	if model != "" {
-		meta["model"] = model
-	}
-	b.Publish(Event{
-		Topic:    string(kind),
-		Domain:   DomainAgent,
-		Kind:     kind,
-		Data:     data,
-		Metadata: meta,
-	})
-}
 
 // invokeSafe runs a handler with panic recovery.
 func invokeSafe(h Handler, e Event) {

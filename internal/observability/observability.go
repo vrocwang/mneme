@@ -432,13 +432,3 @@ func (n *noopTracer) StartSpan(ctx context.Context, name string, attrs ...string
 }
 
 // ── Host metadata ───────────────────────────────────────────────────────────
-
-// HostInfo returns basic host metadata for error context.
-func HostInfo() map[string]string {
-	host, _ := os.Hostname()
-	return map[string]string{
-		"hostname": host,
-		"goos":     os.Getenv("GOOS"),
-		"goarch":   os.Getenv("GOARCH"),
-	}
-}

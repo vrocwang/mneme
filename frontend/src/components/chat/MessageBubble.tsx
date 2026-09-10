@@ -71,7 +71,7 @@ function MathDisplay({ content, block }: { content: string; block?: boolean }) {
   );
 }
 
-export function MessageBubble({ message, isStreaming, toolCalls }: { message: MessageRecord; isStreaming?: boolean; toolCalls?: ToolCallEntry[] }) {
+export function MessageBubble({ message, toolCalls }: { message: MessageRecord; toolCalls?: ToolCallEntry[] }) {
   const { t } = useT();
   const isUser = message.role === 'user';
   const isTool = message.role === 'tool';
@@ -130,7 +130,7 @@ export function MessageBubble({ message, isStreaming, toolCalls }: { message: Me
               </div>
             )
           ) : (
-            <div className={`${isStreaming ? 'after:content-["▊"] after:animate-pulse after:text-ocean-400' : ''} whitespace-pre-wrap break-words [overflow-wrap:anywhere]`}>
+            <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
               {message.content}
             </div>
           )}

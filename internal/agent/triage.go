@@ -70,22 +70,6 @@ func NewTriageEvaluator() *TriageEvaluator {
 	}
 }
 
-// AddRule registers a new routing rule.
-func (e *TriageEvaluator) AddRule(rule TriageRule) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.rules = append(e.rules, rule)
-}
-
-// WithProvider configures an optional LLM provider for fallback classification.
-func (e *TriageEvaluator) WithProvider(provider inference.Provider, model string) *TriageEvaluator {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.provider = provider
-	e.model = model
-	return e
-}
-
 // Evaluate classifies an envelope and returns a routing decision.
 func (e *TriageEvaluator) Evaluate(envelope *TriageEnvelope) *TriageDecision {
 	// Snapshot provider/model under read lock, then release before I/O.
@@ -302,11 +286,6 @@ func NewTriagePipeline(eval *TriageEvaluator, disp *TaskDispatcher) *TriagePipel
 func (p *TriagePipeline) WithGraphClassifier(g func(ctx context.Context, input *TriageEnvelope) (*TriageDecision, error)) *TriagePipeline {
 	p.graphClassifier = g
 	return p
-}
-
-// AddRule delegates to the underlying TriageEvaluator.
-func (p *TriagePipeline) AddRule(rule TriageRule) {
-	p.evaluator.AddRule(rule)
 }
 
 // Process evaluates an envelope and dispatches to the target agent.

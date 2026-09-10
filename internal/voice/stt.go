@@ -90,42 +90,6 @@ func (w *WhisperSTT) Transcribe(ctx context.Context, audioPath string) (*STTResu
 	return &STTResult{Text: strings.TrimSpace(string(data)), Confidence: 0.9}, nil
 }
 
-// VoskSTT uses Vosk for lightweight offline STT.
-type VoskSTT struct {
-	modelPath  string
-	binaryPath string
-}
-
-// NewVoskSTT creates a Vosk STT engine.
-func NewVoskSTT(modelPath, binaryPath string) *VoskSTT {
-	if binaryPath == "" {
-		binaryPath = "vosk-transcriber"
-	}
-	return &VoskSTT{modelPath: modelPath, binaryPath: binaryPath}
-}
-
-func (v *VoskSTT) Name() string { return "vosk" }
-
-func (v *VoskSTT) TranscribeBytes(ctx context.Context, audioData []byte, format string) (*STTResult, error) {
-	return defaultTranscribeBytes(v, ctx, audioData, format)
-}
-
-func (v *VoskSTT) Transcribe(ctx context.Context, audioPath string) (*STTResult, error) {
-	args := []string{
-		"--model", v.modelPath,
-		"--input", audioPath,
-	}
-	cmd := exec.CommandContext(ctx, v.binaryPath, args...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("vosk: %w: %s", err, output)
-	}
-	return &STTResult{
-		Text:       strings.TrimSpace(string(output)),
-		Confidence: 0.85,
-	}, nil
-}
-
 // SystemSTT probes for the best available STT backend: whisper > vosk > platform-native.
 type SystemSTT struct {
 	whisperBinary string

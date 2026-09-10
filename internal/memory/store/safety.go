@@ -1,7 +1,6 @@
 package store
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -124,62 +123,6 @@ func SanitizeChunk(chunk MemoryChunk) (MemoryChunk, SanitizationReport) {
 	chunk.Content = sanitizedContent
 	chunk.Summary = sanitizedSummary
 	return chunk, report
-}
-
-// SanitizeJSON walks a JSON value tree and redacts any string values
-// that contain secrets or PII. Returns the sanitized JSON string.
-func SanitizeJSON(rawJSON string) (string, SanitizationReport, error) {
-	var v interface{}
-	if err := json.Unmarshal([]byte(rawJSON), &v); err != nil {
-		return rawJSON, SanitizationReport{}, err
-	}
-
-	sanitized, report := sanitizeJSONValue(v)
-	out, err := json.Marshal(sanitized)
-	if err != nil {
-		return rawJSON, report, err
-	}
-	return string(out), report, nil
-}
-
-func sanitizeJSONValue(v interface{}) (interface{}, SanitizationReport) {
-	report := SanitizationReport{}
-	switch val := v.(type) {
-	case string:
-		s, r := SanitizeContent(val)
-		report.merge(&r)
-		return s, report
-	case map[string]interface{}:
-		out := make(map[string]interface{}, len(val))
-		for k, vv := range val {
-			san, r := sanitizeJSONValue(vv)
-			report.merge(&r)
-			out[k] = san
-		}
-		return out, report
-	case []interface{}:
-		out := make([]interface{}, len(val))
-		for i, vv := range val {
-			san, r := sanitizeJSONValue(vv)
-			report.merge(&r)
-			out[i] = san
-		}
-		return out, report
-	default:
-		return v, report
-	}
-}
-
-func (r *SanitizationReport) merge(other *SanitizationReport) {
-	if other == nil {
-		return
-	}
-	r.SecretsFound += other.SecretsFound
-	r.PIIFound += other.PIIFound
-	r.SecretPatterns = dedupStrings(append(r.SecretPatterns, other.SecretPatterns...))
-	r.PIIPatterns = dedupStrings(append(r.PIIPatterns, other.PIIPatterns...))
-	r.BytesOriginal += other.BytesOriginal
-	r.BytesSanitized += other.BytesSanitized
 }
 
 func dedupStrings(items []string) []string {

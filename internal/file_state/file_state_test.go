@@ -133,23 +133,6 @@ func TestReset(t *testing.T) {
 	}
 }
 
-func TestShouldExclude(t *testing.T) {
-	cases := []struct {
-		path     string
-		expected bool
-	}{
-		{".git/config", true},
-		{"node_modules/pkg/index.js", true},
-		{"target/debug/binary", true},
-		{"src/main.go", false},
-		{"README.md", false},
-	}
-	for _, tc := range cases {
-		if ShouldExclude(tc.path, DefaultExcludePatterns) != tc.expected {
-			t.Errorf("ShouldExclude(%q) = %v, want %v", tc.path, !tc.expected, tc.expected)
-		}
-	}
-}
 
 func tempDir(t *testing.T) (string, func()) {
 	t.Helper()

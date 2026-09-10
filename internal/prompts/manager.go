@@ -6,8 +6,10 @@ package prompts
 import (
 	"embed"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -17,44 +19,26 @@ var embedded embed.FS
 // Name identifies a prompt template.
 type Name string
 
-const (
-	SystemIdentity       Name = "system_identity"
-	SystemSafety         Name = "system_safety"
-	SystemGuidance       Name = "system_guidance"
-	AgentGeneral         Name = "agent_general"
-	AgentCoder           Name = "agent_coder"
-	AgentArchivist       Name = "agent_archivist"
-	AgentOrchestrator    Name = "agent_orchestrator"
-	AgentResearcher      Name = "agent_researcher"
-	AgentCritic          Name = "agent_critic"
-	AgentPlanner         Name = "agent_planner"
-	AgentSummarizer      Name = "agent_summarizer"
-	AgentHelp            Name = "agent_help"
-	AgentToolsAgent      Name = "agent_tools_agent"
-	AgentTriggerReactor  Name = "agent_trigger_reactor"
-	SummarizerToolOutput Name = "summarizer_tool_output"
-	ArchivistMemory      Name = "archivist_memory"
-	CouncilChair         Name = "council_chair"
-	NudgeMemoryGaps      Name = "nudge_memory_gaps"
-	NudgeIdle            Name = "nudge_idle"
-)
-
-// All returns every known prompt name.
-func All() []Name {
-	return []Name{
-		SystemIdentity, SystemSafety, SystemGuidance,
-		AgentGeneral, AgentCoder, AgentArchivist,
-		AgentOrchestrator, AgentResearcher, AgentCritic,
-		AgentPlanner, AgentSummarizer, AgentHelp,
-		AgentToolsAgent, AgentTriggerReactor,
-		SummarizerToolOutput, ArchivistMemory, CouncilChair,
-		NudgeMemoryGaps, NudgeIdle,
-	}
-}
-
 // NameFromAgentID maps an agent ID to its corresponding prompt name.
 func NameFromAgentID(agentID string) Name {
 	return Name("agent_" + agentID)
+}
+
+// All returns every embedded prompt name, sorted.
+func All() []Name {
+	entries, err := fs.ReadDir(embedded, "defaults")
+	if err != nil {
+		return nil
+	}
+	names := make([]Name, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".txt") {
+			continue
+		}
+		names = append(names, Name(strings.TrimSuffix(e.Name(), ".txt")))
+	}
+	sort.Slice(names, func(i, j int) bool { return names[i] < names[j] })
+	return names
 }
 
 // Manager loads prompts from a workspace directory, falling back to embedded defaults.
@@ -114,19 +98,9 @@ func (m *Manager) Set(name Name, body string) error {
 	return os.WriteFile(path, []byte(body), 0644)
 }
 
-// builtinNames returns a set of all built-in prompt names.
-func builtinNames() map[string]bool {
-	set := make(map[string]bool)
-	for _, n := range All() {
-		set[string(n)] = true
-	}
-	return set
-}
-
 // List returns metadata for all built-in prompts plus any custom prompts
 // found as .txt files in the workspace prompts directory.
 func (m *Manager) List() []PromptMeta {
-	builtins := builtinNames()
 	seen := make(map[string]bool)
 	var out []PromptMeta
 
@@ -163,7 +137,7 @@ func (m *Manager) List() []PromptMeta {
 					continue
 				}
 				name = strings.TrimSuffix(name, ".txt")
-				if seen[name] || builtins[name] {
+				if seen[name] {
 					continue
 				}
 				seen[name] = true
@@ -199,52 +173,15 @@ type PromptMeta struct {
 	Builtin     bool   `json:"builtin"`
 }
 
-// Description returns a human-readable explanation of what each prompt controls.
-// These are i18n keys on the frontend; the Go side ships them as display-ready
-// English text so the settings page works even without a frontend build.
+// Description returns a human-readable explanation of what the prompt
+// controls, derived from its name: agent prompts describe their agent;
+// everything else falls back to an empty description.
 func (n Name) Description() string {
-	switch n {
-	case SystemIdentity:
-		return "Core identity and role description injected at the top of every system prompt."
-	case SystemSafety:
-		return "Hard safety rules — destructive commands, data loss prevention, credential handling."
-	case SystemGuidance:
-		return "Tone, verbosity, and response-style instructions applied to every agent turn."
-	case AgentGeneral:
-		return "Base system prompt for the general-purpose orchestrator agent."
-	case AgentCoder:
-		return "System prompt for the code-executor specialist sub-agent."
-	case AgentArchivist:
-		return "System prompt for the memory archivist sub-agent."
-	case AgentOrchestrator:
-		return "System prompt for the orchestrator sub-agent that coordinates specialists."
-	case AgentResearcher:
-		return "System prompt for the research specialist sub-agent."
-	case AgentCritic:
-		return "System prompt for the critic sub-agent that reviews outputs."
-	case AgentPlanner:
-		return "System prompt for the planner sub-agent that breaks down tasks."
-	case AgentSummarizer:
-		return "System prompt for the summarizer sub-agent that condenses information."
-	case AgentHelp:
-		return "System prompt for the help sub-agent that answers product questions."
-	case AgentToolsAgent:
-		return "System prompt for the tools/integration specialist sub-agent."
-	case AgentTriggerReactor:
-		return "System prompt for the trigger reactor sub-agent that handles automated events."
-	case SummarizerToolOutput:
-		return "Instructions for condensing tool outputs before they enter the conversation."
-	case ArchivistMemory:
-		return "Curation prompt for extracting long-term memories from conversations."
-	case CouncilChair:
-		return "Synthesis prompt used by the chair model in multi-model council deliberation."
-	case NudgeMemoryGaps:
-		return "Template for subconscious nudges about under-represented memory areas."
-	case NudgeIdle:
-		return "Template for idle-reminder nudges after extended inactivity."
-	default:
-		return ""
+	s := string(n)
+	if id, ok := strings.CutPrefix(s, "agent_"); ok && id != "" {
+		return "System prompt for the " + strings.ReplaceAll(id, "_", " ") + " agent."
 	}
+	return ""
 }
 
 func (m *Manager) pathFor(name Name) string {

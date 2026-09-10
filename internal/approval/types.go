@@ -4,7 +4,6 @@
 package approval
 
 import (
-	"strings"
 	"time"
 )
 
@@ -100,19 +99,3 @@ const (
 	OutcomeFailure ExecutionOutcome = "failure"
 	OutcomeAborted ExecutionOutcome = "aborted"
 )
-
-// ParseApprovalReply extracts a Decision from a user's chat reply.
-// Recognizes "yes", "approve", "allow", "always", "no", "deny", "reject".
-func ParseApprovalReply(reply string) (Decision, bool) {
-	lower := strings.ToLower(strings.TrimSpace(reply))
-	switch {
-	case lower == "yes" || lower == "y" || lower == "approve" || lower == "allow" || lower == "ok":
-		return DecisionApproveOnce, true
-	case lower == "always" || lower == "allow always" || lower == "approve always":
-		return DecisionApproveAlways, true
-	case lower == "no" || lower == "n" || lower == "deny" || lower == "reject" || lower == "block":
-		return DecisionDeny, true
-	default:
-		return DecisionDeny, false
-	}
-}

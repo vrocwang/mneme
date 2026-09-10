@@ -187,31 +187,3 @@ func TestValidatePath_WorkspaceInternalDirBlocked(t *testing.T) {
 	}
 }
 
-func TestSetActionDir(t *testing.T) {
-	workspace := t.TempDir()
-	actionA := filepath.Join(workspace, "projects-a")
-	actionB := filepath.Join(workspace, "projects-b")
-
-	initial := &SecurityPolicy{
-		WorkspaceOnly: true,
-		WorkspaceRoot: workspace,
-		ActionDir:     actionA,
-	}
-	ReloadLivePolicy(initial)
-
-	if got := ActionDir(); got != actionA {
-		t.Errorf("ActionDir() = %q, want %q", got, actionA)
-	}
-
-	SetActionDir(actionB)
-
-	if got := ActionDir(); got != actionB {
-		t.Errorf("ActionDir() after SetActionDir = %q, want %q", got, actionB)
-	}
-
-	// Workspace-only and other fields must survive the swap.
-	p := LivePolicy()
-	if !p.WorkspaceOnly || p.WorkspaceRoot != workspace {
-		t.Error("non-action_dir fields must survive SetActionDir")
-	}
-}

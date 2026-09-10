@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -132,54 +131,6 @@ func checkPorts(checks []PortCheck) []PortStatus {
 	return results
 }
 
-// FormatReport returns a human-readable connectivity report.
-func FormatReport(s *Status) string {
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("Connectivity Report (%s)\n\n", s.Timestamp))
-
-	writeComponent(&b, "Internet", s.Internet)
-	writeComponent(&b, "DNS", s.DNS)
-
-	if len(s.Ports) > 0 {
-		b.WriteString("Port checks:\n")
-		for _, p := range s.Ports {
-			icon := statusIcon(p.Status)
-			b.WriteString(fmt.Sprintf("  %s %s:%d — %s\n", icon, p.Host, p.Port, p.Message))
-		}
-	}
-
-	overall := "ok"
-	if s.Internet.Status == "error" || s.DNS.Status == "error" {
-		overall = "error"
-	} else if s.Internet.Status == "degraded" {
-		overall = "degraded"
-	}
-	b.WriteString(fmt.Sprintf("\nOverall: %s\n", overall))
-	return b.String()
-}
-
-func writeComponent(b *strings.Builder, name string, cs ComponentStatus) {
-	icon := statusIcon(cs.Status)
-	b.WriteString(fmt.Sprintf("%s %s: %s", icon, name, cs.Status))
-	if cs.Message != "" {
-		b.WriteString(fmt.Sprintf(" — %s", cs.Message))
-	}
-	if cs.Latency != "" {
-		b.WriteString(fmt.Sprintf(" (%s)", cs.Latency))
-	}
-	b.WriteString("\n")
-}
-
-func statusIcon(status string) string {
-	switch status {
-	case "ok":
-		return "[OK]"
-	case "degraded":
-		return "[WARN]"
-	default:
-		return "[FAIL]"
-	}
-}
 
 // QuickCheck runs a fast internet-only check and returns true if reachable.
 func QuickCheck() bool {

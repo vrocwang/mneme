@@ -10,7 +10,6 @@ import (
 
 	"github.com/simon/mneme/internal/agent"
 	"github.com/simon/mneme/internal/approval"
-	"github.com/simon/mneme/internal/artifacts"
 	"github.com/simon/mneme/internal/bundle"
 	"github.com/simon/mneme/internal/capability"
 	"github.com/simon/mneme/internal/channels"
@@ -25,7 +24,6 @@ import (
 	"github.com/simon/mneme/internal/health"
 	"github.com/simon/mneme/internal/heartbeat"
 	"github.com/simon/mneme/internal/inference"
-	"github.com/simon/mneme/internal/integration"
 	"github.com/simon/mneme/internal/learning"
 	mcpstore "github.com/simon/mneme/internal/mcp/store"
 	"github.com/simon/mneme/internal/memory"
@@ -262,7 +260,7 @@ func (a *AppCore) Init(headless bool) {
 	a.WorkflowInjector.Load()
 
 	// ── Event bus ────────────────────────────────────────────────────
-	a.EventBus = events.NewBus(1024)
+	a.EventBus = events.NewBus()
 	capability.SetMCPEventHook(func(kind, name string, count int) {
 		a.EventBus.PublishTyped(events.DomainMCP, events.EventKind(kind), map[string]interface{}{"server": name, "tools": count})
 	})
@@ -270,7 +268,6 @@ func (a *AppCore) Init(headless bool) {
 
 	// ── Security policy ──────────────────────────────────────────────
 	a.SecurityPolicy = a.Cfg.BuildSecurityPolicy()
-	security.ReloadLivePolicy(a.SecurityPolicy)
 	sc := a.Cfg.Security.Commands
 	security.SetExtraAllowedCommands(sc.ExtraAllowedCommands)
 	security.SetCommandPolicy(sc.BlockHighRisk, sc.RequireMediumApproval)
@@ -303,10 +300,9 @@ func (a *AppCore) Init(headless bool) {
 		// Start channels from config via CapabilityRegistry.
 		for name, chCfg := range a.Cfg.Channels {
 			capCfg := capability.ChannelConfig{
-				Token:         chCfg.Token,
-				SigningSecret: chCfg.SigningSecret,
-				WebhookURL:    chCfg.WebhookURL,
-				PhoneNumberID: chCfg.PhoneNumberID,
+				Token:      chCfg.Token,
+				WebhookURL: chCfg.WebhookURL,
+				Extras:     chCfg.Extra,
 			}
 			ch, err := a.CapReg.GetChannel(name, capCfg)
 			if err != nil {
@@ -431,17 +427,8 @@ func (a *AppCore) Init(headless bool) {
 		a.Heartbeat.Start()
 	}
 
-	// ── Artifact store ───────────────────────────────────────────────
-	if a.DB != nil {
-		_ = artifacts.NewStore(a.Cfg.Workspace) // artifact store created for future use
-	}
-
 	// ── Post-bootstrap tools ─────────────────────────────────────────
 	// GUI calls RegisterPostBootstrapTools again with the real automator.
-
-	// ── Integrations ─────────────────────────────────────────────────
-	intReg := integration.NewRegistry(a.Log)
-	WireIntegrations(a.CapReg, intReg)
 
 	// ── Wire extension RPC ───────────────────────────────────────────
 	if a.CapReg != nil {
@@ -497,7 +484,7 @@ func (a *AppCore) Init(headless bool) {
 			Workflows:  a.WorkflowInjector,
 		}
 
-		cbm := einocb.NewManager(a.AuditLogger, nil, a.Learning)
+		cbm := einocb.NewManager(a.AuditLogger, a.Learning)
 		a.Callbacks = cbm
 
 		agentSet, agentSetErr := eino.NewAgentSet(context.Background(), &eino.AgentSetConfig{
@@ -586,9 +573,6 @@ func (a *AppCore) Init(headless bool) {
 			executor := func(ctx context.Context, task *agent.DispatchTask) error {
 				ch := a.BackgroundRunner.RunAsync(ctx, task.ID, task.Prompt)
 				for evt := range ch {
-					if a.EventBus != nil {
-						a.EventBus.PublishTyped(events.DomainAgent, "task.progress", evt)
-					}
 					if evt.Status == "completed" && evt.Result != nil {
 						task.Result = evt.Result.Response
 						return nil

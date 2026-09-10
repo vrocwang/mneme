@@ -14,8 +14,9 @@ security model — with all non-core capabilities delivered as runtime extension
 - **Sub-agent orchestration**: 12 built-in specialists (general, orchestrator,
   researcher, coder, critic, planner, summarizer, archivist, mcp_setup,
   tool_maker, task_manager, tools_agent) delegating via agent-as-tool.
-- **Memory pipeline**: ingestion, multi-strategy retrieval, entity graph,
-  profile store, and per-session memory injection into every turn.
+- **Memory pipeline**: layered L0-L3 memory (conversation → atomic facts →
+  scenarios → persona), native vector search, multi-strategy retrieval, entity
+  graph, and per-session memory injection into every turn.
 - **Learning**: post-turn reflection extracts preferences and experiences that
   shape future responses.
 - **Layered security**: prompt-injection detection, autonomy tiers, command
@@ -76,7 +77,6 @@ summary = "qwen2.5"
 
 [security]
 tier = "supervised"            # readonly | supervised | full
-workspace_only = false
 
 [[providers]]
 name = "ollama"
@@ -97,11 +97,6 @@ max_search_results = 0         # 0 = default
 
 [embedding]
 provider = "ollama"            # ollama | openai | "" to disable
-
-[context]
-max_tokens = 128000
-compaction_threshold = 0.90
-keep_recent = 8
 
 [learning_cfg]
 enabled = true
@@ -140,7 +135,7 @@ internal/           - All business logic
   security/         - Injection detection, tier gate, approval, audit, sandbox
   capability/       - Tool + agent registry (Go + MCP + extensions)
   config/           - TOML config parsing + model routing
-  context/          - System prompt builder, enrichers, guard, compaction
+  context/          - Session memory extraction tracker
   inference/        - LLM provider abstraction (streaming + non-streaming)
   prompts/          - Embedded prompt templates (defaults/*.txt)
   mcp/              - MCP server store, registry, tools
@@ -211,10 +206,11 @@ are extensions. Inbound messages are triaged through an eino graph
 
 ## Memory & learning
 
-The memory pipeline ingests conversations, chunks and embeds them, builds an
+The memory pipeline ingests conversations, extracts layered memories (atomic
+facts → scenarios → persona facets), embeds them for vector search, builds an
 entity graph, and exposes multi-strategy retrieval. Before each turn, the memory
-middleware injects: recent memory context, user profile facets, tool rules,
-skills, workflows, and relevant past experiences. After each turn, background
+middleware injects: recent memory context, user profile facets, skills,
+workflows, and relevant past experiences. After each turn, background
 extraction archives the conversation and the learning engine reflects on it.
 
 ## Project layout

@@ -17,6 +17,10 @@ import (
 //   - List timeline sync (listID set)
 //   - Configurable max tweets per sync
 //   - Tweet deduplication by tweet ID
+
+// maxSeenGUIDs caps the dedup set size; beyond it, the oldest half is dropped.
+const maxSeenGUIDs = 10000
+
 type TwitterConnector struct {
 	userID      string
 	listID      string

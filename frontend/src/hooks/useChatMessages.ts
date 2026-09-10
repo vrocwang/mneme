@@ -5,7 +5,7 @@ import { addMessage } from '../store/chatSlice';
 import { setThreads } from '../store/threadSlice';
 import {
   toolCallStarted, toolCallCompleted, toolCallFailed, commitToolCalls,
-  appendStreamToken, appendThinkingToken, commitStreaming,
+  appendStreamToken, commitStreaming,
 } from '../store/chatRuntimeSlice';
 import * as api from '../services/wails';
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
@@ -21,7 +21,7 @@ const activeCleanups = new Set<() => void>();
 
 const CHAT_EVENTS = [
   'chat:token', 'chat:tool_call', 'chat:tool_result',
-  'chat:done', 'chat:error', 'chat:thinking',
+  'chat:done', 'chat:error',
 ] as const;
 
 function cleanupAll() {
@@ -69,12 +69,6 @@ export function useChatMessages() {
       if (data.threadId !== threadId) return;
       streamingContent += data.content || '';
       dispatch(appendStreamToken({ threadId, token: data.content || '' }));
-    }));
-
-    // Thinking streaming.
-    unsubs.push(EventsOn('chat:thinking', (data: any) => {
-      if (data.threadId !== threadId) return;
-      dispatch(appendThinkingToken({ threadId, token: data.content || '' }));
     }));
 
     // Tool call started.
@@ -155,18 +149,16 @@ export function useChatMessages() {
 
   const messagesByThread = useSelector((s: RootState) => s.chat.messages, shallowEqual);
   const streamingByThread = useSelector((s: RootState) => s.chatRuntime.streaming, shallowEqual);
-  const streamingThinkingByThread = useSelector((s: RootState) => s.chatRuntime.streamingThinking, shallowEqual);
   const toolCallsByThread = useSelector((s: RootState) => s.chatRuntime.toolCalls, shallowEqual);
   const messages = useMemo(() => {
     if (!activeThreadId) return EMPTY_MSGS;
     return messagesByThread[activeThreadId] || EMPTY_MSGS;
   }, [activeThreadId, messagesByThread]);
   const streamingContent = activeThreadId ? (streamingByThread[activeThreadId] || '') : '';
-  const streamingThinking = activeThreadId ? (streamingThinkingByThread[activeThreadId] || '') : '';
   const hasActiveToolCalls = activeThreadId
     ? (toolCallsByThread[activeThreadId]?.some(tc => tc.status === 'pending' || tc.status === 'running') ?? false)
     : false;
-  const isStreaming = streamingContent.length > 0 || streamingThinking.length > 0 || hasActiveToolCalls;
+  const isStreaming = streamingContent.length > 0 || hasActiveToolCalls;
 
-  return { messages, streamingContent, streamingThinking, isStreaming, sendMessage };
+  return { messages, streamingContent, isStreaming, sendMessage };
 }

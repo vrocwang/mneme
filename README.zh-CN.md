@@ -13,7 +13,8 @@ Mneme 是一个基于 [Wails](https://wails.io)（Go 后端 + React/TypeScript �
 - **子智能体编排**：12 个内置专家（general、orchestrator、researcher、coder、critic、
   planner、summarizer、archivist、mcp_setup、tool_maker、task_manager、tools_agent），通过
   “智能体即工具”进行委派。
-- **记忆流水线**：摄取、多策略检索、实体图谱、画像存储，以及每轮注入会话记忆。
+- **记忆流水线**：L0-L3 分层记忆（对话 → 原子事实 → 场景 → 画像）、原生向量检索、
+  多策略检索、实体图谱，以及每轮注入会话记忆。
 - **学习**：轮后反思抽取偏好与经验，塑造后续响应。
 - **分层安全**：提示注入检测、自治层级、命令门控、审批流、审计日志、沙箱、凭据脱敏，以及
   叙述/失败熔断器。
@@ -69,7 +70,6 @@ summary = "qwen2.5"
 
 [security]
 tier = "supervised"            # readonly | supervised | full
-workspace_only = false
 
 [[providers]]
 name = "ollama"
@@ -90,11 +90,6 @@ max_search_results = 0         # 0 = 默认
 
 [embedding]
 provider = "ollama"            # ollama | openai | "" 禁用
-
-[context]
-max_tokens = 128000
-compaction_threshold = 0.90
-keep_recent = 8
 
 [learning_cfg]
 enabled = true

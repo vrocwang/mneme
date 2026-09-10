@@ -64,11 +64,6 @@ const (
 	defaultMaxSearchResults  = 20
 	defaultFreshnessHalfLife = 168.0 // 7 days in hours
 )
-
-func NewPipeline(log *slog.Logger, convStore *conversations.Store, memStore *store.Store, db *sql.DB) *Pipeline {
-	return NewPipelineWithConfig(log, convStore, memStore, db, PipelineConfig{})
-}
-
 // NewPipelineWithConfig is NewPipeline with explicit runtime tunables.
 func NewPipelineWithConfig(log *slog.Logger, convStore *conversations.Store, memStore *store.Store, db *sql.DB, pc PipelineConfig) *Pipeline {
 	if pc.WorkerCount <= 0 {
