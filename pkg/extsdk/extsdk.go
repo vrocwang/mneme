@@ -21,9 +21,56 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
+
+// ── Workspace helpers ────────────────────────────────────────────────────
+
+// WorkspaceDir returns the Mneme workspace directory. The host process exports
+// MNEME_HOME before spawning extensions, so every extension shares the user's
+// workspace instead of guessing from its own executable path. Falls back to the
+// executable's directory for standalone/manual runs where MNEME_HOME is unset.
+func WorkspaceDir() string {
+	if dir := os.Getenv("MNEME_HOME"); dir != "" {
+		return dir
+	}
+	if exe, err := os.Executable(); err == nil {
+		return filepath.Dir(exe)
+	}
+	return "."
+}
+
+// DataDir returns the shared data directory (<workspace>/data) and creates it
+// if needed. Extensions that persist state must use this so they write to the
+// same store as the core rather than a private directory beside their binary.
+func DataDir() string {
+	dir := filepath.Join(WorkspaceDir(), "data")
+	_ = os.MkdirAll(dir, 0o755)
+	return dir
+}
+
+// DataFile returns a path inside DataDir.
+func DataFile(name string) string {
+	return filepath.Join(DataDir(), name)
+}
+
+// SkillsDir returns the shared skills directory (<workspace>/skills), the same
+// location the core uses for installed skill definitions.
+func SkillsDir() string {
+	dir := filepath.Join(WorkspaceDir(), "skills")
+	_ = os.MkdirAll(dir, 0o755)
+	return dir
+}
+
+// ScreenshotsDir returns the shared screenshots directory
+// (<workspace>/screenshots), matching the core desktop capture location.
+func ScreenshotsDir() string {
+	dir := filepath.Join(WorkspaceDir(), "screenshots")
+	_ = os.MkdirAll(dir, 0o755)
+	return dir
+}
 
 // DefaultCallTimeout bounds each tool execution. The previous hand-written
 // loops wrapped every call in context.WithTimeout (typically 30–60s, up to
@@ -67,23 +114,23 @@ type Result struct {
 
 // AgentDef describes an agent for extension.list_agents.
 type AgentDef struct {
-	ID            string       `json:"id"`
-	Name          string       `json:"name"`
-	Description   string       `json:"description"`
-	Tier          string       `json:"tier"`
-	SystemPrompt  string       `json:"systemPrompt"`
-	ToolAllowlist []string     `json:"toolAllowlist"`
-	ToolDenylist  []string     `json:"toolDenylist,omitempty"`
-	MaxIterations int          `json:"maxIterations"`
-	Hidden        bool         `json:"hidden"`
-	ForkMode      bool         `json:"forkMode,omitempty"`
-	Model         string       `json:"model,omitempty"`
-	Temperature   float64      `json:"temperature,omitempty"`
-	TimeoutSecs   int          `json:"timeoutSecs,omitempty"`
-	SandboxMode   string       `json:"sandboxMode,omitempty"`
-	ExtraTools    []string     `json:"extraTools,omitempty"`
-	Background    bool         `json:"background,omitempty"`
-	SkillFilter   string       `json:"skillFilter,omitempty"`
+	ID            string        `json:"id"`
+	Name          string        `json:"name"`
+	Description   string        `json:"description"`
+	Tier          string        `json:"tier"`
+	SystemPrompt  string        `json:"systemPrompt"`
+	ToolAllowlist []string      `json:"toolAllowlist"`
+	ToolDenylist  []string      `json:"toolDenylist,omitempty"`
+	MaxIterations int           `json:"maxIterations"`
+	Hidden        bool          `json:"hidden"`
+	ForkMode      bool          `json:"forkMode,omitempty"`
+	Model         string        `json:"model,omitempty"`
+	Temperature   float64       `json:"temperature,omitempty"`
+	TimeoutSecs   int           `json:"timeoutSecs,omitempty"`
+	SandboxMode   string        `json:"sandboxMode,omitempty"`
+	ExtraTools    []string      `json:"extraTools,omitempty"`
+	Background    bool          `json:"background,omitempty"`
+	SkillFilter   string        `json:"skillFilter,omitempty"`
 	SubagentRefs  []SubagentRef `json:"subagents,omitempty"`
 	ToolPolicy    *ToolPolicy   `json:"toolPolicy,omitempty"`
 }
@@ -141,11 +188,11 @@ type Server struct {
 	manifest Manifest
 	log      *slog.Logger
 
-	mu         sync.RWMutex
-	tools      []ToolDef
-	handlers   map[string]ToolHandler
-	agents     []AgentDef
-	config     ConfigHandler
+	mu          sync.RWMutex
+	tools       []ToolDef
+	handlers    map[string]ToolHandler
+	agents      []AgentDef
+	config      ConfigHandler
 	callTimeout time.Duration
 }
 

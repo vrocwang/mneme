@@ -24,9 +24,6 @@ type ChatService struct {
 		StreamQuery(ctx context.Context, threadID, message string, onEvent func(StreamEvent)) (*TurnResult, error)
 	}
 
-	// resolveModel maps a user message to the model name to use for the turn.
-	resolveModel func(message string) string
-
 	// saveUserMessage persists a user message before the turn starts.
 	saveUserMessage func(threadID string, message string)
 
@@ -55,7 +52,6 @@ type ChatServiceConfig struct {
 		Query(ctx context.Context, threadID, message string) (*TurnResult, error)
 		StreamQuery(ctx context.Context, threadID, message string, onEvent func(StreamEvent)) (*TurnResult, error)
 	}
-	ResolveModel    func(message string) string           // model routing from user message
 	SaveUserMessage func(threadID string, message string) // persist user message before turn
 	SessionDB       *SessionDB                            // optional persistent session tracking
 	AuditLogger     *security.AuditLogger                 // optional security audit logger
@@ -78,7 +74,6 @@ func NewChatService(cfg ChatServiceConfig) *ChatService {
 	svc := &ChatService{
 		log:             cfg.Log,
 		runner:          cfg.Runner,
-		resolveModel:    cfg.ResolveModel,
 		saveUserMessage: cfg.SaveUserMessage,
 		sessionDB:       cfg.SessionDB,
 		interrupts:      make(map[string]chan struct{}),
@@ -158,16 +153,8 @@ func (cs *ChatService) SendMessage(ctx context.Context, threadID, message string
 	}
 
 	// Per-turn interrupt channel so CancelMessage can stop a running turn cleanly.
-	interruptCh := make(chan struct{})
-	cs.mu.Lock()
-	cs.interrupts[threadID] = interruptCh
-	cs.mu.Unlock()
-	defer func() {
-		cs.mu.Lock()
-		delete(cs.interrupts, threadID)
-		delete(cs.cancelled, threadID)
-		cs.mu.Unlock()
-	}()
+	interruptCh, endTurn := cs.beginTurn(threadID)
+	defer endTurn()
 
 	// Run with cancellation support via context.
 	ctx, cancel := context.WithCancel(ctx)
@@ -243,7 +230,23 @@ func (cs *ChatService) StreamMessage(ctx context.Context, threadID, message stri
 		return
 	}
 
+	// Register a per-turn interrupt channel exactly as SendMessage does, so
+	// CancelMessage can stop a streamed turn (the path used by the web UI and
+	// CLI chat) instead of being a no-op.
+	interruptCh, endTurn := cs.beginTurn(threadID)
+	ctx, cancel := context.WithCancel(ctx)
+
 	go func() {
+		defer endTurn()
+		defer cancel()
+		go func() {
+			select {
+			case <-interruptCh:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+
 		result, err := cs.runner.StreamQuery(ctx, threadID, message, func(evt StreamEvent) {
 			onEvent(evt)
 		})
@@ -271,20 +274,36 @@ func (cs *ChatService) StreamMessage(ctx context.Context, threadID, message stri
 	}()
 }
 
+// beginTurn registers a fresh per-thread interrupt channel for one turn and
+// returns it together with an idempotent cleanup function. Clearing the
+// cancelled flag here is what lets a later turn be cancelled even after a
+// previous Cancel arrived while no turn was running.
+func (cs *ChatService) beginTurn(threadID string) (chan struct{}, func()) {
+	ch := make(chan struct{})
+	cs.mu.Lock()
+	cs.interrupts[threadID] = ch
+	delete(cs.cancelled, threadID)
+	cs.mu.Unlock()
+	return ch, func() {
+		cs.mu.Lock()
+		delete(cs.interrupts, threadID)
+		delete(cs.cancelled, threadID)
+		cs.mu.Unlock()
+	}
+}
+
 // Cancel interrupts a running turn for the given thread. If no turn is running,
 // the call is a no-op. Safe to call from any goroutine, including multiple times.
 func (cs *ChatService) Cancel(threadID string) {
 	cs.mu.Lock()
 	ch, ok := cs.interrupts[threadID]
-	if cs.cancelled[threadID] {
+	if !ok || cs.cancelled[threadID] {
 		cs.mu.Unlock()
 		return
 	}
 	cs.cancelled[threadID] = true
 	cs.mu.Unlock()
-	if ok {
-		close(ch)
-	}
+	close(ch)
 }
 
 // Send is a simplified version of SendMessage that returns only the response

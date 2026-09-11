@@ -232,9 +232,3 @@ func fileChecksum(path string) string {
 	io.Copy(h, io.LimitReader(f, 10<<20)) // 10MB limit
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
-
-// Glob patterns to exclude from snapshot (dotfiles, node_modules, .git, etc.)
-var DefaultExcludePatterns = []string{
-	".git", "node_modules", ".venv", "__pycache__", "target", "build", "dist",
-	".DS_Store", ".cache", ".mneme", "*.tmp", "*.log",
-}

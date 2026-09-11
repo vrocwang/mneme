@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/smtp"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/simon/mneme/pkg/extsdk"
@@ -109,7 +110,7 @@ func sendEmail(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s",
 		from, to, subject, body)
 
-	addr := fmt.Sprintf("%s:%d", smtpHost, port)
+	addr := net.JoinHostPort(smtpHost, strconv.Itoa(port))
 	var auth smtp.Auth
 	if password != "" {
 		auth = smtp.PlainAuth("", username, password, smtpHost)

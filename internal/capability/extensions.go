@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/simon/mneme/internal/tools"
+	ws "github.com/simon/mneme/internal/workspace"
 )
 
 // Extension manifest type is defined in the tools package to avoid
@@ -268,30 +269,68 @@ func buildExtension(extDir, buildCmd string) error {
 }
 
 // DefaultExtensionDirs returns the standard extension search paths for the
-// given workspace directory. Development-time extensions/ directory is
-// resolved relative to the current working directory and the binary location.
+// given workspace, in priority order and de-duplicated by absolute path.
+//
+// It returns the first candidate directory that actually contains a
+// manifest-backed extension — normally the production workspace copy — so the
+// development source tree is not scanned as well and the same extension is
+// never loaded twice. When no candidate has a manifest, every existing
+// candidate is returned so script-only (legacy) extensions are still found;
+// when none exists, the workspace path is returned so callers always have a
+// sane default.
 func DefaultExtensionDirs(workspace string) []string {
-	// Priority 1: workspace/extensions (production - extracted from embed).
-	wsExt := filepath.Join(workspace, "extensions")
-	if entries, err := os.ReadDir(wsExt); err == nil {
-		for _, e := range entries {
-			if e.IsDir() {
-				if _, err := os.Stat(filepath.Join(wsExt, e.Name(), "manifest.json")); err == nil {
-					return []string{wsExt} // workspace has extensions, use it
-				}
-			}
+	var candidates []string
+	if workspace != "" {
+		candidates = append(candidates, ws.ExtensionsDir(workspace))
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, filepath.Join(cwd, ws.DirExtensions))
+	}
+	if exe, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "extensions"))
+	}
+
+	var existing []string
+	seen := make(map[string]bool, len(candidates))
+	for _, dir := range candidates {
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			abs = dir
+		}
+		if seen[abs] {
+			continue
+		}
+		info, err := os.Stat(dir)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		seen[abs] = true
+		if dirHasExtensionManifest(dir) {
+			return []string{dir}
+		}
+		existing = append(existing, dir)
+	}
+
+	if len(existing) == 0 && len(candidates) > 0 {
+		return []string{candidates[0]}
+	}
+	return existing
+}
+
+// dirHasExtensionManifest reports whether dir contains at least one
+// subdirectory with a manifest.json.
+func dirHasExtensionManifest(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(dir, e.Name(), "manifest.json")); err == nil {
+			return true
 		}
 	}
-
-	// Priority 2: cwd/extensions (development - project source tree).
-	if cwd, err := os.Getwd(); err == nil {
-		return []string{filepath.Join(cwd, "extensions")}
-	}
-
-	// Priority 3: exeDir/extensions (standalone binary).
-	if exe, err := os.Executable(); err == nil {
-		return []string{filepath.Join(filepath.Dir(exe), "extensions")}
-	}
-
-	return []string{wsExt}
+	return false
 }

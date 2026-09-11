@@ -27,7 +27,7 @@ function invoke<T>(method: string, ...args: unknown[]): Promise<T> {
     'GetVoiceConfig', 'SetVoiceConfig',
   ];
   const aboutMethods = ['GetCurrentVersion', 'CheckForUpdate'];
-  const costMethods = ['CostDashboard', 'GetCostOverview'];
+  const costMethods = ['GetCostDashboard', 'GetCostOverview'];
   const cronMethods = ['GetCronJobs', 'ToggleCronJob', 'TriggerCronJob', 'AddCronJob', 'RemoveCronJob'];
   const learningMethods = ['GetPreferences'];
   const memoryMethods = ['SearchMemory', 'ListNamespaces', 'ClearNamespace', 'SetRetrievalProfile'];
@@ -384,7 +384,7 @@ export interface CostDashboard {
   total_cost_cents: number;
   budget_used_pct: number;
 }
-export function getCostDashboard() { return invoke<CostDashboard>('CostDashboard'); }
+export function getCostDashboard() { return invoke<CostDashboard>('GetCostDashboard'); }
 
 export interface AppStateSnapshot {
   ok: boolean;
@@ -467,7 +467,10 @@ export interface SecurityCommandsConfig {
   block_high_risk: boolean;
   require_medium_approval: boolean;
   extra_read_only: string[];
+  extra_network: string[];
   extra_destructive: string[];
+  extra_install: string[];
+  extra_executors: string[];
   extra_dangerous_env: string[];
   extra_allowed_commands: string[];
 }

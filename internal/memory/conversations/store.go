@@ -335,11 +335,6 @@ func (s *Store) UpdateMessage(id int64, content string, meta map[string]string) 
 	return nil
 }
 
-func (s *Store) DeleteMessage(id int64) error {
-	_, err := s.db.Exec("DELETE FROM messages WHERE id = ?", id)
-	return err
-}
-
 func (s *Store) CountMessages(threadID string) (int, error) {
 	var count int
 	err := s.db.QueryRow("SELECT COUNT(*) FROM messages WHERE thread_id = ?", threadID).Scan(&count)

@@ -42,15 +42,7 @@ type repoIndex struct {
 
 var indexes = map[string]*repoIndex{}
 
-func workspaceDir() string {
-	if d := os.Getenv("MNEME_HOME"); d != "" {
-		return d
-	}
-	if exe, err := os.Executable(); err == nil {
-		return filepath.Join(filepath.Dir(exe), "data")
-	}
-	return os.TempDir()
-}
+func workspaceDir() string { return extsdk.WorkspaceDir() }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 

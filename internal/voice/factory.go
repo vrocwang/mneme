@@ -27,7 +27,9 @@ func RegisterSTT(name string, f STTFactory) {
 // RegisterTTS registers a TTS provider factory under a name.
 func RegisterTTS(name string, f TTSFactory) {
 	ttsFactories[strings.ToLower(name)] = f
-}// BuildSTT creates an STT engine based on the voice configuration, consulting
+}
+
+// BuildSTT creates an STT engine based on the voice configuration, consulting
 // the provider registry. Supported providers are registered in init() below.
 // Defaults to "system" when unset or unknown.
 func BuildSTT(cfg *config.Config) STTEngine {

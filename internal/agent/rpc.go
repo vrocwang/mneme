@@ -91,7 +91,7 @@ func (a *AgentRPC) UpsertAgent(id, name, description, systemPrompt, tier, model 
 		}
 	}
 
-	a.reg.RegisterAgentSet("user-agents", capability.KindUserAgent, "User Agents", def)
+	a.reg.RegisterAgentSet(capability.UserAgentsSetID, capability.KindUserAgent, capability.UserAgentsSetName, def)
 	return nil
 }
 

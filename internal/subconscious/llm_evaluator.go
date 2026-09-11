@@ -74,11 +74,6 @@ func NewLLMEvaluator(log *slog.Logger, provider inference.Provider, model string
 	}
 }
 
-func (e *LLMEvaluator) WithConfig(cfg LLMEvaluatorConfig) *LLMEvaluator {
-	e.config = cfg
-	return e
-}
-
 func (e *LLMEvaluator) WithPrefs(fn PrefsFunc) *LLMEvaluator {
 	e.learning = fn
 	return e

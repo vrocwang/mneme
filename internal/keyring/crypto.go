@@ -56,4 +56,6 @@ func chacha20Decrypt(key *[keyLen]byte, blob []byte) ([]byte, error) {
 		return nil, fmt.Errorf("decryption failed — wrong key or tampered data")
 	}
 	return plaintext, nil
-}// hexDecode decodes a hex string into bytes.
+}
+
+// hexDecode decodes a hex string into bytes.

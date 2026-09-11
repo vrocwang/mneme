@@ -69,13 +69,23 @@ func NewGraphTriagePipeline(
 	// handles LLM fallback in its own nodes).
 	eval := NewTriageEvaluator()
 
-	// Build the compiled eino classification graph.
+	// Build the compiled eino classification graph. The routable agent roster
+	// comes from the live registry so renames and user agents are reflected.
+	var targetAgents []string
+	if capReg != nil {
+		for _, d := range capReg.AllAgents() {
+			if !d.Hidden {
+				targetAgents = append(targetAgents, d.ID)
+			}
+		}
+	}
 	graph, err := NewClassificationGraph(ClassificationChainConfig{
 		Rules: func(ctx context.Context, env *TriageEnvelope) *TriageDecision {
 			return eval.Evaluate(env)
 		},
 		CloudProvider: cloudProvider,
 		CloudModel:    cloudModel,
+		TargetAgents:  targetAgents,
 		Logger:        slog.Default().With("component", "triage-graph"),
 	})
 	if err != nil {

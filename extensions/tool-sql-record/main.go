@@ -19,12 +19,6 @@ import (
 	"github.com/simon/mneme/pkg/extsdk"
 )
 
-// dataDir returns the host workspace directory.
-func dataDir() string {
-	exe, _ := os.Executable()
-	return filepath.Join(filepath.Dir(exe), "data")
-}
-
 func main() {
 	srv := extsdk.NewServer(extsdk.Manifest{
 		Name:        "tool-sql-record",
@@ -57,7 +51,7 @@ func dbPath() string {
 	if p := os.Getenv("MNEME_DB_PATH"); p != "" {
 		return p
 	}
-	return filepath.Join(dataDir(), "mneme.db")
+	return extsdk.DataFile("mneme.db")
 }
 
 func insertSQLRecord(ctx context.Context, args map[string]interface{}) extsdk.Result {

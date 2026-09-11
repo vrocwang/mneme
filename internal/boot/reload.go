@@ -11,19 +11,18 @@ import (
 	einomw "github.com/simon/mneme/internal/eino/middleware"
 	"github.com/simon/mneme/internal/inference"
 	"github.com/simon/mneme/internal/learning"
-	"github.com/simon/mneme/internal/routing"
 	"github.com/simon/mneme/internal/security"
+	"github.com/simon/mneme/internal/tools"
 )
 
-// ReloadConfig recreates the inference provider, model router, and eino Runner
-// from the current config so that provider/model changes in the Settings UI
-// take effect without restarting the application.
+// ReloadConfig recreates the inference provider from the current config so that
+// provider/model changes in the Settings UI take effect without restarting the
+// application. The eino pipeline is rebuilt separately by ReloadEino.
 func ReloadConfig(
 	cfg *config.Config,
 	learn *learning.Engine,
 	log *slog.Logger,
 	setProvider func(inference.Provider),
-	setRouter func(*routing.Router),
 ) {
 	newProvider := NewProvider(cfg)
 	if newProvider == nil {
@@ -38,25 +37,8 @@ func ReloadConfig(
 	log.Info("config reload: provider updated", "name", newProvider.Name())
 
 	if learn != nil {
-		learn.SetProvider(newProvider, cfg.Agent.DefaultModel)
+		learn.SetProvider(newProvider, cfg.ModelForRoute("reasoning"))
 	}
-
-	// Rebuild model router from current config routes and providers.
-	router := routing.NewRouter(cfg.Agent.DefaultModel)
-	for _, r := range routing.DefaultRoutes() {
-		router.SetRoute(r.Kind, cfg.Agent.DefaultModel)
-	}
-	var providerModels []routing.ProviderModel
-	for _, p := range cfg.Providers {
-		providerModels = append(providerModels, routing.ProviderModel{
-			Name: p.Name, Models: p.Models,
-		})
-	}
-	if len(providerModels) > 0 {
-		router.ConfigureFromProviders(providerModels)
-	}
-	setRouter(router)
-	log.Info("config reload: model router updated", "default", cfg.Agent.DefaultModel)
 }
 
 // ReloadEino rebuilds the eino ChatModel, AgentSet, and Runner from the
@@ -66,6 +48,13 @@ func ReloadEino(a *AppCore) {
 	if a == nil || a.Cfg == nil || a.ChatService == nil {
 		return
 	}
+
+	// Rebuild the security policy from the current config and re-apply the
+	// tool-level settings, so security tier, forbidden paths, sandbox mode and
+	// the default tool timeout take effect without an app restart.
+	a.SecurityPolicy = a.Cfg.BuildSecurityPolicy()
+	tools.SetToolTimeoutSecs(a.Cfg.Agent.Limits.DefaultToolTimeout)
+	tools.SetSandboxConfig(a.Cfg.Sandbox)
 
 	chatModel, err := eino.NewChatModel(context.Background(), a.Cfg)
 	if err != nil {
@@ -104,15 +93,18 @@ func ReloadEino(a *AppCore) {
 	cbm := einocb.NewManager(a.AuditLogger, a.Learning)
 	a.Callbacks = cbm
 
+	routeModels := eino.CollectRouteModels(context.Background(), a.Cfg, a.Log)
 	agentSet, agentSetErr := eino.NewAgentSet(context.Background(), &eino.AgentSetConfig{
-		Workspace:       a.Cfg.Workspace,
-		PromptMgr:       a.PromptMgr,
-		FailoverModels:  failoverModels,
-		ChatModel:       chatModel,
-		AllTools:        allTools,
-		MessageModifier: memMW.ModifyMessages,
-		SecurityMW:      secMW,
-		BreakerMW:       breakerMW,
+		Workspace:            a.Cfg.Workspace,
+		PromptMgr:            a.PromptMgr,
+		FailoverModels:       failoverModels,
+		ChatModel:            chatModel,
+		AllTools:             allTools,
+		MessageModifier:      memMW.ModifyMessages,
+		SecurityMW:           secMW,
+		BreakerMW:            breakerMW,
+		DefaultMaxIterations: a.Cfg.Agent.Limits.MaxToolRounds,
+		Models:               routeModels,
 	}, &agentRegistryAdapter{capReg: a.CapReg})
 	if agentSetErr != nil {
 		a.Log.Warn("config reload: failed to create agent set", "err", agentSetErr)

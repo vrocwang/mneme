@@ -646,8 +646,6 @@ export namespace config {
 	    }
 	}
 	export class ObservabilityConfig {
-	    sentry_dsn: string;
-	    tracing_enabled: boolean;
 	    log_level: string;
 	
 	    static createFrom(source: any = {}) {
@@ -656,8 +654,6 @@ export namespace config {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.sentry_dsn = source["sentry_dsn"];
-	        this.tracing_enabled = source["tracing_enabled"];
 	        this.log_level = source["log_level"];
 	    }
 	}

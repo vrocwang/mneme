@@ -13,6 +13,7 @@ import (
 
 	einomw "github.com/simon/mneme/internal/eino/middleware"
 	"github.com/simon/mneme/internal/prompts"
+	pkgtools "github.com/simon/mneme/pkg/tools"
 )
 
 // AgentDef contains the definition needed to dynamically create an agent.
@@ -23,6 +24,13 @@ type AgentDef struct {
 	ToolAllowlist []string
 	Hidden        bool
 	SystemPrompt  string // explicit prompt (agent pack prompt.md / toml system_prompt); takes precedence over embedded PromptName
+	// MaxIterations bounds the agent's tool-calling loop. Zero falls back to
+	// AgentSetConfig.DefaultMaxIterations.
+	MaxIterations int
+	// Model is the optional model-route kind (e.g. "reasoning") this agent
+	// should run on. It is resolved through AgentSetConfig.Models; when the
+	// route is unset the agent uses the primary ChatModel.
+	Model string
 }
 
 // AgentRegistry provides agent definitions for dynamic agent creation.
@@ -79,6 +87,14 @@ type AgentSetConfig struct {
 	// MessageModifier transforms the message list before each turn. It is
 	// applied by the Runner before calling adk.Runner.Run().
 	MessageModifier func(context.Context, []*schema.Message) []*schema.Message
+
+	// DefaultMaxIterations bounds an agent's tool-calling loop when its own
+	// definition does not specify MaxIterations.
+	DefaultMaxIterations int
+
+	// Models maps a model-route kind to a chat model. Agent definitions select
+	// one through their Model field; an absent route falls back to ChatModel.
+	Models map[string]model.ToolCallingChatModel
 }
 
 // agentCfg holds the configuration for creating a single ChatModelAgent.
@@ -89,6 +105,8 @@ type agentCfg struct {
 	SystemPrompt    string // explicit prompt from agent def (agent pack prompt.md / toml system_prompt); takes precedence over PromptName
 	Tools           []tool.BaseTool
 	MessageModifier func(context.Context, []*schema.Message) []*schema.Message
+	MaxIterations   int
+	Model           string
 }
 
 // NewAgentSet creates all agents in three phases:
@@ -144,11 +162,13 @@ func NewAgentSet(ctx context.Context, cfg *AgentSetConfig, registry AgentRegistr
 			}
 			agentTools := filterToolsByAllowlist(wrappedTools, def.ToolAllowlist)
 			a, err := newAgent(ctx, agentCfg{
-				Name:         def.Name,
-				Description:  def.Description,
-				PromptName:   prompts.NameFromAgentID(def.ID),
-				SystemPrompt: def.SystemPrompt,
-				Tools:        agentTools,
+				Name:          def.Name,
+				Description:   def.Description,
+				PromptName:    prompts.NameFromAgentID(def.ID),
+				SystemPrompt:  def.SystemPrompt,
+				Tools:         agentTools,
+				MaxIterations: def.MaxIterations,
+				Model:         def.Model,
 			}, cfg)
 			if err != nil {
 				return nil, fmt.Errorf("eino: create agent %q: %w", def.ID, err)
@@ -183,6 +203,8 @@ func NewAgentSet(ctx context.Context, cfg *AgentSetConfig, registry AgentRegistr
 		SystemPrompt:    generalDef.SystemPrompt,
 		Tools:           generalTools,
 		MessageModifier: cfg.MessageModifier,
+		MaxIterations:   generalDef.MaxIterations,
+		Model:           generalDef.Model,
 	}, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("eino: create general agent: %w", err)
@@ -221,13 +243,34 @@ func newAgent(ctx context.Context, cfg agentCfg, setCfg *AgentSetConfig) (adk.Ag
 	toolsCfg := adk.ToolsConfig{}
 	toolsCfg.Tools = cfg.Tools
 
+	// Bound the tool-calling loop: the agent's own max_iterations wins, then
+	// the configured default, then a safe built-in floor. Without this the
+	// roster's max_iterations values were parsed but never applied.
+	maxIter := cfg.MaxIterations
+	if maxIter <= 0 {
+		maxIter = setCfg.DefaultMaxIterations
+	}
+	if maxIter <= 0 {
+		maxIter = pkgtools.DefaultMaxIterations
+	}
+
+	// Select the model: an agent may name a model route; otherwise the primary
+	// chat model is used.
+	chatModel := setCfg.ChatModel
+	if cfg.Model != "" {
+		if alt, ok := setCfg.Models[cfg.Model]; ok && alt != nil {
+			chatModel = alt
+		}
+	}
+
 	agentConfig := &adk.ChatModelAgentConfig{
 		Name:                cfg.Name,
 		Description:         cfg.Description,
 		Instruction:         instruction,
-		Model:               setCfg.ChatModel,
+		Model:               chatModel,
 		ToolsConfig:         toolsCfg,
 		Handlers:            setCfg.Handlers,
+		MaxIterations:       maxIter,
 		ModelFailoverConfig: buildFailoverConfig(setCfg.FailoverModels),
 		ModelRetryConfig: &adk.ModelRetryConfig{
 			MaxRetries: 2,

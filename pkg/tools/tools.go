@@ -104,6 +104,12 @@ const (
 
 // ── Core types ──────────────────────────────────────────────────────────────
 
+// DefaultMaxIterations is the fallback bound on an agent's tool-calling loop
+// when neither the agent definition nor the config specifies one. It is the
+// single source of truth shared by config defaults, agent-TOML loading, and the
+// eino agent constructor.
+const DefaultMaxIterations = 10
+
 // Schema describes a tool's JSON Schema for LLM function calling.
 type Schema struct {
 	Name        string                 `json:"name"`

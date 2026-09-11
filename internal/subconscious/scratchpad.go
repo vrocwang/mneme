@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	ws "github.com/simon/mneme/internal/workspace"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -219,7 +220,7 @@ func (s *Scratchpad) MergeActions(actions []Action) []Action {
 func (s *Scratchpad) Len() int { return len(s.entries) }
 
 func (s *Scratchpad) filePath() string {
-	return filepath.Join(s.workspaceDir, "memory", scratchpadFileName)
+	return filepath.Join(ws.MemoryDir(s.workspaceDir), scratchpadFileName)
 }
 
 func (s *Scratchpad) evict() {

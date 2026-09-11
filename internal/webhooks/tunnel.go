@@ -98,7 +98,13 @@ func (tm *TunnelManager) publishRegistered(reg *TunnelRegistration) {
 	if tm.eventBus == nil {
 		return
 	}
-	defer func() { recover() }()
+	defer func() {
+		if r := recover(); r != nil {
+			// An event-bus panic must not take down the RPC call, but it must
+			// be visible rather than silently swallowed.
+			slog.Warn("webhook event publish panicked", "event", events.KindWebhookRegistered, "error", r)
+		}
+	}()
 	tm.eventBus.PublishTyped(events.DomainWebhook, events.KindWebhookRegistered, map[string]interface{}{
 		"tunnel_uuid": reg.TunnelUUID, "target": string(reg.Target), "target_id": reg.TargetID,
 	})
@@ -167,7 +173,7 @@ func (tm *TunnelManager) publishUnregistered(uuid string) {
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			// event bus failure must not take down the RPC call
+			slog.Warn("webhook event publish panicked", "event", events.KindWebhookUnregistered, "error", r)
 		}
 	}()
 	tm.eventBus.PublishTyped(events.DomainWebhook, events.KindWebhookUnregistered, map[string]interface{}{

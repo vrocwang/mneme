@@ -22,6 +22,7 @@ type CapabilityRPC struct {
 	mcpPersister        MCPServerPersister
 	legacyExtensionsDir string
 	skillsDir           string
+	agentsDir           string
 }
 
 // MCPServerPersister persists MCP server installations across restarts.
@@ -59,6 +60,11 @@ func (r *CapabilityRPC) SetLegacyExtensionsDir(dir string) { r.legacyExtensionsD
 
 // SetSkillsDir sets the skills directory path for InstallSkill.
 func (r *CapabilityRPC) SetSkillsDir(dir string) { r.skillsDir = dir }
+
+// SetAgentsDir sets the directory where user-defined agent TOML files are read
+// and written (workspace/agents). It is set explicitly by the composition root
+// so no path is reconstructed from another directory.
+func (r *CapabilityRPC) SetAgentsDir(dir string) { r.agentsDir = dir }
 
 // SetRegistry updates the registry reference. Called after startup creates it.
 func (r *CapabilityRPC) SetRegistry(reg *CapabilityRegistry) { r.reg = reg }
@@ -182,11 +188,14 @@ func (r *CapabilityRPC) CreateAgent(def map[string]interface{}) error {
 	if agentDef.ID == "" || agentDef.Name == "" {
 		return fmt.Errorf("agent id and name are required")
 	}
-	agentsDir := filepath.Join(r.legacyExtensionsDir, "..", "agents")
+	if r.agentsDir == "" {
+		return fmt.Errorf("agents directory not configured")
+	}
+	agentsDir := r.agentsDir
 	if err := agenttoml.SaveAgentToFile(agentsDir, agentDef); err != nil {
 		return fmt.Errorf("save agent: %w", err)
 	}
-	r.reg.RegisterAgentSet("user-agents", KindUserAgent, "User Agents", agentDef)
+	r.reg.RegisterAgentSet(UserAgentsSetID, KindUserAgent, UserAgentsSetName, agentDef)
 	return nil
 }
 
@@ -207,11 +216,14 @@ func (r *CapabilityRPC) UpdateAgent(id string, def map[string]interface{}) error
 		return fmt.Errorf("invalid agent definition: %w", err)
 	}
 	agentDef.ID = id
-	agentsDir := filepath.Join(r.legacyExtensionsDir, "..", "agents")
+	if r.agentsDir == "" {
+		return fmt.Errorf("agents directory not configured")
+	}
+	agentsDir := r.agentsDir
 	if err := agenttoml.SaveAgentToFile(agentsDir, agentDef); err != nil {
 		return fmt.Errorf("save agent: %w", err)
 	}
-	r.reg.RegisterAgentSet("user-agents", KindUserAgent, "User Agents", agentDef)
+	r.reg.RegisterAgentSet(UserAgentsSetID, KindUserAgent, UserAgentsSetName, agentDef)
 	return nil
 }
 
@@ -222,7 +234,10 @@ func (r *CapabilityRPC) DeleteAgent(id string) error {
 	if _, ok := r.reg.GetAgent(id); !ok {
 		return fmt.Errorf("agent %q not found", id)
 	}
-	agentsDir := filepath.Join(r.legacyExtensionsDir, "..", "agents")
+	if r.agentsDir == "" {
+		return fmt.Errorf("agents directory not configured")
+	}
+	agentsDir := r.agentsDir
 	if err := agenttoml.DeleteAgentFile(agentsDir, id); err != nil {
 		return fmt.Errorf("delete agent: %w", err)
 	}
@@ -261,7 +276,10 @@ func (r *CapabilityRPC) AddMCPServer(name, transport, command, url string, args 
 			Command: command, Args: args, Transport: transport,
 			DeploymentURL: url, Enabled: true,
 		}); perr != nil {
-			// Non-fatal: the server works for this session but won't reconnect.
+			// Non-fatal: the server works for this session but won't reconnect
+			// after a restart, so make the reason visible.
+			slog.Warn("MCP server persist failed; it will not reconnect after restart",
+				"server", name, "error", perr)
 		}
 	}
 	return nil
@@ -455,7 +473,7 @@ func (r *CapabilityRPC) InstallSkill(source string) error {
 	if err != nil {
 		return fmt.Errorf("read skill: %w", err)
 	}
-	m, body, err := parseSkillFrontmatter(data)
+	m, _, err := parseSkillFrontmatter(data)
 	if err != nil {
 		return fmt.Errorf("parse SKILL.md: %w", err)
 	}
@@ -471,7 +489,7 @@ func (r *CapabilityRPC) InstallSkill(source string) error {
 	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), data, 0644); err != nil {
 		return err
 	}
-	return r.registerSkill(skillDir, *m, body)
+	return r.registerSkill(*m)
 }
 
 func downloadSkillURL(rawURL string) ([]byte, error) {
@@ -537,9 +555,9 @@ func parseSkillFrontmatter(data []byte) (*SkillManifest, string, error) {
 	return &m, body, nil
 }
 
-func (r *CapabilityRPC) registerSkill(skillDir string, m SkillManifest, body string) error {
-	_ = skillDir // kept for API compatibility
-	_ = body
+// registerSkill registers a parsed skill manifest as a capability set. The
+// SKILL.md itself is already on disk; only the registry entry is created here.
+func (r *CapabilityRPC) registerSkill(m SkillManifest) error {
 	return registerSkillSet(r.reg, m)
 }
 

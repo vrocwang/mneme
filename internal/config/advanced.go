@@ -1,5 +1,7 @@
 package config
 
+import pkgtools "github.com/simon/mneme/pkg/tools"
+
 // ── Config sections for previously hardcoded values ──────────────────────
 
 // AgentLimits holds operational limits for the agent loop.
@@ -10,7 +12,7 @@ type AgentLimits struct {
 }
 
 func defaultAgentLimits() AgentLimits {
-	return AgentLimits{MaxToolRounds: 10, DefaultToolTimeout: 120, MaxHistoryMessages: 100}
+	return AgentLimits{MaxToolRounds: pkgtools.DefaultMaxIterations, DefaultToolTimeout: 120, MaxHistoryMessages: 100}
 }
 
 // SecurityCommands holds custom command classification lists.
@@ -149,15 +151,13 @@ func defaultSandboxConfig() SandboxConfig {
 
 // ActionDirConfig controls the agent's tool sandbox root.
 type ActionDirConfig struct {
-	Path     string `toml:"path" json:"path"` // Deprecated: parsed but not read; Override governs the sandbox root
 	Override string `toml:"override" json:"override,omitempty"`
 }
 
-// ObservabilityConfig controls telemetry and error reporting.
+// ObservabilityConfig controls application logging. Remote error reporting
+// (Sentry) and tracing (OpenTelemetry) are not implemented.
 type ObservabilityConfig struct {
-	SentryDSN      string `toml:"sentry_dsn" json:"sentry_dsn"`
-	TracingEnabled bool   `toml:"tracing_enabled" json:"tracing_enabled"`
-	LogLevel       string `toml:"log_level" json:"log_level"`
+	LogLevel string `toml:"log_level" json:"log_level"`
 }
 
 func defaultObservabilityConfig() ObservabilityConfig {

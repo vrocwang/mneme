@@ -27,8 +27,8 @@ func EventBundles() []Bundle {
 	}
 }
 
-// eventHooksBundle registers the five post-turn hooks (persistence, metrics,
-// tool tracking, cost tracking, session memory).
+// eventHooksBundle registers the post-turn hooks (persistence, metrics, tool
+// tracking, cost tracking, and prior-learning capture).
 func eventHooksBundle() Bundle {
 	return Func("event-hooks", func(ctx context.Context, d *Deps) (dispose.Func, error) {
 		if d.HookReg == nil {
@@ -37,11 +37,14 @@ func eventHooksBundle() Bundle {
 
 		if d.ConvStore != nil {
 			s := d.ConvStore
+			log := d.Log
 			d.HookReg.Register(agent.NewPostTurnHook("persistence", func(ctx context.Context, snap *agent.TurnSnapshot) {
 				if snap == nil {
 					return
 				}
-				_ = s.AddMessage(snap.ThreadID, "assistant", snap.Response)
+				if err := s.AddMessage(snap.ThreadID, "assistant", snap.Response); err != nil && log != nil {
+					log.Warn("failed to persist assistant message", "thread", snap.ThreadID, "error", err)
+				}
 			}))
 		}
 		if d.Metrics != nil {
@@ -76,6 +79,18 @@ func eventHooksBundle() Bundle {
 		}
 		if d.CostTracker != nil {
 			d.HookReg.Register(agent.NewCostTrackingHook(d.CostTracker))
+		}
+		if d.Exp != nil {
+			exp := d.Exp
+			log := d.Log
+			d.HookReg.Register(agent.NewPostTurnHook("experience", func(ctx context.Context, snap *agent.TurnSnapshot) {
+				if snap == nil || snap.Error != nil || snap.Response == "" {
+					return
+				}
+				if err := exp.SaveExperience(ctx, snap.ThreadID, snap.UserMessage, snap.Response); err != nil && log != nil {
+					log.Warn("experience save failed", "error", err)
+				}
+			}))
 		}
 		return nil, nil
 	})
@@ -165,7 +180,7 @@ func subconsciousBundle() Bundle {
 		d.Subcon.Register(subconscious.NewIdleReminderEvaluator(d.Log))
 
 		if d.Provider != nil && d.Pipeline != nil && d.Cfg != nil {
-			llmEval := subconscious.NewLLMEvaluator(d.Log, d.Provider, d.Cfg.Agent.DefaultModel,
+			llmEval := subconscious.NewLLMEvaluator(d.Log, d.Provider, d.Cfg.ModelForRoute("reasoning"),
 				subconscious.NewMemoryPipelineAdapter(d.Pipeline)).
 				WithWorkspace(d.Workspace)
 			if d.Learning != nil {

@@ -9,6 +9,7 @@ extensions/channel-*/channel-*
 extensions/codegraph/codegraph
 extensions/composio/composio
 extensions/desktop-auto/desktop-auto
+extensions/doctor/doctor
 extensions/integrations/integrations
 extensions/learning-ext/learning-ext
 extensions/local-inference/local-inference

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -17,27 +18,19 @@ import (
 type JobKind string
 
 const (
-	KindExtractChunk    JobKind = "extract_chunk"
-	KindAppendBuffer    JobKind = "append_buffer"
-	KindSeal            JobKind = "seal"
-	KindFlushStale      JobKind = "flush_stale"
-	KindReembedBackfill JobKind = "reembed_backfill"
+	KindExtractChunk JobKind = "extract_chunk"
+	KindAppendBuffer JobKind = "append_buffer"
 )
 
 // JobStatus represents the lifecycle state of a job.
 type JobStatus string
 
 const (
-	StatusReady     JobStatus = "ready"
 	StatusRunning   JobStatus = "running"
 	StatusDone      JobStatus = "done"
 	StatusFailed    JobStatus = "failed"
 	StatusCancelled JobStatus = "cancelled"
 )
-
-func (s JobStatus) IsTerminal() bool {
-	return s == StatusDone || s == StatusFailed || s == StatusCancelled
-}
 
 // JobOutcome signals how the queue should settle the row after a handler run.
 type JobOutcome struct {
@@ -279,8 +272,8 @@ func (q *Queue) staleRecoveryLoop() {
 			return
 		case <-ticker.C:
 			if err := q.recoverStaleLocks(); err != nil {
-				// Log but don't crash — recovery is best-effort
-				_ = err
+				// Recovery is best-effort: log so repeated failures are visible.
+				slog.Warn("queue: stale lock recovery failed", "error", err)
 			}
 		}
 	}
@@ -400,7 +393,7 @@ func (q *Queue) pollAndRun(workerID int) {
 			untilMs, reason, job.ID,
 		)
 		if dbErr != nil {
-			_ = dbErr
+			slog.Warn("queue: failed to reschedule job", "job", job.ID, "error", dbErr)
 		}
 		return
 	}
@@ -461,7 +454,7 @@ func (q *Queue) settle(jobID string, status JobStatus, runErr error) {
 		string(status), nowMs, errMsg, jobID,
 	)
 	if dbErr != nil {
-		_ = dbErr
+		slog.Warn("queue: failed to settle job", "job", jobID, "error", dbErr)
 	}
 }
 
@@ -472,7 +465,7 @@ func (q *Queue) markDone(jobID string) {
 		nowMs, jobID,
 	)
 	if err != nil {
-		_ = err
+		slog.Warn("queue: failed to mark job done", "job", jobID, "error", err)
 	}
 }
 

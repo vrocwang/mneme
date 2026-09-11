@@ -2,23 +2,18 @@ package capability
 
 import "github.com/simon/mneme/internal/tools"
 
-// RegisterSetTools creates (or reuses) a builtin capability set and registers
-// the given tools into it in one call. It is the single generic entry point
-// for domain modules contributing their tool groups, replacing the repeated
-// EnsureSet + N×RegisterTool boilerplate.
+// RegisterSetTools registers tools into a builtin capability set, creating the
+// set on first use. It is the single generic entry point for domain modules
+// contributing their tool groups, so callers never repeat the
+// create-set-then-register-N-tools boilerplate.
 func RegisterSetTools(reg *CapabilityRegistry, setID, setName string, ts ...tools.Tool) {
 	if reg == nil {
 		return
 	}
-	reg.EnsureSet(&CapabilitySet{
-		ID:      setID,
-		Name:    setName,
-		Kind:    KindBuiltin,
-		Enabled: true,
-	})
+	reg.mu.Lock()
+	reg.ensureSetLocked(setID, setName, KindBuiltin)
+	reg.mu.Unlock()
 	for _, t := range ts {
-		if t != nil {
-			reg.RegisterTool(setID, t)
-		}
+		reg.RegisterTool(setID, t)
 	}
 }

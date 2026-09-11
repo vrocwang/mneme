@@ -5,6 +5,7 @@ package eino
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -18,6 +19,36 @@ import (
 	"github.com/simon/mneme/internal/eino/callbacks"
 	"github.com/simon/mneme/internal/eino/middleware"
 )
+
+// maxIterationsNotice is returned when an agent stops at its configured
+// iteration bound without producing any final text. Hitting the bound is a
+// normal stop, not a fault, so the turn completes successfully with this note
+// rather than surfacing an error.
+const maxIterationsNotice = "Reached the maximum number of agent steps before producing a final answer. The task may be incomplete — ask me to continue if needed."
+
+// finishContent substitutes a user-visible notice when the agent stopped at its
+// iteration bound without producing any final text. Partial content is returned
+// unchanged; the truncation is logged by the caller.
+func finishContent(content string, limitReached bool) string {
+	if limitReached && strings.TrimSpace(content) == "" {
+		return maxIterationsNotice
+	}
+	return content
+}
+
+// isMaxIterationsErr reports whether an agent event error means the agent hit
+// its configured iteration bound. Both the sentinel (possibly wrapped) and the
+// message form are recognised so a future adk change that loses the wrap does
+// not turn a normal stop back into a fatal error.
+func isMaxIterationsErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, adk.ErrExceedMaxIterations) {
+		return true
+	}
+	return strings.Contains(err.Error(), "exceeds max iterations")
+}
 
 // Runner wraps an adk.Runner with the retained subsystems (memory pipeline,
 // security gate, circuit breaker, audit/cost/learning callbacks). It is the
@@ -129,6 +160,7 @@ func (r *Runner) processEvents(ctx context.Context, threadID, userMessage string
 	var finalContent string
 	var toolCalls []agent.ToolCallResult
 	var inputTokens, outputTokens int
+	var limitReached bool
 
 	for {
 		event, ok := iter.Next()
@@ -138,7 +170,15 @@ func (r *Runner) processEvents(ctx context.Context, threadID, userMessage string
 
 		// Check for error in the event.
 		if event.Err != nil {
-			r.log.Warn("eino runner: agent event error", "agent", event.AgentName, "err", event.Err)
+			if isMaxIterationsErr(event.Err) {
+				// Reaching the iteration bound is an expected stop, not a
+				// fault: keep the partial answer and let the turn succeed.
+				r.log.Info("eino runner: agent reached max iterations; returning partial result",
+					"agent", event.AgentName, "thread", threadID)
+				limitReached = true
+			} else {
+				r.log.Warn("eino runner: agent event error", "agent", event.AgentName, "err", event.Err)
+			}
 			// Non-fatal: continue processing remaining events.
 		}
 
@@ -234,6 +274,8 @@ func (r *Runner) processEvents(ctx context.Context, threadID, userMessage string
 		r.callbacks.Learning.OnTurnEnd(ctx, threadID, userMessage, finalContent)
 	}
 
+	finalContent = finishContent(finalContent, limitReached)
+
 	return &agent.TurnResult{
 		ThreadID:     threadID,
 		Response:     finalContent,
@@ -282,6 +324,7 @@ func (r *Runner) StreamQuery(ctx context.Context, threadID, userMessage string, 
 	var toolCallResults []agent.ToolCallResult
 	var inputTokens, outputTokens int
 	var pendingToolCalls []agent.ToolCallResult
+	var limitReached bool
 
 	for {
 		event, ok := iter.Next()
@@ -296,6 +339,14 @@ func (r *Runner) StreamQuery(ctx context.Context, threadID, userMessage string, 
 			if strings.Contains(errStr, "exit status") || strings.Contains(errStr, "command failed") {
 				r.log.Debug("eino runner: tool execution failed (non-fatal)", "agent", event.AgentName, "err", event.Err)
 				continue
+			}
+			// Reaching the iteration bound is an expected stop, not a fault:
+			// break out and emit "done" with whatever the agent produced.
+			if isMaxIterationsErr(event.Err) {
+				r.log.Info("eino runner: agent reached max iterations; finishing with partial result",
+					"agent", event.AgentName, "thread", threadID)
+				limitReached = true
+				break
 			}
 			// Fatal errors (network, auth, model) abort the conversation.
 			r.log.Warn("eino runner: agent event error", "agent", event.AgentName, "err", event.Err)
@@ -419,6 +470,7 @@ func (r *Runner) StreamQuery(ctx context.Context, threadID, userMessage string, 
 	}
 
 	// -- 8. Emit done event ---------------------------------------------
+	finalContent = finishContent(finalContent, limitReached)
 	onEvent(agent.StreamEvent{ThreadID: threadID, Type: "done", Content: finalContent, Done: true})
 
 	return &agent.TurnResult{

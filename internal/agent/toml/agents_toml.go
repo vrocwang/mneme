@@ -75,7 +75,7 @@ func LoadAgentsFromDir(agentsDir string) ([]*tools.AgentDef, []error) {
 // LoadAgentPacksFromDir to eliminate duplication.
 func agentTOMLToDef(a AgentTOML) *tools.AgentDef {
 	if a.MaxIterations <= 0 {
-		a.MaxIterations = 10
+		a.MaxIterations = tools.DefaultMaxIterations
 	}
 	if a.Tier == "" {
 		a.Tier = "worker"

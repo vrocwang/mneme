@@ -1,16 +1,15 @@
 package health
 
-import "database/sql"
-
 // HealthRPC provides Wails-bound health-check methods for the settings UI.
+// The database health is reported by the registered "database" health check,
+// so no database handle is retained here.
 type HealthRPC struct {
 	workspace string
-	db        *sql.DB
 }
 
 // NewHealthRPC creates a health RPC handler.
-func NewHealthRPC(workspace string, db *sql.DB) *HealthRPC {
-	return &HealthRPC{workspace: workspace, db: db}
+func NewHealthRPC(workspace string) *HealthRPC {
+	return &HealthRPC{workspace: workspace}
 }
 
 // DoctorReport runs all registered health checks and returns a report

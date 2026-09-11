@@ -293,7 +293,6 @@ type ProtoProcess struct {
 	// Crashed is set when stderr monitoring detects a fatal error (panic,
 	// fatal, SIGSEGV). Cleared on successful restart.
 	crashed    bool
-	crashedAt  time.Time
 	stderrTail string // last ~1KB of stderr for diagnostics
 }
 
@@ -386,7 +385,6 @@ func StartProto(ctx context.Context, log *slog.Logger, extensionPath string, arg
 				strings.Contains(lower, "fatal error") {
 				pp.mu.Lock()
 				pp.crashed = true
-				pp.crashedAt = time.Now()
 				pp.mu.Unlock()
 				log.Error("extension crash detected via stderr",
 					"extension", extensionPath,
@@ -401,7 +399,6 @@ func StartProto(ctx context.Context, log *slog.Logger, extensionPath string, arg
 			pp.mu.Lock()
 			if !pp.crashed {
 				pp.crashed = true
-				pp.crashedAt = time.Now()
 			}
 			pp.mu.Unlock()
 			log.Warn("extension process exited with error",
@@ -779,16 +776,8 @@ func (pt *protoTool) PermissionLevel() PermissionLevel {
 	return ParsePermissionLevel(pt.def.Permission)
 }
 
-func (pt *protoTool) PermissionLevelWithArgs(args map[string]interface{}) PermissionLevel {
-	return pt.PermissionLevel()
-}
-
 func (pt *protoTool) SideEffects() bool {
 	return pt.def.HasEffects
-}
-
-func (pt *protoTool) SideEffectsWithArgs(args map[string]interface{}) bool {
-	return pt.SideEffects()
 }
 
 func (pt *protoTool) Category() ToolCategory {

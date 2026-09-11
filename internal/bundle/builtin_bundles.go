@@ -37,20 +37,19 @@ func BuiltinBundles() []Bundle {
 // hardcoded into the Core set. Each corresponds to a named CapabilitySet and
 // can be disabled via [bundles] disabled.
 const (
-	BundleWorkflows  = "workflows"
-	BundleMCP        = "mcp"
-	BundleConfig     = "config"
-	BundleTodos      = "todos"
-	BundleDoctor     = "doctor"
-	BundleFileState  = "file-state"
-	BundleSkills     = "skills"
-	BundleThreads    = "threads"
-	BundleMemory     = "memory"
-	BundleGoals      = "goals"
-	BundleDAG        = "dag"
-	BundleCron       = "cron"
-	BundleMonitor    = "monitor"
-	BundleDesktop    = "desktop"
+	BundleWorkflows = "workflows"
+	BundleMCP       = "mcp"
+	BundleConfig    = "config"
+	BundleTodos     = "todos"
+	BundleFileState = "file-state"
+	BundleSkills    = "skills"
+	BundleThreads   = "threads"
+	BundleMemory    = "memory"
+	BundleGoals     = "goals"
+	BundleDAG       = "dag"
+	BundleCron      = "cron"
+	BundleMonitor   = "monitor"
+	BundleDesktop   = "desktop"
 )
 
 // RegisterBuiltin creates the shared builtin capability set, applies sandbox
@@ -204,4 +203,3 @@ func collectOptionalTools(workspace string, cfg *config.Config, log *slog.Logger
 	}
 	return out
 }
-

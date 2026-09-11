@@ -71,11 +71,13 @@ function FloatInput({ label, value, onChange, step }: {
 }
 
 const DEFAULT_AGENT: AgentLimitsConfig = { max_tool_rounds: 10, default_tool_timeout: 120, max_history_messages: 100 };
-const DEFAULT_SECURITY: SecurityCommandsConfig = { block_high_risk: true, require_medium_approval: false, extra_read_only: [], extra_destructive: [], extra_dangerous_env: [], extra_allowed_commands: [] };
+const DEFAULT_SECURITY: SecurityCommandsConfig = { block_high_risk: true, require_medium_approval: false, extra_read_only: [], extra_network: [], extra_destructive: [], extra_install: [], extra_executors: [], extra_dangerous_env: [], extra_allowed_commands: [] };
 const DEFAULT_SHELL: ShellConfig = { max_output_bytes: 1048576, safe_env_vars: [] };
 const DEFAULT_BREAKER: CircuitBreakerConfig = { max_repeat_failures: 3, max_no_progress_fails: 6, max_hard_rejects: 2 };
 const DEFAULT_PIPELINE: MemoryPipelineConfig = { worker_count: 2, tree_bucket_size: 10, archive_msg_limit: 200, freshness_half_life: 168 };
-const DEFAULT_WEIGHTS: RetrievalWeightsConfig = { fts5: 0.25, vector: 0.20, keyword: 0.08, tree: 0.12, graph: 0.20, episodic: 0.15 };
+// Must match internal/config.defaultRetrievalWeights() so the pre-load fallback
+// cannot silently re-rank memory before the backend values arrive.
+const DEFAULT_WEIGHTS: RetrievalWeightsConfig = { fts5: 0.30, vector: 0.25, keyword: 0.08, tree: 0.00, graph: 0.22, episodic: 0.15 };
 const DEFAULT_COST: CostConfig = { budget_cents: 10000 };
 
 export function ConfigSettings() {

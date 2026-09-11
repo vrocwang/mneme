@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -152,9 +153,9 @@ func (db *SessionDB) CreateSession(sessionID, agentID, origin string) *SessionRe
 		rec.CreatedAt.Format(time.RFC3339), rec.UpdatedAt.Format(time.RFC3339), rec.Error,
 	)
 	if err != nil {
-		// Return the record anyway so callers don't crash; the error is
-		// recoverable — the session exists in-memory for this process lifetime.
-		// A future UpdateSession will retry the write.
+		// Return the record anyway so callers don't crash; the session exists
+		// in memory for this process lifetime and UpdateSession retries the write.
+		slog.Warn("session insert failed; session kept in memory", "session", rec.SessionID, "error", err)
 	}
 	return rec
 }

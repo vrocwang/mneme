@@ -65,6 +65,7 @@ type Deps struct {
 	Pipeline    *memory.Pipeline
 	Provider    inference.Provider
 	Learning    *learning.Engine
+	Exp         *agent.ExperienceInjector
 	SyncMgr     *memsync.Manager
 	Subcon      *subconscious.Engine
 	Heartbeat   *heartbeat.Heartbeat

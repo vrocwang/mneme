@@ -91,7 +91,9 @@ var (
 
 func init() {
 	consentLog = slog.Default()
-}// ── Policy ─────────────────────────────────────────────────────────────
+}
+
+// ── Policy ─────────────────────────────────────────────────────────────
 // CheckSecretAccess returns whether the caller may proceed with secret
 // storage. On platforms with a native keyring (macOS Keychain, Linux
 // Secret Service), it checks keyring availability and falls back to the
@@ -224,7 +226,9 @@ func RetryProbe() KeyringStatus {
 	ResetAvailabilityCache()
 	consentEventPublished.Store(false)
 	return CurrentStatus()
-}// ── Backend integration ────────────────────────────────────────────────
+}
+
+// ── Backend integration ────────────────────────────────────────────────
 
 // IsAvailable checks whether any OS keyring backend is available.
 //

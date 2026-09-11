@@ -13,6 +13,7 @@ import (
 	"fmt"
 
 	"github.com/simon/mneme/internal/agent"
+	"github.com/simon/mneme/internal/todos"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -150,19 +151,34 @@ func (a *App) GetCronJobs() []map[string]interface{} {
 	return result
 }
 
-// ── Todo bridge delegates ───────────────────────────────────────────
+// ── Todo board RPC ──────────────────────────────────────────────────
 
-func (a *App) ListTodos(threadID string) (interface{}, error) {
-	return agent.ListTodosForThread(a.ctx, threadID)
+func (a *App) ListTodos(threadID string) (*todos.Snapshot, error) {
+	if a.TodoStore == nil {
+		return nil, fmt.Errorf("todo store not available")
+	}
+	return a.TodoStore.List(threadID)
 }
-func (a *App) AddTodo(threadID, title, notes string) (interface{}, error) {
-	return agent.AddTodoForThread(a.ctx, threadID, title, notes)
+
+func (a *App) AddTodo(threadID, title, notes string) (*todos.Snapshot, error) {
+	if a.TodoStore == nil {
+		return nil, fmt.Errorf("todo store not available")
+	}
+	return a.TodoStore.Add(threadID, title, notes)
 }
-func (a *App) UpdateTodoStatus(threadID, cardID, status string) (interface{}, error) {
-	return agent.UpdateTodoStatusForThread(a.ctx, threadID, cardID, status)
+
+func (a *App) UpdateTodoStatus(threadID, cardID, status string) (*todos.Snapshot, error) {
+	if a.TodoStore == nil {
+		return nil, fmt.Errorf("todo store not available")
+	}
+	return a.TodoStore.UpdateStatus(threadID, cardID, todos.Status(status))
 }
-func (a *App) RemoveTodo(threadID, cardID string) (interface{}, error) {
-	return agent.RemoveTodoForThread(a.ctx, threadID, cardID)
+
+func (a *App) RemoveTodo(threadID, cardID string) (*todos.Snapshot, error) {
+	if a.TodoStore == nil {
+		return nil, fmt.Errorf("todo store not available")
+	}
+	return a.TodoStore.Remove(threadID, cardID)
 }
 
 // ── Subconscious delegates ──────────────────────────────────────────

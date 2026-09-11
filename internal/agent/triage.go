@@ -2,14 +2,10 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
-
-	"github.com/simon/mneme/internal/inference"
 )
 
 // TriageEnvelope wraps an incoming webhook or cron event for classification.
@@ -42,207 +38,24 @@ const (
 	TriageEscalate TriageAction = "escalate" // raise to human/system
 )
 
-// TriageRule defines a single routing rule.
-type TriageRule struct {
-	Name        string   `json:"name"`
-	Sources     []string `json:"sources,omitempty"`     // match these sources
-	EventKinds  []string `json:"event_kinds,omitempty"` // match these event kinds
-	Keywords    []string `json:"keywords,omitempty"`    // match these in payload
-	TargetAgent string   `json:"target_agent"`
-	Priority    string   `json:"priority"`
-	Enabled     bool     `json:"enabled"`
-}
-
-// TriageEvaluator classifies incoming events against a rule set and
-// routes them to the appropriate agent or skill.
-type TriageEvaluator struct {
-	mu       sync.RWMutex
-	rules    []TriageRule
-	log      *slog.Logger
-	provider inference.Provider
-	model    string
-}
+// TriageEvaluator provides the graph's rules stage. Rule-based routing was
+// never configured (there is no rule source and no provider setter), so the
+// stage now deterministically reports "no match" and lets the graph's LLM
+// stage classify; the ensure stage then falls back to escalate.
+type TriageEvaluator struct{}
 
 // NewTriageEvaluator creates a new triage evaluator.
-func NewTriageEvaluator() *TriageEvaluator {
-	return &TriageEvaluator{
-		log: slog.Default().With("component", "triage"),
-	}
-}
+func NewTriageEvaluator() *TriageEvaluator { return &TriageEvaluator{} }
 
-// Evaluate classifies an envelope and returns a routing decision.
-func (e *TriageEvaluator) Evaluate(envelope *TriageEnvelope) *TriageDecision {
-	// Snapshot provider/model under read lock, then release before I/O.
-	e.mu.RLock()
-	provider := e.provider
-	rules := e.rules
-	e.mu.RUnlock()
-
-	payloadLower := strings.ToLower(envelope.Payload)
-
-	var bestMatch *TriageDecision
-	var bestConfidence float64
-
-	for _, rule := range rules {
-		if !rule.Enabled {
-			continue
-		}
-
-		confidence := e.matchRule(&rule, envelope, payloadLower)
-		if confidence > bestConfidence {
-			bestConfidence = confidence
-			target := rule.TargetAgent
-			bestMatch = &TriageDecision{
-				Action:      TriageRoute,
-				TargetAgent: target,
-				Priority:    rule.Priority,
-				Confidence:  confidence,
-				Reason:      fmt.Sprintf("matched rule %q", rule.Name),
-			}
-		}
-	}
-
-	if bestMatch != nil {
-		return bestMatch
-	}
-
-	// No rules matched — try LLM classification if available.
-	if provider != nil {
-		if decision := e.evaluateWithLLM(context.Background(), envelope); decision != nil {
-			return decision
-		}
-	}
-	// Fall back to escalate for manual review.
+// Evaluate reports that no deterministic rule matched. A non-nil decision is
+// required by the graph's downstream stages.
+func (e *TriageEvaluator) Evaluate(_ *TriageEnvelope) *TriageDecision {
 	return &TriageDecision{
 		Action:     TriageEscalate,
 		Priority:   "normal",
 		Confidence: 0,
 		Reason:     "no matching rule",
 	}
-}
-
-func (e *TriageEvaluator) matchRule(rule *TriageRule, envelope *TriageEnvelope, payloadLower string) float64 {
-	score := 0.0
-	checks := 0
-
-	// Source match.
-	if len(rule.Sources) > 0 {
-		checks++
-		for _, s := range rule.Sources {
-			if strings.EqualFold(s, envelope.Source) {
-				score += 1.0
-				break
-			}
-		}
-	}
-
-	// Event kind match.
-	if len(rule.EventKinds) > 0 {
-		checks++
-		for _, k := range rule.EventKinds {
-			if strings.EqualFold(k, envelope.EventKind) {
-				score += 1.0
-				break
-			}
-		}
-	} else {
-		checks++ // no event kind filter = always matches
-		score += 0.5
-	}
-
-	// Keyword match.
-	if len(rule.Keywords) > 0 {
-		checks++
-		for _, kw := range rule.Keywords {
-			if strings.Contains(payloadLower, strings.ToLower(kw)) {
-				score += 0.5
-				break
-			}
-		}
-	}
-
-	if checks == 0 {
-		return 0
-	}
-	return score / float64(checks)
-}
-
-// evaluateWithLLM classifies an envelope using the LLM provider when rule
-// matching fails. Results are cached by envelope hash to avoid re-classifying
-// identical triggers.
-func (e *TriageEvaluator) evaluateWithLLM(ctx context.Context, envelope *TriageEnvelope) *TriageDecision {
-	prompt := fmt.Sprintf(
-		`Classify this incoming event and return a JSON decision.
-
-Source: %s
-Event kind: %s
-Payload (first 500 chars): %s
-
-Return ONLY valid JSON: {"action":"route|drop|defer|escalate","target_agent":"","priority":"normal","reason":""}
-
-Rules:
-- "route" for actionable requests, questions, or commands → set target_agent to "general"
-- "drop" for spam, noise, or empty messages
-- "defer" for things that should be checked later (status updates, logs)
-- "escalate" for security concerns, errors, or urgent issues needing human attention
-- Priority: "critical" (security/errors), "high" (urgent requests), "normal" (most things), "low" (notifications)`,
-		envelope.Source, envelope.EventKind, truncateForLLM(envelope.Payload, 500))
-
-	req := inference.ChatRequest{
-		Model: e.model,
-		Messages: []inference.Message{
-			{Role: "user", Content: prompt},
-		},
-		MaxTokens:   150,
-		Temperature: 0.0,
-	}
-
-	resultCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-
-	tokens, errs := e.provider.Chat(resultCtx, req)
-	var resp strings.Builder
-loop:
-	for {
-		select {
-		case tok, ok := <-tokens:
-			if !ok {
-				break loop
-			}
-			resp.WriteString(tok.Text)
-		case err, ok := <-errs:
-			if ok && err != nil {
-				e.log.Warn("triage LLM call failed", "error", err)
-				return nil
-			}
-		case <-resultCtx.Done():
-			return nil
-		}
-	}
-
-	// Parse the JSON response.
-	var decision TriageDecision
-	text := strings.TrimSpace(resp.String())
-	// Extract JSON from possible markdown fences.
-	if idx := strings.Index(text, "{"); idx >= 0 {
-		text = text[idx:]
-		if end := strings.LastIndex(text, "}"); end >= 0 {
-			text = text[:end+1]
-		}
-	}
-	if err := json.Unmarshal([]byte(text), &decision); err != nil {
-		e.log.Warn("triage LLM response parse failed", "error", err, "text", text)
-		return nil
-	}
-	decision.Confidence = 0.7 // LLM decisions have moderate confidence
-	return &decision
-}
-
-func truncateForLLM(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
 }
 
 // ── Triage Pipeline ─────────────────────────────────────────────────
@@ -286,6 +99,15 @@ func NewTriagePipeline(eval *TriageEvaluator, disp *TaskDispatcher) *TriagePipel
 func (p *TriagePipeline) WithGraphClassifier(g func(ctx context.Context, input *TriageEnvelope) (*TriageDecision, error)) *TriagePipeline {
 	p.graphClassifier = g
 	return p
+}
+
+// Stop halts the pipeline's task dispatcher, which otherwise runs for the
+// process lifetime. Safe to call on a nil pipeline or one without a dispatcher.
+func (p *TriagePipeline) Stop() {
+	if p == nil || p.dispatcher == nil {
+		return
+	}
+	p.dispatcher.Stop()
 }
 
 // Process evaluates an envelope and dispatches to the target agent.

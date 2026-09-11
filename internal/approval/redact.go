@@ -24,13 +24,6 @@ var sensitiveKeys = []string{
 	"token", "api_key", "secret", "password", "authorization", "auth",
 }
 
-// safeSummaryKeys lists field names safe to include in action summaries.
-var safeSummaryKeys = []string{
-	"action", "tool_slug", "action_name",
-	"integration", "app", "provider",
-	"channel", "method", "endpoint",
-}
-
 // RedactArgs returns a deep-cloned copy of args with all sensitive fields
 // replaced by redaction markers. Unknown fields pass through unchanged so
 // the UI can still show useful context (tool name, integration id, etc.).
@@ -52,6 +45,7 @@ func RedactArgsJSON(argsJSON string) string {
 	}
 	return string(out)
 }
+
 // ── walk helpers ─────────────────────────────────────────────────────
 
 func walkMap(m map[string]interface{}) interface{} {

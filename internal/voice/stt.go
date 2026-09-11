@@ -226,11 +226,8 @@ func (s *SystemSTT) transcribeMacOS(ctx context.Context, audioPath string) (*STT
 
 // transcribeLinux probes for lightweight alternatives before giving up.
 func (s *SystemSTT) transcribeLinux(ctx context.Context, audioPath string) (*STTResult, error) {
-	// Attempt 1: speechd (speech-dispatcher) — available on most desktop Linux distros.
-	if _, err := exec.LookPath("spd-say"); err == nil {
-		// speech-dispatcher can't transcribe directly, but we check for it and guide.
-	}
-	// Attempt 2: ffmpeg to convert to 16kHz mono WAV + festival for lightweight STT.
+	// Convert to 16kHz mono WAV + festival for lightweight STT. (A previous
+	// spd-say probe had an empty body and did nothing.)
 	if _, err := exec.LookPath("festival"); err == nil {
 		// Convert to WAV first (festival works best with 16kHz mono).
 		wavPath := audioPath + ".wav"

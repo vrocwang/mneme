@@ -15,3 +15,15 @@ func AgentPackSetID(packID string) string { return "agent-pack:" + packID }
 
 // SkillSetID returns the set ID for a discovered skill.
 func SkillSetID(slug string) string { return "skill:" + slug }
+
+// ChannelsSetID is the set ID under which in-process channel providers (web,
+// cli) are registered.
+const ChannelsSetID = "builtin:channels"
+
+// UserAgentsSetID and UserAgentsSetName identify the set holding user-defined
+// agent overrides (workspace/agents/*.toml) and agents created from the UI.
+// They are constants because several packages register into the same set.
+const (
+	UserAgentsSetID   = "user-agents"
+	UserAgentsSetName = "User Agents"
+)

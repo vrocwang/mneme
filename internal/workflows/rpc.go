@@ -1,7 +1,9 @@
 package workflows
 
+import "github.com/simon/mneme/internal/capability"
+
 // WorkflowRPC provides Wails-bound methods for workflow installation from the
-// frontend. Registered via capability.RegisterWailsRPC in RegisterAll.
+// frontend.
 type WorkflowRPC struct {
 	skillsDir string
 }
@@ -14,6 +16,13 @@ func NewWorkflowRPC(skillsDir string) *WorkflowRPC {
 // RegisterRPC implements capability.WailsRPCRegistrar.
 func (r *WorkflowRPC) RegisterRPC() []interface{} {
 	return []interface{}{r}
+}
+
+// RegisterRPC adds the workflow install/uninstall RPC to the Wails Bind list.
+// It must be called before wails.Run builds that list, so it is wired from the
+// boot layer rather than from RegisterAll (which runs after OnStartup).
+func RegisterRPC(skillsDir string) {
+	capability.RegisterWailsRPC(NewWorkflowRPC(skillsDir))
 }
 
 // InstallWorkflowFromURL fetches a SKILL.md from a URL and installs it as a workflow.

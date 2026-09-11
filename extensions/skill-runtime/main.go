@@ -25,12 +25,6 @@ import (
 	"github.com/simon/mneme/pkg/extsdk"
 )
 
-// dataDir returns the host workspace directory.
-func dataDir() string {
-	exe, _ := os.Executable()
-	return filepath.Join(filepath.Dir(exe), "data")
-}
-
 func main() {
 	srv := extsdk.NewServer(extsdk.Manifest{
 		Name:        "skill-runtime",
@@ -336,7 +330,7 @@ func skillList(args map[string]interface{}) extsdk.Result {
 	searchPath, _ := args["searchPath"].(string)
 	filter, _ := args["filter"].(string)
 
-	paths := []string{"/usr/local/bin", filepath.Join(dataDir(), "skills")}
+	paths := []string{"/usr/local/bin", extsdk.SkillsDir()}
 	if searchPath != "" {
 		paths = splitAndTrim(searchPath, ",")
 	}
@@ -368,7 +362,7 @@ func skillList(args map[string]interface{}) extsdk.Result {
 
 	b, _ := json.MarshalIndent(found, "", "  ")
 	if len(found) == 0 {
-		return extsdk.Result{Success: true, Output: fmt.Sprintf("No skills found. Place executables in %s/", filepath.Join(dataDir(), "skills"))}
+		return extsdk.Result{Success: true, Output: fmt.Sprintf("No skills found. Place executables in %s/", extsdk.SkillsDir())}
 	}
 	return extsdk.Result{Success: true, Output: string(b)}
 }
@@ -427,7 +421,7 @@ func resolveSkillPath(name, workDir string) string {
 	}
 	// Check common skill dirs
 	dirs := []string{
-		filepath.Join(dataDir(), "skills"),
+		extsdk.SkillsDir(),
 		"/usr/local/bin",
 		workDir,
 	}

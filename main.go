@@ -130,6 +130,12 @@ func main() {
 		return health.CheckResult{Status: "ok", Message: fmt.Sprintf("%d agents defined", count)}
 	})
 
+	// Register Wails RPCs contributed by core optional features (connectivity,
+	// devices, http host, workflow install) BEFORE the Bind list is assembled.
+	// Wails evaluates Bind once, before OnStartup, so registration performed
+	// during AppCore.Init would never be bound.
+	boot.RegisterWailsRPCs(cfg, log)
+
 	err = wails.Run(&options.App{
 		Title:  "Mneme",
 		Width:  1024,
@@ -157,23 +163,30 @@ func main() {
 				return rpc
 			}(),
 			func() *agent.AgentRPC { rpc := agent.NewAgentRPC(nil, ""); app.SetAgentRPC(rpc); return rpc }(),
-			cron.NewCronRPC(app.GetCronScheduler()).WithChatSender(boot.NewCronChatSender(app.GetChatService())),
-			learning.NewLearningRPC(app.GetLearningEngine()),
-			memory.NewMemoryRPC(app.GetMemoryPipeline(), memory.NewNamespaceManager(app.GetDB())),
+			cron.NewCronRPC(app.GetCronScheduler).WithChatSender(boot.NewCronChatSender(app.GetChatService)),
+			learning.NewLearningRPC(app.GetLearningEngine),
+			memory.NewMemoryRPC(app.GetMemoryPipeline, func() *memory.NamespaceManager {
+				return memory.NewNamespaceManager(app.GetDB())
+			}),
 			func() *desktop.DesktopRPC { return desktop.NewDesktopRPC(app) }(),
 			conversations.NewThreadsRPC(app.GetThreadStore),
-			health.NewHealthRPC(workspace, app.GetDB()),
+			health.NewHealthRPC(workspace),
 			func() *app_state.AppStateRPC {
 				rpc := app_state.NewAppStateRPC(nil, app.GetApprovalGate(), nil, app.GetDB())
 				app.SetAppStateRPC(rpc)
 				return rpc
 			}(),
-			monitor.NewRPC(app.GetMonitorManager()),
-			webhooks.NewWebhookRPC(app.GetWebhookTM()),
-			channels.NewChannelRPC(cfg, configPath),
+			monitor.NewRPC(app.GetMonitorManager),
+			webhooks.NewWebhookRPC(app.GetWebhookTM),
+			channels.NewChannelRPC(cfg, configPath, func() []string {
+				if reg := app.GetCapReg(); reg != nil {
+					return reg.ListChannels()
+				}
+				return nil
+			}),
 			soul.NewRPC(workspace),
 			func() *registry.RPC { rpc := registry.NewRPC(nil, nil, nil); app.SetRegistryRPC(rpc); return rpc }(),
-			cost.NewCostRPC(app.GetCostTracker()),
+			cost.NewCostRPC(app.GetCostTracker),
 		}, capability.CollectWailsRPCBindings()...),
 	})
 	if err != nil {

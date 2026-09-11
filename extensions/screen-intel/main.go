@@ -98,9 +98,7 @@ func main() {
 }
 
 func screenshotDir() string {
-	exe, _ := os.Executable()
-	workspace := filepath.Join(filepath.Dir(exe), "data")
-	dir := filepath.Join(workspace, "screenshots")
+	dir := extsdk.ScreenshotsDir()
 	os.MkdirAll(dir, 0755)
 	return dir
 }

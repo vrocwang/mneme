@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -95,5 +96,12 @@ func (a *cliAppMethods) ListAgents() []map[string]interface{} {
 }
 
 func (a *cliAppMethods) SearchMemory(query string) (string, error) {
-	return "Memory search not available in CLI mode.", nil
+	if a.core.Pipeline == nil {
+		return "Memory pipeline not available.", nil
+	}
+	result, err := a.core.Pipeline.Search(context.Background(), query, a.core.Pipeline.DefaultSearchLimit())
+	if err != nil {
+		return "", err
+	}
+	return result.Formatted(), nil
 }

@@ -141,13 +141,7 @@ type BucketSnapshot struct {
 	Count int64 `json:"count"`
 }
 
-// ── Timer ────────────────────────────────────────────────────────────────
-
-// Timer measures durations and records them in an underlying histogram.
-// The zero value is safe but no-op until configured.
-type Timer struct {
-	hist *Histogram
-}// Since records the duration since the given start time.// ── Registry ─────────────────────────────────────────────────────────────
+// ── Registry ─────────────────────────────────────────────────────────────
 
 // Registry is a thread-safe collection of named metrics.
 type Registry struct {
@@ -166,14 +160,6 @@ func NewRegistry() *Registry {
 		histograms: make(map[string]*Histogram),
 		labels:     make(map[string]string),
 	}
-}
-
-// WithLabel adds a static label to the registry.
-func (r *Registry) WithLabel(k, v string) *Registry {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.labels[k] = v
-	return r
 }
 
 // Counter returns or creates a named counter.

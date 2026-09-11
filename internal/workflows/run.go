@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/simon/mneme/internal/capability"
+	workspace "github.com/simon/mneme/internal/workspace"
 )
 
 // RunStatus is the lifecycle state of a workflow run.
@@ -254,8 +255,8 @@ func (r *Runner) RunCount() int {
 // into the capability registry under the "workflows" set. Returns the runner
 // for lifecycle management.
 func RegisterAll(capReg *capability.CapabilityRegistry, workspaceRoot string, log *slog.Logger) (*Runner, error) {
-	userSkillsDir := filepath.Join(workspaceRoot, "skills")
-	wfLogsDir := filepath.Join(workspaceRoot, "workflow-logs")
+	userSkillsDir := workspace.SkillsDir(workspaceRoot)
+	wfLogsDir := workspace.WorkflowLogsDir(workspaceRoot)
 
 	runner, err := NewRunner(wfLogsDir)
 	if err != nil {
@@ -273,9 +274,9 @@ func RegisterAll(capReg *capability.CapabilityRegistry, workspaceRoot string, lo
 		&ReadWorkflowRunLogTool{Runner: runner},
 	)
 
-	// Register Wails RPC for frontend workflow install/uninstall.
-	// Uses capability.RegisterWailsRPC to avoid import cycles.
-	capability.RegisterWailsRPC(NewWorkflowRPC(userSkillsDir))
+	// The workflow install/uninstall Wails RPC is registered by
+	// boot.RegisterWailsRPCs before wails.Run builds its Bind list — it cannot
+	// be registered here because this runs during OnStartup, after Bind.
 
 	log.Info("workflow system initialized")
 	return runner, nil

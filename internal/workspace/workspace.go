@@ -17,23 +17,63 @@ const (
 	FileProfile   = "PROFILE.md"
 )
 
+// Workspace subdirectory names. These are the single source of truth for the
+// on-disk layout: callers use filepath.Join(root, workspace.DirX) (or the Path
+// helpers below) instead of repeating literals, so renaming a directory is a
+// one-line change here.
+const (
+	DirAgents       = "agents"            // user-defined agent TOML definitions
+	DirTaskBoards   = "agent_task_boards" // agent kanban task boards
+	DirConfig       = "config"            // extension config overrides
+	DirData         = "data"              // SQLite DB, encryption keys, master salt
+	DirExtensions   = "extensions"        // MCP & tool extensions
+	DirLogs         = "logs"              // application logs
+	DirMemory       = "memory"            // memory tree, entity registry
+	DirProjects     = "projects"          // agent sandbox workspace
+	DirPrompts      = "prompts"           // custom prompt overrides
+	DirScreenshots  = "screenshots"       // desktop screen captures
+	DirSecrets      = "secrets"           // keyring encrypted secrets
+	DirSkills       = "skills"            // user-installed skill definitions
+	DirTmp          = "tmp"               // temporary files
+	DirTranscripts  = "transcripts"       // session transcripts
+	DirWorkflowLogs = "workflow-logs"     // workflow execution logs
+	DirWorkflows    = "workflows"         // user-defined WORKFLOW.md files
+)
+
+// Path helpers return the absolute path of a workspace subdirectory.
+func AgentsDir(root string) string       { return filepath.Join(root, DirAgents) }
+func TaskBoardsDir(root string) string   { return filepath.Join(root, DirTaskBoards) }
+func ConfigDir(root string) string       { return filepath.Join(root, DirConfig) }
+func DataDir(root string) string         { return filepath.Join(root, DirData) }
+func ExtensionsDir(root string) string   { return filepath.Join(root, DirExtensions) }
+func LogsDir(root string) string         { return filepath.Join(root, DirLogs) }
+func MemoryDir(root string) string       { return filepath.Join(root, DirMemory) }
+func ProjectsDir(root string) string     { return filepath.Join(root, DirProjects) }
+func PromptsDir(root string) string      { return filepath.Join(root, DirPrompts) }
+func ScreenshotsDir(root string) string  { return filepath.Join(root, DirScreenshots) }
+func SecretsDir(root string) string      { return filepath.Join(root, DirSecrets) }
+func SkillsDir(root string) string       { return filepath.Join(root, DirSkills) }
+func TmpDir(root string) string          { return filepath.Join(root, DirTmp) }
+func WorkflowLogsDir(root string) string { return filepath.Join(root, DirWorkflowLogs) }
+func WorkflowsDir(root string) string    { return filepath.Join(root, DirWorkflows) }
+
 var layout = []string{
-	"agents",            // user-defined agent TOML definitions
-	"agent_task_boards", // agent kanban task boards
-	"config",            // extension config overrides
-	"data",              // SQLite DB, encryption keys, master salt
-	"extensions",        // MCP & tool extensions
-	"logs",              // application logs
-	"memory",            // memory tree, entity registry
-	"projects",          // agent sandbox workspace
-	"prompts",           // custom prompt overrides
-	"screenshots",       // desktop screen captures
-	"secrets",           // keyring encrypted secrets
-	"skills",            // user-installed skill definitions
-	"tmp",               // temporary files
-	"transcripts",       // session transcripts
-	"workflow-logs",     // workflow execution logs
-	"workflows",         // user-defined WORKFLOW.md files
+	DirAgents,
+	DirTaskBoards,
+	DirConfig,
+	DirData,
+	DirExtensions,
+	DirLogs,
+	DirMemory,
+	DirProjects,
+	DirPrompts,
+	DirScreenshots,
+	DirSecrets,
+	DirSkills,
+	DirTmp,
+	DirTranscripts,
+	DirWorkflowLogs,
+	DirWorkflows,
 }
 
 // bundledFiles defines files created on first workspace bootstrap if they don't

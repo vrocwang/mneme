@@ -11,6 +11,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/simon/mneme/internal/security"
+	workspace "github.com/simon/mneme/internal/workspace"
 )
 
 // ProviderConfig defines an LLM provider in the config file.
@@ -135,9 +136,9 @@ type VoiceConfig struct {
 
 // WebhookConfig holds settings for the inbound webhook server.
 type WebhookConfig struct {
-	Enabled    bool   `toml:"enabled"`     // start the local HTTP listener
-	Port       int    `toml:"port"`        // HTTP listen port, default 9500
-	Secret     string `toml:"secret"`      // HMAC secret for signature verification
+	Enabled bool   `toml:"enabled"` // start the local HTTP listener
+	Port    int    `toml:"port"`    // HTTP listen port, default 9500
+	Secret  string `toml:"secret"`  // HMAC secret for signature verification
 }
 
 // LearningConfig controls the post-turn learning engine.
@@ -154,7 +155,7 @@ type AgentConfig struct {
 	DefaultModel    string            `toml:"default_model"`     // model name — matched against provider models lists
 	MaxOutputTokens int               `toml:"max_output_tokens"` // 0 = use provider default
 	Temperature     float64           `toml:"temperature"`       // 0 = use provider default
-	ModelRoutes     map[string]string `toml:"model_routes"`      // task kind → model override (coding, reasoning, summary, vision)
+	ModelRoutes     map[string]string `toml:"model_routes"`      // task kind → model override; see Config.ModelForRoute for live kinds
 	Limits          AgentLimits       `toml:"limits"`
 }
 
@@ -251,7 +252,7 @@ func (c *Config) ProjectsDir() string {
 	if dir := os.Getenv(ProjectsDirEnvVar); dir != "" {
 		return filepath.Clean(dir)
 	}
-	return filepath.Join(c.Workspace, "projects")
+	return workspace.ProjectsDir(c.Workspace)
 }
 
 // ResolveActionDir returns the effective agent tool sandbox root.
@@ -268,17 +269,17 @@ func (c *Config) ResolveActionDir() string {
 
 // DataPath returns the resolved runtime data directory.
 func (c *Config) DataPath(sub ...string) string {
-	return filepath.Join(append([]string{filepath.Join(c.Workspace, "data")}, sub...)...)
+	return filepath.Join(append([]string{workspace.DataDir(c.Workspace)}, sub...)...)
 }
 
 // ConfigDir returns the config override directory (<workspace>/config).
 func (c *Config) ConfigDir(sub ...string) string {
-	return filepath.Join(append([]string{filepath.Join(c.Workspace, "config")}, sub...)...)
+	return filepath.Join(append([]string{workspace.ConfigDir(c.Workspace)}, sub...)...)
 }
 
 // ExtensionConfigDir returns the directory for per-extension config files.
 func (c *Config) ExtensionConfigDir() string {
-	return filepath.Join(c.Workspace, "config", "extensions")
+	return filepath.Join(workspace.ConfigDir(c.Workspace), "extensions")
 }
 
 // LoadExtensionConfig reads a per-extension JSON config file.
@@ -314,7 +315,7 @@ func (c *Config) SaveExtensionConfig(name string, cfg map[string]interface{}) er
 
 // SecretsDir returns the secrets storage directory (<home>/secrets).
 func (c *Config) SecretsDir() string {
-	return filepath.Join(c.Workspace, "secrets")
+	return workspace.SecretsDir(c.Workspace)
 }
 
 // ConfigPath returns the path to config.toml inside the given workspace.
@@ -629,6 +630,22 @@ func (c *Config) EffectiveModel() string {
 		}
 	}
 	return ""
+}
+
+// ModelForRoute returns the model configured for a task kind, falling back to
+// the effective default model.
+//
+// A route is consumed in two ways: auxiliary LLM calls read it directly
+// (reasoning → learning reflection, subconscious evaluator, webhook triage;
+// summary → memory archivist, entity extraction, smart walk; vision →
+// screenshot analysis), and agent definitions name a route through their
+// `model` field, which eino resolves via CollectRouteModels (coding → coder,
+// reasoning → researcher, summary → summarizer).
+func (c *Config) ModelForRoute(kind string) string {
+	if m, ok := c.Agent.ModelRoutes[kind]; ok && m != "" {
+		return m
+	}
+	return c.EffectiveModel()
 }
 
 // BuildSecurityPolicy constructs a SecurityPolicy from config, injecting the

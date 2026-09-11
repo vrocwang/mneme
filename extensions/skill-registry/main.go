@@ -25,12 +25,6 @@ import (
 	"github.com/simon/mneme/pkg/extsdk"
 )
 
-// dataDir returns the host workspace directory.
-func dataDir() string {
-	exe, _ := os.Executable()
-	return filepath.Join(filepath.Dir(exe), "data")
-}
-
 func main() {
 	srv := extsdk.NewServer(extsdk.Manifest{
 		Name:        "skill-registry",
@@ -147,7 +141,7 @@ func main() {
 }
 
 var httpClient = &http.Client{Timeout: 15 * time.Second}
-var skillsDir = filepath.Join(dataDir(), "skills")
+var skillsDir = extsdk.SkillsDir()
 
 func init() { os.MkdirAll(skillsDir, 0755) }
 

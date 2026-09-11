@@ -91,7 +91,13 @@ func migrateMonitorDB(db *sql.DB) {
 }
 
 // Start begins monitoring a command and returns the run ID.
-func (m *Manager) Start(ctx context.Context, command string, timeout time.Duration, usePty bool) (string, error) {
+//
+// The run deliberately does NOT inherit the caller's context: monitor_start is
+// a background supervisor whose command must outlive the tool call that created
+// it, and tool execution contexts are cancelled as soon as the tool returns.
+// Cancellation is explicit — Stop(id) or StopAll() (shutdown) — or the per-run
+// timeout, whichever comes first.
+func (m *Manager) Start(_ context.Context, command string, timeout time.Duration, usePty bool) (string, error) {
 	m.mu.Lock()
 	m.counter++
 	id := fmt.Sprintf("mon_%d", m.counter)
@@ -178,8 +184,6 @@ func (m *Manager) runWithPTY(run *Run, execCtx context.Context, shellBin, shellF
 
 func (m *Manager) finishRun(run *Run, execCtx context.Context, err error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	run.EndedAt = time.Now()
 	if err != nil {
 		if execCtx.Err() == context.DeadlineExceeded {
@@ -193,6 +197,10 @@ func (m *Manager) finishRun(run *Run, execCtx context.Context, err error) {
 	} else {
 		run.Status = StatusCompleted
 	}
+	m.mu.Unlock()
+
+	// Persist outside the lock: the run is terminal by now, and holding m.mu
+	// across a SQLite write would stall List/Get/Stop RPCs.
 	m.persistRun(run)
 	m.log.Debug("monitor finished", "id", run.ID, "status", run.Status)
 }
@@ -231,6 +239,22 @@ func (m *Manager) Stop(id string) error {
 		run.cancel()
 	}
 	return nil
+}
+
+// StopAll cancels every running monitor. Called during shutdown so child
+// processes are not orphaned when the app exits.
+func (m *Manager) StopAll() {
+	m.mu.RLock()
+	cancels := make([]context.CancelFunc, 0, len(m.runs))
+	for _, r := range m.runs {
+		if r.Status == StatusRunning && r.cancel != nil {
+			cancels = append(cancels, r.cancel)
+		}
+	}
+	m.mu.RUnlock()
+	for _, c := range cancels {
+		c()
+	}
 }
 
 // ReadOutput returns combined output for a run.
@@ -295,10 +319,9 @@ func (m *Manager) RestoreFromDB() (int, error) {
 	}
 	defer rows.Close()
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	var restored int
+	// Scan outside the lock: holding m.mu across a SQLite read would stall the
+	// List/Get RPCs while a restore is in flight.
+	var loaded []*Run
 	for rows.Next() {
 		var r Run
 		var startedMs, endedMs int64
@@ -313,10 +336,20 @@ func (m *Manager) RestoreFromDB() (int, error) {
 			r.EndedAt = time.UnixMilli(endedMs)
 		}
 		r.stdout.WriteString(r.Output)
+		loaded = append(loaded, &r)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var restored int
+	for _, r := range loaded {
 		if _, exists := m.runs[r.ID]; !exists {
-			m.runs[r.ID] = &r
+			m.runs[r.ID] = r
 			restored++
 		}
 	}
-	return restored, rows.Err()
+	return restored, nil
 }

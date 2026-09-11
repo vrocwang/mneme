@@ -2,19 +2,30 @@ package monitor
 
 import (
 	"context"
-	"database/sql"
 	"time"
 )
 
 // RPC exposes monitor operations for the frontend. Wails RPC methods
 // must not take context.Context — Wails injects its own lifecycle.
+//
+// The manager is resolved through a getter rather than captured at
+// construction time: Wails evaluates the Bind list before OnStartup runs, so a
+// captured pointer would be nil for the whole process lifetime.
 type RPC struct {
-	mgr *Manager
+	mgrFn func() *Manager
 }
 
-// NewRPC creates a monitor RPC handler.
-func NewRPC(mgr *Manager) *RPC {
-	return &RPC{mgr: mgr}
+// NewRPC creates a monitor RPC handler. mgrFn is evaluated per call.
+func NewRPC(mgrFn func() *Manager) *RPC {
+	return &RPC{mgrFn: mgrFn}
+}
+
+// mgr resolves the monitor manager lazily.
+func (r *RPC) mgr() *Manager {
+	if r.mgrFn == nil {
+		return nil
+	}
+	return r.mgrFn()
 }
 
 // ListRunsResult is the JSON response for listing runs.
@@ -36,12 +47,13 @@ type RunSummary struct {
 
 // ListRuns returns all runs, restoring from DB first.
 func (r *RPC) ListRuns() *ListRunsResult {
-	if r.mgr == nil {
+	m := r.mgr()
+	if m == nil {
 		return &ListRunsResult{}
 	}
-	r.mgr.RestoreFromDB()
+	m.RestoreFromDB()
 
-	runs := r.mgr.List()
+	runs := m.List()
 	summaries := make([]RunSummary, 0, len(runs))
 	for _, run := range runs {
 		var endedAt int64
@@ -75,7 +87,8 @@ type StartRunResult struct {
 
 // StartRun begins a new monitored command.
 func (r *RPC) StartRun(req StartRunRequest) *StartRunResult {
-	if r.mgr == nil {
+	m := r.mgr()
+	if m == nil {
 		return &StartRunResult{}
 	}
 	timeout := time.Duration(req.Timeout) * time.Second
@@ -83,7 +96,7 @@ func (r *RPC) StartRun(req StartRunRequest) *StartRunResult {
 		timeout = 5 * time.Minute
 	}
 	ctx := context.Background()
-	id, err := r.mgr.Start(ctx, req.Command, timeout, req.UsePTY)
+	id, err := m.Start(ctx, req.Command, timeout, req.UsePTY)
 	if err != nil {
 		return &StartRunResult{RunID: ""}
 	}
@@ -92,10 +105,11 @@ func (r *RPC) StartRun(req StartRunRequest) *StartRunResult {
 
 // GetRun reads a single run by ID.
 func (r *RPC) GetRun(runID string) *RunSummary {
-	if r.mgr == nil {
+	m := r.mgr()
+	if m == nil {
 		return nil
 	}
-	run, err := r.mgr.Get(runID)
+	run, err := m.Get(runID)
 	if err != nil {
 		return nil
 	}
@@ -116,10 +130,11 @@ func (r *RPC) GetRun(runID string) *RunSummary {
 
 // ReadOutput returns the combined stdout+stderr for a run.
 func (r *RPC) ReadOutput(runID string) string {
-	if r.mgr == nil {
+	m := r.mgr()
+	if m == nil {
 		return ""
 	}
-	output, err := r.mgr.ReadOutput(runID)
+	output, err := m.ReadOutput(runID)
 	if err != nil {
 		return ""
 	}
@@ -128,14 +143,9 @@ func (r *RPC) ReadOutput(runID string) string {
 
 // StopRun cancels a running monitor.
 func (r *RPC) StopRun(runID string) {
-	if r.mgr == nil {
+	m := r.mgr()
+	if m == nil {
 		return
 	}
-	_ = r.mgr.Stop(runID)
-}
-
-// WithDB enables SQLite persistence on the underlying manager.
-func (r *RPC) WithDB(db *sql.DB) *RPC {
-	r.mgr.WithDB(db)
-	return r
+	_ = m.Stop(runID)
 }

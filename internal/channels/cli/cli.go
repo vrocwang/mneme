@@ -38,7 +38,9 @@ func (c *CLI) Stop() error {
 		if c.cancel != nil {
 			c.cancel()
 		}
-		close(c.events)
+		// Do NOT close(c.events) here: readLoop may be selecting on a send to
+		// it, and closing from another goroutine would panic. readLoop closes
+		// the channel itself when it exits.
 	})
 	return nil
 }
@@ -53,6 +55,7 @@ func (c *CLI) Events() <-chan channels.Message {
 }
 
 func (c *CLI) readLoop(ctx context.Context) {
+	defer close(c.events)
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		text := strings.TrimSpace(scanner.Text())

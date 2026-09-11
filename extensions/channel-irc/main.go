@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -126,7 +127,7 @@ func ircConnect(ctx context.Context, args map[string]interface{}) extsdk.Result 
 
 	_ = tlsFlag // reserved for future TLS support
 
-	addr := fmt.Sprintf("%s:%d", host, port)
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {
 		return extsdk.Result{Error: fmt.Sprintf("connect: %v", err)}

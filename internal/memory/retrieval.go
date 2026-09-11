@@ -24,8 +24,12 @@ type RetrievalWeights struct {
 	Episodic float64
 }
 
+// DefaultWeights returns the fallback retrieval weights used when no explicit
+// weights have been applied. It MUST stay in sync with
+// internal/config.defaultRetrievalWeights(), which is the authoritative default
+// applied at boot (boot.NewPipeline → ApplyRetrievalWeights).
 func DefaultWeights() RetrievalWeights {
-	return RetrievalWeights{FTS5: 0.30, Vector: 0.25, Keyword: 0.08, Tree: 0.05, Graph: 0.22, Episodic: 0.10}
+	return RetrievalWeights{FTS5: 0.30, Vector: 0.25, Keyword: 0.08, Tree: 0.0, Graph: 0.22, Episodic: 0.15}
 }
 
 // WeightProfile is a named retrieval weight configuration.

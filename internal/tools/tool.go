@@ -58,6 +58,9 @@ var (
 	ParsePermissionLevel = pkgtools.ParsePermissionLevel
 )
 
+// Re-export the shared agent-loop default.
+const DefaultMaxIterations = pkgtools.DefaultMaxIterations
+
 // ToolCallOptions carries per-invocation hints from the agent harness.
 type ToolCallOptions struct {
 	PreferMarkdown  bool

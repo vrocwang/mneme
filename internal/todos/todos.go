@@ -3,6 +3,7 @@ package todos
 import (
 	"encoding/json"
 	"fmt"
+	workspace "github.com/simon/mneme/internal/workspace"
 	"os"
 	"path/filepath"
 	"sort"
@@ -53,7 +54,7 @@ type Store struct {
 
 // NewStore creates a board store rooted at the workspace directory.
 func NewStore(workspaceDir string) *Store {
-	dir := filepath.Join(workspaceDir, "agent_task_boards")
+	dir := workspace.TaskBoardsDir(workspaceDir)
 	os.MkdirAll(dir, 0755)
 	return &Store{dir: dir}
 }

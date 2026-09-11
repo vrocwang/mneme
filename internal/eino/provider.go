@@ -7,6 +7,7 @@ package eino
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/cloudwego/eino/components/model"
@@ -18,22 +19,30 @@ import (
 	"github.com/simon/mneme/internal/config"
 )
 
-// NewChatModel creates an eino ToolCallingChatModel from a ProviderConfig.
-//
-// It resolves the provider and model name from the config, then delegates
-// to the appropriate eino-ext constructor. The returned model implements
-// model.ToolCallingChatModel, which supports Generate, Stream, and WithTools.
-//
-// If the default model is not found in any provider's model list, the
-// function falls back to the first configured provider. If no providers
-// are configured at all, an error is returned.
+// NewChatModel creates an eino ToolCallingChatModel from a ProviderConfig,
+// resolving the provider and model name from the configured default model.
 func NewChatModel(ctx context.Context, cfg *config.Config) (model.ToolCallingChatModel, error) {
-	pc := cfg.FindProviderForModel(cfg.Agent.DefaultModel)
+	return NewChatModelFor(ctx, cfg, cfg.Agent.DefaultModel)
+}
+
+// NewChatModelFor creates a chat model for an explicit model name, resolving
+// the provider that serves it. It is used to build per-route and per-agent
+// models in addition to the primary one.
+//
+// If the model is not found in any provider's model list, it falls back to a
+// provider whose name appears in the model string, then to the first
+// configured provider. If no providers are configured at all, an error is
+// returned.
+func NewChatModelFor(ctx context.Context, cfg *config.Config, modelName string) (model.ToolCallingChatModel, error) {
+	if modelName == "" {
+		modelName = cfg.Agent.DefaultModel
+	}
+	pc := cfg.FindProviderForModel(modelName)
 	if pc == nil {
 		// Fallback: try to match provider by type name (e.g. model "deepseek-v4-flash" -> provider type "deepseek")
 		for i := range cfg.Providers {
 			p := &cfg.Providers[i]
-			if p.Name != "" && strings.Contains(cfg.Agent.DefaultModel, p.Name) {
+			if p.Name != "" && strings.Contains(modelName, p.Name) {
 				pc = p
 				break
 			}
@@ -43,21 +52,43 @@ func NewChatModel(ctx context.Context, cfg *config.Config) (model.ToolCallingCha
 		if len(cfg.Providers) > 0 {
 			pc = &cfg.Providers[0]
 		} else {
-			return nil, fmt.Errorf("eino: no provider configured for model %q", cfg.Agent.DefaultModel)
+			return nil, fmt.Errorf("eino: no provider configured for model %q", modelName)
 		}
 	}
 
-	modelName := cfg.Agent.DefaultModel
 	if modelName == "" && len(pc.Models) > 0 {
 		modelName = pc.Models[0]
 	}
 
-	primary, err := newChatModelFromProvider(ctx, pc, modelName, cfg.Agent.MaxOutputTokens)
-	if err != nil {
-		return nil, err
-	}
+	return newChatModelFromProvider(ctx, pc, modelName, cfg.Agent.MaxOutputTokens)
+}
 
-	return primary, nil
+// CollectRouteModels builds a chat model for every configured model route
+// (agent.model_routes), keyed by route kind. Agent definitions reference these
+// kinds through their `model` field; a route that is unset or fails to
+// initialize is simply absent, and the agent falls back to the primary model.
+func CollectRouteModels(ctx context.Context, cfg *config.Config, log *slog.Logger) map[string]model.ToolCallingChatModel {
+	if cfg == nil || len(cfg.Agent.ModelRoutes) == 0 {
+		return nil
+	}
+	out := make(map[string]model.ToolCallingChatModel, len(cfg.Agent.ModelRoutes))
+	for kind, name := range cfg.Agent.ModelRoutes {
+		if kind == "" || name == "" {
+			continue
+		}
+		m, err := NewChatModelFor(ctx, cfg, name)
+		if err != nil {
+			if log != nil {
+				log.Warn("eino: model route unavailable", "route", kind, "model", name, "error", err)
+			}
+			continue
+		}
+		out[kind] = m
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // CollectFailoverModels creates chat models from all configured providers

@@ -6,6 +6,7 @@ package prompts
 import (
 	"embed"
 	"fmt"
+	workspace "github.com/simon/mneme/internal/workspace"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -48,7 +49,7 @@ type Manager struct {
 
 // New creates a Manager rooted at the given workspace prompt directory.
 func New(workspaceDir string) *Manager {
-	return &Manager{dir: filepath.Join(workspaceDir, "prompts")}
+	return &Manager{dir: workspace.PromptsDir(workspaceDir)}
 }
 
 // Get returns the prompt text for the given name.

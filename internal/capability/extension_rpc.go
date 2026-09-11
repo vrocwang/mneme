@@ -1,30 +1,25 @@
 package capability
 
-// WailsRPCRegistrar is implemented by extensions that need Wails RPC bindings.
-// Extensions register their RPC types at startup so main.go does not need to
-// import integration-specific packages.
+// WailsRPCRegistrar is implemented by core optional features that contribute a
+// Wails-bound RPC type. Registration must happen before wails.Run assembles its
+// Bind list (see boot.RegisterWailsRPCs), so feature packages expose a small
+// Register function that the boot layer calls at that point.
 type WailsRPCRegistrar interface {
-	// RegisterRPC returns types to include in the Wails Bind list. Called
-	// once at startup before wails.Run. Each returned value must be a
-	// pointer to a struct with Wails-bound methods.
+	// RegisterRPC returns types to include in the Wails Bind list. Each
+	// returned value must be a pointer to a struct with Wails-bound methods.
 	RegisterRPC() []interface{}
 }
 
-// RegistryAware is optionally implemented by WailsRPCRegistrar types that
-// need a reference to the CapabilityRegistry after it is created during
-// app startup.
-type RegistryAware interface {
-	SetRegistry(reg *CapabilityRegistry)
-}
-
-// wailsRPCRegistrars collects types from extensions that implement
-// WailsRPCRegistrar. Populated at startup; read by main.go to build
-// the wails.Run Bind list without hardcoded integration imports.
+// wailsRPCRegistrars collects types implementing WailsRPCRegistrar. Populated
+// before wails.Run; read by main.go to build the Bind list.
 var wailsRPCRegistrars []WailsRPCRegistrar
 
-// RegisterWailsRPC adds a WailsRPCRegistrar. Call this from extension
-// init() or setup functions. Thread-safe (called during startup only).
+// RegisterWailsRPC adds a WailsRPCRegistrar. Must be called before the Bind
+// list is assembled. Not safe for concurrent use — it runs during startup only.
 func RegisterWailsRPC(r WailsRPCRegistrar) {
+	if r == nil {
+		return
+	}
 	wailsRPCRegistrars = append(wailsRPCRegistrars, r)
 }
 
@@ -36,14 +31,4 @@ func CollectWailsRPCBindings() []interface{} {
 		bindings = append(bindings, r.RegisterRPC()...)
 	}
 	return bindings
-}
-
-// WireRPC sets the CapabilityRegistry on all RegistryAware registrars.
-// Called after capReg is created during app startup.
-func WireRPC(reg *CapabilityRegistry) {
-	for _, r := range wailsRPCRegistrars {
-		if ra, ok := r.(RegistryAware); ok {
-			ra.SetRegistry(reg)
-		}
-	}
 }

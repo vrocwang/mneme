@@ -13,12 +13,10 @@ import (
 
 // WebSearch performs web searches via configurable backends.
 type WebSearch struct {
-	provider     string // "brave", "tavily", "searxng", or "" for duckduckgo
-	apiKey       string
-	braveAPIKey  string
-	tavilyAPIKey string
-	searxngURL   string
-	client       *http.Client
+	provider   string // "brave", "tavily", "searxng", or "" for duckduckgo
+	apiKey     string
+	searxngURL string
+	client     *http.Client
 }
 
 // NewWebSearch creates a web search tool. Provider is auto-detected from
@@ -37,12 +35,10 @@ func NewWebSearch(braveAPIKey, tavilyAPIKey, searxngURL string) *WebSearch {
 		provider = "searxng"
 	}
 	return &WebSearch{
-		provider:     provider,
-		apiKey:       apiKey,
-		braveAPIKey:  braveAPIKey,
-		tavilyAPIKey: tavilyAPIKey,
-		searxngURL:   searxngURL,
-		client:       &http.Client{Timeout: 30 * time.Second},
+		provider:   provider,
+		apiKey:     apiKey,
+		searxngURL: searxngURL,
+		client:     &http.Client{Timeout: 30 * time.Second},
 	}
 }
 

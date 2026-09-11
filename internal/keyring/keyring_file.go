@@ -7,6 +7,7 @@ import (
 
 	"github.com/simon/mneme/internal/config"
 	"github.com/simon/mneme/internal/security"
+	ws "github.com/simon/mneme/internal/workspace"
 )
 
 // fileStoreMagic prefixes encrypted values so they are unambiguously
@@ -101,7 +102,7 @@ func (s *FileStore) Delete(service, key string) error {
 // secretsDir returns the path to the secrets directory, derived from the workspace.
 func secretsDir() string {
 	workspace := config.WorkspaceDir()
-	dir := filepath.Join(workspace, "secrets")
+	dir := ws.SecretsDir(workspace)
 	os.MkdirAll(dir, 0700)
 	return dir
 }

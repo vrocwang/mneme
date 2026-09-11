@@ -26,6 +26,11 @@ func (r *AppStateRPC) SetProvider(provider inference.Provider) { r.provider = pr
 // SetDB updates the database reference after startup.
 func (r *AppStateRPC) SetDB(db *sql.DB) { r.db = db }
 
+// SetApprovalGate updates the approval gate reference after startup. Wails
+// evaluates the Bind list before OnStartup, so the gate passed to the
+// constructor is nil; this setter is how the live gate reaches the RPC.
+func (r *AppStateRPC) SetApprovalGate(g *approval.Gate) { r.approvalGate = g }
+
 // NewAppStateRPC creates an application state RPC handler.
 func NewAppStateRPC(
 	capReg *capability.CapabilityRegistry,

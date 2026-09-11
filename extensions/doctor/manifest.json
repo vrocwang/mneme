@@ -1,0 +1,9 @@
+{
+  "name": "doctor",
+  "version": "0.1.0",
+  "category": "tools",
+  "description": "Workspace diagnostics: verify the Mneme workspace, config, and data directories.",
+  "binary": "doctor",
+  "build": "go build -ldflags=\"-s -w\" -o doctor .",
+  "tools": ["doctor_run"]
+}

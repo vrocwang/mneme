@@ -434,5 +434,3 @@ func EnforcePromptInput(input string) PromptEnforcementDecision {
 }
 
 // ── Tool definition scanning ──────────────────────────────────────────
-
-var base64Pattern = regexp.MustCompile(`[A-Za-z0-9+/]{40,}={0,2}`)

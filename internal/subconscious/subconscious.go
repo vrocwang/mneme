@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/simon/mneme/internal/agent"
+	ws "github.com/simon/mneme/internal/workspace"
 )
 
 // Engine evaluates background tasks and generates proactive behaviors.
@@ -84,7 +84,7 @@ func NewPersistent(log *slog.Logger, workspaceDir string) *Engine {
 		store:    NewStore(),
 		refStore: NewReflectionStore(),
 	}
-	sqliteStore, err := NewSQLiteStore(filepath.Join(workspaceDir, "data"))
+	sqliteStore, err := NewSQLiteStore(ws.DataDir(workspaceDir))
 	if err != nil {
 		log.Warn("subconscious falling back to in-memory storage", "error", err)
 		return e

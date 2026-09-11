@@ -11,6 +11,7 @@ import (
 	"github.com/simon/mneme/internal/jsonrpc"
 	"github.com/simon/mneme/internal/voice"
 	"github.com/simon/mneme/internal/webhooks"
+	workspace "github.com/simon/mneme/internal/workspace"
 )
 
 // GUIComponents holds GUI-only components created during startup.
@@ -24,6 +25,7 @@ type GUIComponents struct {
 	InferenceHTTPServer *jsonrpc.Server
 	WebhookServer       *webhooks.Server
 	WebhookTM           *webhooks.TunnelManager
+	TriagePipeline      *agent.TriagePipeline
 }
 
 // BootstrapGUI creates and starts GUI-only components (desktop companion,
@@ -37,35 +39,39 @@ func BootstrapGUI(core *AppCore, ctx context.Context, appMethods jsonrpc.AppMeth
 	log := core.Log
 	cfg := core.Cfg
 
-	// ── Desktop components ────────────────────────────────────────────
-	gui.Companion = desktop.NewCompanion()
-	gui.ScreenCap = desktop.NewScreenCapture(filepath.Join(cfg.Workspace, "screenshots"))
-	var visionEngine *desktop.VisionEngine
-	if core.Provider != nil {
-		visionEngine = desktop.NewVisionEngine(desktop.VisionConfig{
-			Provider: core.Provider, Model: VisionModel(cfg), Logger: log,
-		})
-		gui.CompanionLoop = desktop.NewCompanionLoop(log, desktop.CompanionConfig{
-			STT:      voice.BuildSTT(cfg),
-			TTS:      voice.BuildTTS(cfg),
-			Screen:   gui.ScreenCap,
-			Provider: core.Provider,
-			Model:    cfg.Agent.DefaultModel,
-			Vision:   visionEngine,
-			TempDir:  filepath.Join(cfg.Workspace, "tmp"),
-		})
-		if cfg.ScreenIntelligence.Enabled && gui.ScreenCap != nil && visionEngine != nil {
-			gui.ScreenIntel = desktop.NewScreenIntelLoop(log, desktop.ScreenIntelConfig{
-				Screen:   gui.ScreenCap,
-				Vision:   visionEngine,
-				Interval: time.Duration(cfg.ScreenIntelligence.CaptureIntervalSecs) * time.Second,
+	// ── Desktop components (disableable via [bundles] disabled = ["desktop"]) ──
+	if bundle.NewRegistry(cfg.Bundles.Disabled).IsEnabled(bundle.BundleDesktop) {
+		gui.Companion = desktop.NewCompanion()
+		gui.ScreenCap = desktop.NewScreenCapture(workspace.ScreenshotsDir(cfg.Workspace))
+		var visionEngine *desktop.VisionEngine
+		if core.Provider != nil {
+			visionEngine = desktop.NewVisionEngine(desktop.VisionConfig{
+				Provider: core.Provider, Model: VisionModel(cfg), Logger: log,
 			})
-			gui.ScreenIntel.Start(ctx)
+			gui.CompanionLoop = desktop.NewCompanionLoop(log, desktop.CompanionConfig{
+				STT:      voice.BuildSTT(cfg),
+				TTS:      voice.BuildTTS(cfg),
+				Screen:   gui.ScreenCap,
+				Provider: core.Provider,
+				Model:    cfg.Agent.DefaultModel,
+				Vision:   visionEngine,
+				TempDir:  workspace.TmpDir(cfg.Workspace),
+			})
+			if cfg.ScreenIntelligence.Enabled && gui.ScreenCap != nil && visionEngine != nil {
+				gui.ScreenIntel = desktop.NewScreenIntelLoop(log, desktop.ScreenIntelConfig{
+					Screen:   gui.ScreenCap,
+					Vision:   visionEngine,
+					Interval: time.Duration(cfg.ScreenIntelligence.CaptureIntervalSecs) * time.Second,
+				})
+				gui.ScreenIntel.Start(ctx)
+			}
 		}
-	}
-	gui.Automator = desktop.NewAutomator()
-	if visionEngine != nil {
-		gui.Automator.WithVision(visionEngine.LocateByDescription)
+		gui.Automator = desktop.NewAutomator()
+		if visionEngine != nil {
+			gui.Automator.WithVision(visionEngine.LocateByDescription)
+		}
+	} else {
+		log.Info("desktop bundle disabled by config")
 	}
 
 	// ── Inference HTTP server ─────────────────────────────────────────
@@ -87,7 +93,7 @@ func BootstrapGUI(core *AppCore, ctx context.Context, appMethods jsonrpc.AppMeth
 	var triagePipeline *agent.TriagePipeline
 	if core.Provider != nil {
 		p, err := agent.NewGraphTriagePipeline(core.CapReg, core.ChatService,
-			core.Provider, cfg.Agent.DefaultModel)
+			core.Provider, cfg.ModelForRoute("reasoning"))
 		if err != nil {
 			log.Warn("graph triage pipeline failed, falling back to rules-only", "error", err)
 			triagePipeline = agent.NewDefaultTriagePipeline(core.CapReg, core.ChatService)
@@ -97,7 +103,8 @@ func BootstrapGUI(core *AppCore, ctx context.Context, appMethods jsonrpc.AppMeth
 	} else {
 		triagePipeline = agent.NewDefaultTriagePipeline(core.CapReg, core.ChatService)
 	}
-	gui.WebhookTM = webhooks.NewTunnelManager(filepath.Join(cfg.Workspace, "data", "tunnels.json"))
+	gui.TriagePipeline = triagePipeline
+	gui.WebhookTM = webhooks.NewTunnelManager(filepath.Join(workspace.DataDir(cfg.Workspace), "tunnels.json"))
 	gui.WebhookServer = webhooks.Bootstrap(cfg, gui.WebhookTM, triagePipeline, core.EventBus, log)
 	if gui.WebhookServer != nil {
 		go func() {
@@ -107,8 +114,8 @@ func BootstrapGUI(core *AppCore, ctx context.Context, appMethods jsonrpc.AppMeth
 		}()
 	}
 
-	// ── Post-bootstrap tools ──────────────────────────────────────────
-	RegisterPostBootstrapTools(core.CapReg, core.Cron, core.MonitorMgr, bundle.NewRegistry(core.Cfg.Bundles.Disabled))
+	// Cron and monitor tools are registered by AppCore.Init so they are
+	// available in headless modes too; nothing to do here.
 
 	log.Info("app startup complete")
 	return gui
@@ -124,6 +131,9 @@ func ShutdownGUI(gui *GUIComponents) {
 	}
 	if gui.WebhookServer != nil {
 		gui.WebhookServer.Stop()
+	}
+	if gui.TriagePipeline != nil {
+		gui.TriagePipeline.Stop()
 	}
 	if gui.CompanionLoop != nil {
 		gui.CompanionLoop.Stop()

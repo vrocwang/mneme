@@ -295,18 +295,12 @@ end tell`, escaped, escaped)
 	return &AXRing{Elements: elements}, nil
 }
 
-// ── Linux (AT-SPI via dbus-send / gdbus) ───────────────────────────
+// ── Linux (xdotool) ────────────────────────────────────────────────
 
 func (a *AXInteract) getFocusedLinux() (*AXRing, error) {
-	// Attempt via gdbus (GNOME), fall back to xdotool.
-	out, err := exec.Command("gdbus", "call", "--session",
-		"--dest", "org.a11y.Bus", "--object-path", "/org/a11y/bus",
-		"--method", "org.a11y.Bus.GetAddress").CombinedOutput()
-	if err != nil {
-		// Fallback: use xdotool for basic info.
-		return a.xdotoolFocus()
-	}
-	_ = out
+	// AT-SPI tree traversal is not implemented; window focus reporting uses
+	// xdotool. (A previous gdbus probe discarded its result and always fell
+	// through to xdotool, so it only added a subprocess launch.)
 	return a.xdotoolFocus()
 }
 

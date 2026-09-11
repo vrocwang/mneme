@@ -17,6 +17,9 @@ func NewNamespaceManager(db *sql.DB) *NamespaceManager {
 
 // List returns all distinct namespaces across memory stores.
 func (m *NamespaceManager) List() ([]string, error) {
+	if m == nil || m.db == nil {
+		return nil, fmt.Errorf("memory: namespace manager has no database connection")
+	}
 	seen := make(map[string]bool)
 
 	// From memory_chunks (source field)
@@ -45,6 +48,9 @@ func (m *NamespaceManager) List() ([]string, error) {
 
 // Clear removes all data for a namespace across all memory stores.
 func (m *NamespaceManager) Clear(ns string) error {
+	if m == nil || m.db == nil {
+		return fmt.Errorf("memory: namespace manager has no database connection")
+	}
 	ns = SanitizeNamespace(ns)
 	// Escape LIKE wildcards so namespace names containing % or _ match literally.
 	likeNs := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(ns)

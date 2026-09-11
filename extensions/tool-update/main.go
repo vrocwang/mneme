@@ -22,11 +22,8 @@ import (
 	"github.com/simon/mneme/pkg/extsdk"
 )
 
-// dataDir returns the host workspace directory.
-func dataDir() string {
-	exe, _ := os.Executable()
-	return filepath.Join(filepath.Dir(exe), "data")
-}
+// dataDir returns the shared Mneme data directory (MNEME_HOME/data).
+func dataDir() string { return extsdk.DataDir() }
 
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 

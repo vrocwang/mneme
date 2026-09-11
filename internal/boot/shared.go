@@ -3,6 +3,7 @@ package boot
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"time"
@@ -24,11 +25,12 @@ import (
 	"github.com/simon/mneme/internal/memory/entities"
 	"github.com/simon/mneme/internal/memory/store"
 	"github.com/simon/mneme/internal/security"
+	ws "github.com/simon/mneme/internal/workspace"
 )
 
 // OpenDatabase opens the Mneme SQLite database with WAL mode and busy timeout.
 func OpenDatabase(workspace string) (*sql.DB, error) {
-	dbPath := filepath.Join(workspace, "data", "mneme.db")
+	dbPath := filepath.Join(ws.DataDir(workspace), "mneme.db")
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return nil, err
@@ -128,10 +130,10 @@ func NewPipeline(db *sql.DB, provider inference.Provider, cfg *config.Config, ca
 
 	memory.SetupEmbedder(pipeline, cfg.Embedding, log)
 	if provider != nil {
-		memory.SetupArchivist(pipeline, provider, cfg.Agent.DefaultModel, log)
+		memory.SetupArchivist(pipeline, provider, cfg.ModelForRoute("summary"), log)
 		pipeline.SetEntityEnricher(entities.NewLLMEnricher(func(ctx context.Context, prompt string) (string, error) {
 			tokens, errs := provider.Chat(ctx, inference.ChatRequest{
-				Model: cfg.Agent.DefaultModel, MaxTokens: 256, Temperature: 0.1,
+				Model: cfg.ModelForRoute("summary"), MaxTokens: 256, Temperature: 0.1,
 				Messages: []inference.Message{{Role: "user", Content: prompt}},
 			})
 			var resp string
@@ -160,19 +162,27 @@ func NewPipeline(db *sql.DB, provider inference.Provider, cfg *config.Config, ca
 
 	if capReg != nil {
 		br := bundle.NewRegistry(cfg.Bundles.Disabled)
-		RegisterLateTools(capReg, convStore, pipeline, provider, cfg.Agent.DefaultModel, br)
+		RegisterLateTools(capReg, convStore, pipeline, provider, cfg.ModelForRoute("summary"), br)
 	}
 
 	return pipeline, convStore
 }
 
-// NewCronChatSender returns a cron.ChatSender that delegates to agent.ChatService.
-func NewCronChatSender(chatService *agent.ChatService) cron.ChatSender {
-	if chatService == nil {
-		return nil
-	}
+// NewCronChatSender returns a cron.ChatSender that delegates to
+// agent.ChatService. The service is resolved through a getter on every call so
+// the sender stays valid whether it is built before startup (Wails Bind list)
+// or after (AppCore.Init); a nil getter or nil service surfaces as an error
+// instead of a nil sender that silently disables agent-type jobs.
+func NewCronChatSender(chatService func() *agent.ChatService) cron.ChatSender {
 	return func(ctx context.Context, prompt string) (string, error) {
-		result, err := chatService.SendMessage(agent.WithoutPostHooks(ctx), "cron", prompt)
+		if chatService == nil {
+			return "", fmt.Errorf("cron: chat service getter not configured")
+		}
+		cs := chatService()
+		if cs == nil {
+			return "", fmt.Errorf("cron: chat service not available")
+		}
+		result, err := cs.SendMessage(agent.WithoutPostHooks(ctx), "cron", prompt)
 		if err != nil {
 			return "", err
 		}
@@ -227,23 +237,26 @@ func ProviderDiagnostics(cfg *config.Config, provider inference.Provider, compan
 	out["companion_available"] = companionLoop != nil
 	return out
 }
+
 // VisionModel returns the model for vision/screenshot analysis.
 // Uses ModelRoutes["vision"] if configured, otherwise DefaultModel.
 func VisionModel(cfg *config.Config) string {
-	if m, ok := cfg.Agent.ModelRoutes["vision"]; ok && m != "" {
-		return m
-	}
-	return cfg.Agent.DefaultModel
+	return cfg.ModelForRoute("vision")
 }
+
 // SaveUserMessage returns a function that persists a user message via the store getter.
 // If the thread doesn't exist yet (e.g. restored from frontend persist without a
 // matching DB row), it creates one so the FK constraint on messages is satisfied.
-func SaveUserMessage(getStore func() *conversations.Store) func(string, string) {
+// Persistence failures are logged rather than dropped, so a lost user turn is visible.
+func SaveUserMessage(getStore func() *conversations.Store, log *slog.Logger) func(string, string) {
 	return func(threadID string, message string) {
 		s := getStore()
-		if s != nil {
-			s.EnsureThread(threadID, message)
-			s.AddMessage(threadID, "user", message)
+		if s == nil {
+			return
+		}
+		s.EnsureThread(threadID, message)
+		if err := s.AddMessage(threadID, "user", message); err != nil && log != nil {
+			log.Warn("failed to persist user message", "thread", threadID, "error", err)
 		}
 	}
 }

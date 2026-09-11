@@ -10,7 +10,10 @@ import (
 const version = "0.2.0"
 
 // Run dispatches CLI subcommands after bootstrapping the minimal subsystem.
+// Every AppCore created by a subcommand is shut down when Run returns.
 func Run(args []string) error {
+	defer ShutdownAll()
+
 	if len(args) == 0 {
 		printUsage()
 		return nil

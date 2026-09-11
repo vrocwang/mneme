@@ -6,11 +6,17 @@ import "github.com/simon/mneme/internal/config"
 type ChannelRPC struct {
 	cfg      *config.Config
 	confPath string
+	// providerNames returns the channel providers currently registered in the
+	// capability registry. It is injected (rather than imported) because the
+	// capability package already imports channels; a direct import would cycle.
+	providerNames func() []string
 }
 
 // NewChannelRPC creates a Wails RPC handler for channel management.
-func NewChannelRPC(cfg *config.Config, confPath string) *ChannelRPC {
-	return &ChannelRPC{cfg: cfg, confPath: confPath}
+// providerNames may be nil; the two core channel types are reported as a
+// fallback in that case.
+func NewChannelRPC(cfg *config.Config, confPath string, providerNames func() []string) *ChannelRPC {
+	return &ChannelRPC{cfg: cfg, confPath: confPath, providerNames: providerNames}
 }
 
 // ListChannels returns configured channels and available provider names.
@@ -29,7 +35,7 @@ func (r *ChannelRPC) ListChannels() map[string]interface{} {
 	return map[string]interface{}{
 		"ok":        true,
 		"channels":  list,
-		"available": availableChannelTypes(),
+		"available": r.availableChannelTypes(),
 	}
 }
 
@@ -67,9 +73,14 @@ func (r *ChannelRPC) DisableChannel(name string) map[string]interface{} {
 	return map[string]interface{}{"ok": true, "name": name, "enabled": false}
 }
 
-// availableChannelTypes returns the known channel type names.
-// Extensions can register additional types via capability.RegisterChannel.
-func availableChannelTypes() []string {
-	// Core types always available
+// availableChannelTypes returns the channel provider names registered in the
+// capability registry, falling back to the two core types when the registry is
+// not reachable yet (e.g. before startup).
+func (r *ChannelRPC) availableChannelTypes() []string {
+	if r.providerNames != nil {
+		if names := r.providerNames(); len(names) > 0 {
+			return names
+		}
+	}
 	return []string{"web", "cli"}
 }

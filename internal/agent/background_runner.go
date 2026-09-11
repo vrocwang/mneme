@@ -184,13 +184,6 @@ func (br *BackgroundRunner) Cancel(checkPointID string) bool {
 	return ok
 }
 
-// ActiveCount returns the number of currently running background tasks.
-func (br *BackgroundRunner) ActiveCount() int {
-	br.mu.Lock()
-	defer br.mu.Unlock()
-	return len(br.activeRuns)
-}
-
 func (br *BackgroundRunner) emit(ch chan<- BackgroundProgressEvent, evt BackgroundProgressEvent) {
 	select {
 	case ch <- evt:

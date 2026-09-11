@@ -23,7 +23,6 @@ import (
 	"github.com/simon/mneme/internal/cron"
 	"github.com/simon/mneme/internal/dag"
 	"github.com/simon/mneme/internal/devices"
-	"github.com/simon/mneme/internal/doctor"
 	"github.com/simon/mneme/internal/file_state"
 	"github.com/simon/mneme/internal/http_host"
 	"github.com/simon/mneme/internal/inference"
@@ -35,9 +34,9 @@ import (
 	memtools "github.com/simon/mneme/internal/memory/tools"
 	"github.com/simon/mneme/internal/monitor"
 	"github.com/simon/mneme/internal/threads"
-	"github.com/simon/mneme/internal/todos"
 	"github.com/simon/mneme/internal/tools"
 	"github.com/simon/mneme/internal/workflows"
+	ws "github.com/simon/mneme/internal/workspace"
 )
 
 // BootstrapAll calls capability.Bootstrap then registers all tools that can be
@@ -77,13 +76,13 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 	// Skill installation tool (agent-callable, from chat).
 	if br.IsEnabled(bundle.BundleSkills) {
 		capability.RegisterSetTools(reg, "skills", "Skills",
-			capability.NewSkillInstallTool(filepath.Join(workspace, "skills"), reg),
+			capability.NewSkillInstallTool(ws.SkillsDir(workspace), reg),
 		)
 	}
 
 	// Agent-accessible workflow discovery tools.
 	if br.IsEnabled(bundle.BundleWorkflows) {
-		agent_workflows.RegisterTools(reg, filepath.Join(workspace, "workflows"), workspace)
+		agent_workflows.RegisterTools(reg, ws.WorkflowsDir(workspace), workspace)
 	}
 
 	// Config introspection tools (read-only: snapshot, autonomy, data paths).
@@ -91,21 +90,19 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 		registerConfigTools(reg, cfg)
 	}
 
-	// Todo / task-board tools.
-	if br.IsEnabled(bundle.BundleTodos) {
-		todos.RegisterTools(reg, todos.NewStore(workspace))
-	}
+	// Todo / task-board tools are registered by AppCore.Init, which owns the
+	// store so the Wails todo RPCs and the agent tools share one instance.
 
 	// Load user-defined agent definitions from workspace/agents/*.toml.
 	// User agents override built-in ones with the same ID, and are grouped
 	// into their own "user-agents" capability set rather than the Core set.
-	agentsDir := filepath.Join(workspace, "agents")
+	agentsDir := ws.AgentsDir(workspace)
 	userDefs, errs := agenttoml.LoadAgentsFromDir(agentsDir)
 	for _, def := range userDefs {
 		if _, exists := reg.GetAgent(def.ID); exists {
 			reg.UnregisterAgent(def.ID)
 		}
-		reg.RegisterAgentSet("user-agents", capability.KindUserAgent, "User Agents", def)
+		reg.RegisterAgentSet(capability.UserAgentsSetID, capability.KindUserAgent, capability.UserAgentsSetName, def)
 	}
 	for _, err := range errs {
 		log.Warn("agent file parse error", "error", err)
@@ -114,8 +111,8 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 	// Load agent packs from extensions/agents/ subdirectories (agent.toml + prompt.md).
 	// Each pack is registered as its own capability set (agent-pack:<name>).
 	agentPacksDirs := []string{
-		filepath.Join(workspace, "extensions", "agents"),
-		filepath.Join("extensions", "agents"), // development: relative to CWD
+		filepath.Join(ws.ExtensionsDir(workspace), "agents"),
+		filepath.Join(ws.DirExtensions, "agents"), // development: relative to CWD
 	}
 	for _, dir := range agentPacksDirs {
 		packDefs, packErrs := agenttoml.LoadAgentPacksFromDir(dir)
@@ -144,24 +141,17 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 		})
 	}
 
-	// Doctor: workspace diagnostics tool.
-	if br.IsEnabled(bundle.BundleDoctor) {
-		doctor.RegisterTools(reg, workspace)
-	}
+	// Doctor: provided by the "doctor" extension (tools/doctor_run).
 
 	// File state: snapshot and diff tools for workspace change tracking.
 	if br.IsEnabled(bundle.BundleFileState) {
 		file_state.RegisterTools(reg)
 	}
 
-	// Connectivity: network diagnostics RPC.
-	connectivity.Register()
-
-	// Devices: mobile device pairing and tunnel management RPC.
-	devices.Register(log)
-
-	// HTTP host: ad-hoc static file serving RPC.
-	http_host.Register(log)
+	// Connectivity, devices, and http_host Wails RPCs are registered by
+	// RegisterWailsRPCs before wails.Run assembles its Bind list — they must
+	// not be registered here, because BootstrapAll runs during OnStartup, after
+	// the Bind list has already been evaluated.
 
 	// DAG: lightweight multi-step automation engine.
 	if db != nil && br.IsEnabled(bundle.BundleDAG) {
@@ -173,6 +163,20 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 			dag.RegisterTools(reg, nil, dagStore)
 			log.Info("dag store initialised")
 		}
+	}
+}
+
+// RegisterWailsRPCs registers the Wails-bound RPC types contributed by core
+// optional features. It MUST be called before wails.Run assembles its Bind
+// list: Wails evaluates Bind once, before OnStartup, so any registrar added
+// during AppCore.Init would never be bound. Keeping the calls here (rather than
+// in main.go) keeps feature-package imports out of the composition root.
+func RegisterWailsRPCs(cfg *config.Config, log *slog.Logger) {
+	connectivity.Register()
+	devices.Register(log)
+	http_host.Register(log)
+	if cfg != nil {
+		workflows.RegisterRPC(ws.SkillsDir(cfg.Workspace))
 	}
 }
 

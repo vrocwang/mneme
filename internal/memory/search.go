@@ -1,15 +1,9 @@
 package memory
 
 import (
-
 	"github.com/simon/mneme/internal/memory/store"
 )
 
-// MemorySearchOps provides agent-facing memory retrieval operations
-// that wrap the Pipeline with MMR reranking and chunk context.
-type MemorySearchOps struct {
-	pipeline *Pipeline
-}// ── MMR (Maximum Marginal Relevance) reranking ─────────────────────────
 // ── Helpers ────────────────────────────────────────────────────────────
 
 // cosineSimilarity delegates to store.CosineSimilarity, which includes

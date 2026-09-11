@@ -38,6 +38,10 @@ type ClassificationChainConfig struct {
 	LocalProvider inference.Provider
 	LocalModel    string
 
+	// TargetAgents is the roster of routable agent IDs injected into the
+	// classifier prompt. When empty, a minimal default is used.
+	TargetAgents []string
+
 	Logger *slog.Logger
 }
 
@@ -58,6 +62,8 @@ func NewClassificationGraph(cfg ClassificationChainConfig) (compose.Runnable[*Tr
 	if log == nil {
 		log = slog.Default()
 	}
+
+	systemPrompt := triageSystemPromptFor(cfg.TargetAgents)
 
 	g := compose.NewGraph[*TriageEnvelope, *TriageDecision](
 		compose.WithGenLocalState(func(ctx context.Context) *triageChainState {
@@ -97,7 +103,7 @@ func NewClassificationGraph(cfg ClassificationChainConfig) (compose.Runnable[*Tr
 				if env == nil {
 					return prev, nil
 				}
-				d, err := callLLMForTriage(ctx, env, prov, mdl, log)
+				d, err := callLLMForTriage(ctx, env, prov, mdl, systemPrompt, log)
 				if err != nil {
 					log.Warn("triage graph: cloud LLM failed", "error", err)
 					return prev, nil // pass through to next step
@@ -128,7 +134,7 @@ func NewClassificationGraph(cfg ClassificationChainConfig) (compose.Runnable[*Tr
 				if env == nil {
 					return prev, nil
 				}
-				d, err := callLLMForTriage(ctx, env, prov, mdl, log)
+				d, err := callLLMForTriage(ctx, env, prov, mdl, systemPrompt, log)
 				if err != nil {
 					log.Warn("triage graph: local AI failed", "error", err)
 					return prev, nil
@@ -190,13 +196,13 @@ func NewClassificationGraph(cfg ClassificationChainConfig) (compose.Runnable[*Tr
 }
 
 // callLLMForTriage makes a single LLM call for triage classification.
-func callLLMForTriage(ctx context.Context, env *TriageEnvelope, provider inference.Provider, model string, log *slog.Logger) (*TriageDecision, error) {
+func callLLMForTriage(ctx context.Context, env *TriageEnvelope, provider inference.Provider, model, systemPrompt string, log *slog.Logger) (*TriageDecision, error) {
 	prompt := buildTriagePrompt(env)
 
 	req := inference.ChatRequest{
 		Model: model,
 		Messages: []inference.Message{
-			{Role: "system", Content: triageSystemPrompt},
+			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: prompt},
 		},
 		MaxTokens:   256,
@@ -242,7 +248,8 @@ loop:
 }
 
 // triageSystemPrompt instructs the small model to classify events into a
-// JSON routing decision.
+// JSON routing decision. The agent roster is appended per configuration so it
+// tracks the live capability registry instead of a frozen copy.
 const triageSystemPrompt = `You are a routing classifier. Analyze the incoming event and return a JSON decision.
 {
   "action": "route" | "drop" | "defer" | "escalate",
@@ -256,9 +263,19 @@ Routing guidelines:
 - "route": event matches a known agent capability — include target_agent
 - "drop": spam, test events, or irrelevant content
 - "defer": cannot classify now, re-queue for later
-- "escalate": needs human attention (error, security issue, unknown format)
+- "escalate": needs human attention (error, security issue, unknown format)`
 
-Target agents: general, researcher, coder, planner, archivist, summarizer, help, morning_briefing, desktop_control, integrations, trigger_reactor`
+// defaultTriageTargetAgents is the fallback roster when no registry is wired.
+var defaultTriageTargetAgents = []string{"general"}
+
+// triageSystemPromptFor returns the classifier prompt with the routable agent
+// roster appended.
+func triageSystemPromptFor(agents []string) string {
+	if len(agents) == 0 {
+		agents = defaultTriageTargetAgents
+	}
+	return triageSystemPrompt + "\n\nTarget agents: " + strings.Join(agents, ", ")
+}
 
 func buildTriagePrompt(envelope *TriageEnvelope) string {
 	// Truncate payload to 2000 chars for classification.

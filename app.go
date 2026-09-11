@@ -12,7 +12,6 @@ import (
 	"context"
 	"database/sql"
 	"log/slog"
-	"path/filepath"
 
 	_ "github.com/simon/mneme/internal/sqlite"
 
@@ -33,8 +32,8 @@ import (
 	"github.com/simon/mneme/internal/memory/conversations"
 	"github.com/simon/mneme/internal/monitor"
 	"github.com/simon/mneme/internal/registry"
-	"github.com/simon/mneme/internal/routing"
 	"github.com/simon/mneme/internal/webhooks"
+	workspace "github.com/simon/mneme/internal/workspace"
 	"github.com/simon/mneme/pkg/events"
 )
 
@@ -96,12 +95,14 @@ func (a *App) wireRPC() {
 		a.appStateRPC.SetCapReg(a.CapReg)
 		a.appStateRPC.SetProvider(a.Provider)
 		a.appStateRPC.SetDB(a.DB)
+		a.appStateRPC.SetApprovalGate(a.ApprovalGate)
 	}
 	if a.capRPC != nil {
 		a.capRPC.SetRegistry(a.CapReg)
 		a.capRPC.SetMCPPersister(a.McpStore)
-		a.capRPC.SetLegacyExtensionsDir(filepath.Join(a.Cfg.Workspace, "extensions"))
-		a.capRPC.SetSkillsDir(filepath.Join(a.Cfg.Workspace, "skills"))
+		a.capRPC.SetLegacyExtensionsDir(workspace.ExtensionsDir(a.Cfg.Workspace))
+		a.capRPC.SetSkillsDir(workspace.SkillsDir(a.Cfg.Workspace))
+		a.capRPC.SetAgentsDir(workspace.AgentsDir(a.Cfg.Workspace))
 	}
 	if a.mcpRegRPC != nil {
 		a.mcpRegRPC.Wire(a.CapReg, a.McpStore)
@@ -163,7 +164,6 @@ func (a *App) GetWebhookTM() *webhooks.TunnelManager {
 func (a *App) onConfigReload() {
 	boot.ReloadConfig(a.Cfg, a.Learning, a.Log,
 		func(p inference.Provider) { a.Provider = p },
-		func(r *routing.Router) { a.ModelRouter = r },
 	)
 	boot.ReloadEino(a.AppCore)
 }

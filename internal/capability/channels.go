@@ -2,6 +2,7 @@ package capability
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/simon/mneme/internal/channels"
 )
@@ -11,10 +12,8 @@ import (
 type ChannelProvider interface {
 	// Name returns the channel type name (e.g. "telegram", "discord").
 	Name() string
-	// Create builds a Channel from the given config map.
+	// Create builds a Channel from the given config.
 	Create(cfg ChannelConfig) (Channel, error)
-	// SupportsConfig returns true if the given config is valid for this provider.
-	SupportsConfig(cfg ChannelConfig) bool
 }
 
 // ChannelConfig is a generic config for channel initialization. Token and
@@ -33,66 +32,48 @@ type ChannelConfig struct {
 // both implement channels.Channel.
 type Channel = channels.Channel
 
-// ChannelMessage is the message type flowing through a channel. Aliased to the
-// single channels.Message so no conversion adapters are needed between the
-// registry and the orchestrator.
-type ChannelMessage = channels.Message
-
 // ── Channel registration in CapabilityRegistry ──────────────────────────
 
-// channelEntry holds a registered channel provider and its lifecycle state.
+// channelEntry holds a registered channel provider and its created instance.
+// The per-entry mutex serializes first-use creation without holding the
+// registry lock across provider code (a provider's Create may call back into
+// the registry, which would deadlock on the non-reentrant registry mutex).
 type channelEntry struct {
+	mu       sync.Mutex
 	provider ChannelProvider
 	instance Channel
-	config   ChannelConfig
 	setID    string
-	running  bool
 }
 
 // RegisterChannel adds a channel provider to the registry under the given set.
 func (r *CapabilityRegistry) RegisterChannel(setID string, provider ChannelProvider) error {
+	if provider == nil {
+		return fmt.Errorf("nil channel provider")
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
 	if _, exists := r.channels[provider.Name()]; exists {
 		return fmt.Errorf("channel provider %q already registered", provider.Name())
-	}
-	if r.channels == nil {
-		r.channels = make(map[string]*channelEntry)
 	}
 	r.channels[provider.Name()] = &channelEntry{provider: provider, setID: setID}
 	return nil
 }
 
-// UnregisterChannel removes a channel provider and stops its instance.
-func (r *CapabilityRegistry) UnregisterChannel(name string) error {
-	r.mu.Lock()
-	entry, ok := r.channels[name]
-	r.mu.Unlock()
-	if !ok {
-		return fmt.Errorf("channel %q not found", name)
-	}
-	if entry.instance != nil {
-		entry.instance.Stop()
-	}
-	r.mu.Lock()
-	delete(r.channels, name)
-	r.mu.Unlock()
-	return nil
-}
-
-// GetChannel returns a running channel instance for the given name and config.
-// If the channel is not yet started, it creates and starts it.
+// GetChannel returns the channel instance for the given name and config,
+// creating and caching it on first use. Repeated calls with the same name
+// return the same instance so the orchestrator never double-starts a channel.
 func (r *CapabilityRegistry) GetChannel(name string, cfg ChannelConfig) (Channel, error) {
-	r.mu.Lock()
+	r.mu.RLock()
 	entry, ok := r.channels[name]
-	r.mu.Unlock()
-
+	r.mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("channel %q not registered", name)
 	}
 
-	if entry.instance != nil && entry.running {
+	// Serialize creation per entry; the registry lock is NOT held here.
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if entry.instance != nil {
 		return entry.instance, nil
 	}
 
@@ -100,12 +81,7 @@ func (r *CapabilityRegistry) GetChannel(name string, cfg ChannelConfig) (Channel
 	if err != nil {
 		return nil, fmt.Errorf("create channel %q: %w", name, err)
 	}
-
-	r.mu.Lock()
 	entry.instance = ch
-	entry.config = cfg
-	r.mu.Unlock()
-
 	return ch, nil
 }
 
@@ -120,64 +96,35 @@ func (r *CapabilityRegistry) ListChannels() []string {
 	return names
 }
 
-// GetChannelConfig returns the stored config for a channel, or empty.
-func (r *CapabilityRegistry) GetChannelConfig(name string) ChannelConfig {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if entry, ok := r.channels[name]; ok {
-		return entry.config
-	}
-	return ChannelConfig{}
-}
-
-// ── Channel set management ──────────────────────────────────────────────
-
-// UpdateSetChannelCount syncs the channel count in the set descriptor.
-func (r *CapabilityRegistry) UpdateSetChannelCount(setID string, count int) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if s, ok := r.sets[setID]; ok {
-		s.ChannelCount = count
-	}
-}
-
 // ── Built-in channel helpers ────────────────────────────────────────────
 
 // RegisterBuiltinChannel registers a core channel provider under the
-// "builtin:channels" capability set. Used for web and cli channels.
+// "builtin:channels" capability set and keeps that set's ChannelCount in sync
+// with the providers it actually owns. Used for web and cli channels.
 func (r *CapabilityRegistry) RegisterBuiltinChannel(provider ChannelProvider) error {
-	const builtinSet = "builtin:channels"
-	r.mu.Lock()
-	if _, exists := r.sets[builtinSet]; !exists {
-		r.sets[builtinSet] = &CapabilitySet{
-			ID:      builtinSet,
-			Name:    "Built-in Channels",
-			Kind:    KindBuiltin,
-			Health:  HealthOK,
-			Enabled: true,
-		}
-	}
-	r.mu.Unlock()
-
-	if err := r.RegisterChannel(builtinSet, provider); err != nil {
+	if err := r.RegisterChannel(ChannelsSetID, provider); err != nil {
 		return err
 	}
-	r.UpdateSetChannelCount(builtinSet, len(r.ListChannels()))
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	set := r.ensureSetLocked(ChannelsSetID, "Built-in Channels", KindBuiltin)
+	count := 0
+	for _, entry := range r.channels {
+		if entry.setID == ChannelsSetID {
+			count++
+		}
+	}
+	set.ChannelCount = count
 	return nil
 }
 
 // ChanProviderFunc adapts a function to the ChannelProvider interface.
 type ChanProviderFunc struct {
-	NameStr    string
-	CreateFn   func(ChannelConfig) (Channel, error)
-	SupportsFn func(ChannelConfig) bool
+	NameStr  string
+	CreateFn func(ChannelConfig) (Channel, error)
 }
 
-func (p *ChanProviderFunc) Name() string                              { return p.NameStr }
-func (p *ChanProviderFunc) Create(cfg ChannelConfig) (Channel, error) { return p.CreateFn(cfg) }
-func (p *ChanProviderFunc) SupportsConfig(cfg ChannelConfig) bool {
-	if p.SupportsFn != nil {
-		return p.SupportsFn(cfg)
-	}
-	return true
+func (p *ChanProviderFunc) Name() string { return p.NameStr }
+func (p *ChanProviderFunc) Create(cfg ChannelConfig) (Channel, error) {
+	return p.CreateFn(cfg)
 }

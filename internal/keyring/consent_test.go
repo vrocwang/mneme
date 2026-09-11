@@ -57,7 +57,6 @@ func TestConsent_RecordConsent(t *testing.T) {
 	}
 }
 
-
 func TestConsent_CurrentStatus(t *testing.T) {
 	status := CurrentStatus()
 	if status.BackendName == "" {
@@ -98,5 +97,3 @@ func TestConsent_BuildConsentPreference_InvalidMode(t *testing.T) {
 		t.Errorf("BuildConsentPreference should accept any mode string, got %s", pref.StorageMode)
 	}
 }
-
-func int64Ptr(v int64) *int64 { return &v }

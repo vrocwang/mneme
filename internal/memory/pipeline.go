@@ -22,6 +22,7 @@ import (
 	"github.com/simon/mneme/internal/memory/queue"
 	"github.com/simon/mneme/internal/memory/store"
 	"github.com/simon/mneme/internal/memory/tree"
+	ws "github.com/simon/mneme/internal/workspace"
 )
 
 // Pipeline orchestrates the memory processing pipeline.
@@ -64,6 +65,7 @@ const (
 	defaultMaxSearchResults  = 20
 	defaultFreshnessHalfLife = 168.0 // 7 days in hours
 )
+
 // NewPipelineWithConfig is NewPipeline with explicit runtime tunables.
 func NewPipelineWithConfig(log *slog.Logger, convStore *conversations.Store, memStore *store.Store, db *sql.DB, pc PipelineConfig) *Pipeline {
 	if pc.WorkerCount <= 0 {
@@ -184,7 +186,7 @@ func (p *Pipeline) WithEntities(reg *entities.Registry, g *graph.Graph) *Pipelin
 // InitEntities creates the entity registry and knowledge graph, and wires them
 // into the pipeline. Non-fatal: logs warnings but returns nil on error.
 func (p *Pipeline) InitEntities(workspace string, db *sql.DB) error {
-	entitiesDir := filepath.Join(workspace, "memory", "entities")
+	entitiesDir := filepath.Join(ws.MemoryDir(workspace), "entities")
 	reg, err := entities.NewRegistry(entitiesDir)
 	if err != nil {
 		return fmt.Errorf("entity registry: %w", err)

@@ -56,47 +56,22 @@ func NewCapabilityRegistry() *CapabilityRegistry {
 // ── Set management ─────────────────────────────────────
 
 func (r *CapabilityRegistry) AddSet(set *CapabilitySet) error {
+	if set == nil {
+		return fmt.Errorf("nil capability set")
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, exists := r.sets[set.ID]; exists {
 		return fmt.Errorf("set %q already registered", set.ID)
 	}
-	// Rebuild Tools/Agents slices from already-registered entries (tools may
-	// have been registered before the set was added, as in builtins.go).
-	for name, owner := range r.toolOwner {
-		if owner == set.ID {
-			if t, ok := r.exec[name]; ok {
-				set.Tools = append(set.Tools, toolToDescriptor(name, t))
-			}
-		}
-	}
-	for id, owner := range r.agentOwner {
-		if owner == set.ID {
-			if def, ok := r.agents[id]; ok {
-				set.Agents = append(set.Agents, agentDefToDescriptor(def))
-			}
-		}
-	}
-	// Ensure slices are never nil — Go JSON marshals nil as null.
-	if set.Tools == nil {
-		set.Tools = make([]ToolDescriptor, 0)
-	}
-	if set.Agents == nil {
-		set.Agents = make([]AgentDescriptor, 0)
-	}
-	set.ToolCount = len(set.Tools)
-	set.AgentCount = len(set.Agents)
-	if set.Health == "" {
-		set.Health = HealthUnknown
-	}
+	normalizeSet(set)
 	r.sets[set.ID] = set
 	return nil
 }
 
 // RemoveSet removes a set and everything it owns (tools, agents, MCP clients,
-// extension processes). It is the imperative counterpart to DisposeSet and
-// returns an error when the set does not exist. Internally it shares the same
-// idempotent teardown as dispose-based unwinding.
+// extension processes) and returns an error when the set does not exist.
+// Internally it shares the same idempotent teardown used by extension dispose.
 func (r *CapabilityRegistry) RemoveSet(id string) error {
 	r.mu.RLock()
 	_, exists := r.sets[id]
@@ -119,6 +94,41 @@ func (r *CapabilityRegistry) EnsureSet(set *CapabilitySet) (*CapabilitySet, erro
 	if existing, ok := r.sets[set.ID]; ok {
 		return existing, nil
 	}
+	normalizeSet(set)
+	r.sets[set.ID] = set
+	return set, nil
+}
+
+// replaceSet overwrites an existing set (or inserts it) with the given
+// definition. It is the idempotent re-registration path — e.g. reinstalling a
+// skill whose set ID already exists, where AddSet would fail.
+func (r *CapabilityRegistry) replaceSet(set *CapabilitySet) {
+	if set == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	normalizeSet(set)
+	r.sets[set.ID] = set
+}
+
+// ensureSetLocked returns the set with the given ID, creating it with the
+// supplied metadata when absent. It is the single internal primitive behind
+// every set-creating registration path. Caller must hold r.mu.
+func (r *CapabilityRegistry) ensureSetLocked(id, name string, kind SourceKind) *CapabilitySet {
+	if s, ok := r.sets[id]; ok {
+		return s
+	}
+	s := &CapabilitySet{ID: id, Name: name, Kind: kind, Health: HealthOK, Enabled: true}
+	normalizeSet(s)
+	r.sets[id] = s
+	return s
+}
+
+// normalizeSet fills in the invariants every CapabilitySet must satisfy:
+// non-nil Tools/Agents slices (Go marshals nil as JSON null) and counts that
+// match the slices.
+func normalizeSet(set *CapabilitySet) {
 	if set.Tools == nil {
 		set.Tools = make([]ToolDescriptor, 0)
 	}
@@ -128,8 +138,54 @@ func (r *CapabilityRegistry) EnsureSet(set *CapabilitySet) (*CapabilitySet, erro
 	if set.Health == "" {
 		set.Health = HealthUnknown
 	}
-	r.sets[set.ID] = set
-	return set, nil
+	set.ToolCount = len(set.Tools)
+	set.AgentCount = len(set.Agents)
+}
+
+// upsertToolDescriptor inserts or replaces a tool descriptor by name.
+func upsertToolDescriptor(s *CapabilitySet, desc ToolDescriptor) {
+	for i := range s.Tools {
+		if s.Tools[i].Name == desc.Name {
+			s.Tools[i] = desc
+			return
+		}
+	}
+	s.Tools = append(s.Tools, desc)
+	s.ToolCount = len(s.Tools)
+}
+
+// removeToolDescriptor returns descriptors without the named tool.
+func removeToolDescriptor(descs []ToolDescriptor, name string) []ToolDescriptor {
+	out := descs[:0]
+	for _, d := range descs {
+		if d.Name != name {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// upsertAgentDescriptor inserts or replaces an agent descriptor by ID.
+func upsertAgentDescriptor(s *CapabilitySet, desc AgentDescriptor) {
+	for i := range s.Agents {
+		if s.Agents[i].ID == desc.ID {
+			s.Agents[i] = desc
+			return
+		}
+	}
+	s.Agents = append(s.Agents, desc)
+	s.AgentCount = len(s.Agents)
+}
+
+// removeAgentDescriptor returns descriptors without the given agent ID.
+func removeAgentDescriptor(descs []AgentDescriptor, id string) []AgentDescriptor {
+	out := descs[:0]
+	for _, d := range descs {
+		if d.ID != id {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 func (r *CapabilityRegistry) GetSet(id string) (*CapabilitySet, bool) {
@@ -179,46 +235,30 @@ func (r *CapabilityRegistry) UpdateSetHealth(id string, health SetHealth) {
 // RegisterTool registers a local tool implementation (Go function or wrapped
 // extension RPC). The tool's Execute method runs in-process.
 func (r *CapabilityRegistry) RegisterTool(setID string, t tools.Tool) {
+	if t == nil {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	name := t.Schema().Name
-	r.exec[name] = t
-	r.addToolToSetLocked(setID, name, toolToDescriptor(name, t))
+	r.bindToolLocked(setID, t.Schema().Name, t)
 }
 
-// addToolToSetLocked handles owner tracking, overwrite cleanup, and dedup
-// append to the capability set. Caller must hold r.mu.
-func (r *CapabilityRegistry) addToolToSetLocked(setID, name string, desc ToolDescriptor) {
+// bindToolLocked records a tool under setID, moving it out of any previous
+// owning set and replacing an existing descriptor with the same name. Caller
+// must hold r.mu.
+func (r *CapabilityRegistry) bindToolLocked(setID, name string, t tools.Tool) {
 	if prevOwner := r.toolOwner[name]; prevOwner != "" && prevOwner != setID {
 		slog.Warn("tool name overwritten", "name", name, "prev_owner", prevOwner, "new_owner", setID)
 		if prevSet, ok := r.sets[prevOwner]; ok {
-			filtered := prevSet.Tools[:0]
-			for _, td := range prevSet.Tools {
-				if td.Name != name {
-					filtered = append(filtered, td)
-				}
-			}
-			prevSet.Tools = filtered
-			prevSet.ToolCount = len(filtered)
+			prevSet.Tools = removeToolDescriptor(prevSet.Tools, name)
+			prevSet.ToolCount = len(prevSet.Tools)
 		}
 	}
+	r.exec[name] = t
 	r.toolOwner[name] = setID
 	if s, ok := r.sets[setID]; ok {
-		for _, existing := range s.Tools {
-			if existing.Name == name {
-				return // already in set
-			}
-		}
-		s.Tools = append(s.Tools, desc)
-		s.ToolCount = len(s.Tools)
+		upsertToolDescriptor(s, toolToDescriptor(name, t))
 	}
-}
-
-func (r *CapabilityRegistry) UnregisterTool(name string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	delete(r.exec, name)
-	delete(r.toolOwner, name)
 }
 
 func (r *CapabilityRegistry) AllTools() []ToolDescriptor {
@@ -287,13 +327,29 @@ func (r *CapabilityRegistry) Execute(ctx context.Context, name string, args map[
 // ── Agent registration ────────────────────────────────
 
 func (r *CapabilityRegistry) RegisterAgent(setID string, def *tools.AgentDef) {
+	if def == nil {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.bindAgentLocked(setID, def)
+}
+
+// bindAgentLocked records an agent definition under setID, moving it out of a
+// previous owning set and replacing any descriptor with the same ID (override
+// semantics). The set need not exist yet; the definition is still resolvable by
+// ID and will be described once the set appears. Caller must hold r.mu.
+func (r *CapabilityRegistry) bindAgentLocked(setID string, def *tools.AgentDef) {
+	if prevOwner := r.agentOwner[def.ID]; prevOwner != "" && prevOwner != setID {
+		if prevSet, ok := r.sets[prevOwner]; ok {
+			prevSet.Agents = removeAgentDescriptor(prevSet.Agents, def.ID)
+			prevSet.AgentCount = len(prevSet.Agents)
+		}
+	}
 	r.agents[def.ID] = def
 	r.agentOwner[def.ID] = setID
 	if s, ok := r.sets[setID]; ok {
-		s.Agents = append(s.Agents, agentDefToDescriptor(def))
-		s.AgentCount = len(s.Agents)
+		upsertAgentDescriptor(s, agentDefToDescriptor(def))
 	}
 }
 
@@ -304,14 +360,8 @@ func (r *CapabilityRegistry) UnregisterAgent(id string) {
 	owner := r.agentOwner[id]
 	delete(r.agentOwner, id)
 	if s, ok := r.sets[owner]; ok {
-		filtered := s.Agents[:0]
-		for _, a := range s.Agents {
-			if a.ID != id {
-				filtered = append(filtered, a)
-			}
-		}
-		s.Agents = filtered
-		s.AgentCount = len(filtered)
+		s.Agents = removeAgentDescriptor(s.Agents, id)
+		s.AgentCount = len(s.Agents)
 	}
 }
 
@@ -320,32 +370,13 @@ func (r *CapabilityRegistry) UnregisterAgent(id string) {
 // they appear as distinct, named sets rather than being mixed into the Core
 // builtin set.
 func (r *CapabilityRegistry) RegisterAgentSet(setID string, kind SourceKind, setName string, def *tools.AgentDef) {
+	if def == nil {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
-	if _, exists := r.sets[setID]; !exists {
-		r.sets[setID] = &CapabilitySet{
-			ID:      setID,
-			Name:    setName,
-			Kind:    kind,
-			Health:  HealthOK,
-			Enabled: true,
-			Agents:  make([]AgentDescriptor, 0, 1),
-		}
-	}
-	r.agents[def.ID] = def
-	r.agentOwner[def.ID] = setID
-	if s, ok := r.sets[setID]; ok {
-		// Replace any prior descriptor for the same ID (override semantics).
-		filtered := s.Agents[:0]
-		for _, a := range s.Agents {
-			if a.ID != def.ID {
-				filtered = append(filtered, a)
-			}
-		}
-		s.Agents = append(filtered, agentDefToDescriptor(def))
-		s.AgentCount = len(s.Agents)
-	}
+	r.ensureSetLocked(setID, setName, kind)
+	r.bindAgentLocked(setID, def)
 }
 
 func (r *CapabilityRegistry) AllAgents() []AgentDescriptor {
@@ -353,21 +384,7 @@ func (r *CapabilityRegistry) AllAgents() []AgentDescriptor {
 	defer r.mu.RUnlock()
 	out := make([]AgentDescriptor, 0, len(r.agents))
 	for _, def := range r.agents {
-		out = append(out, AgentDescriptor{
-			ID:            def.ID,
-			Name:          def.Name,
-			Description:   def.Description,
-			Tier:          def.Tier,
-			ToolAllowlist: def.ToolAllowlist,
-			ToolDenylist:  def.ToolDenylist,
-			MaxIterations: def.MaxIterations,
-			Hidden:        def.Hidden,
-			Model:         def.Model,
-			Temperature:   def.Temperature,
-			TimeoutSecs:   def.TimeoutSecs,
-			SandboxMode:   def.SandboxMode,
-			Background:    def.Background,
-		})
+		out = append(out, agentDefToDescriptor(def))
 	}
 	return out
 }
@@ -389,8 +406,7 @@ func (r *CapabilityRegistry) RegisterMCP(setID, toolName string, client *mcpclie
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.mcpClients[setID] = client
-	r.exec[toolName] = &mcpProxyTool{name: toolName, serverID: setID, reg: r}
-	r.addToolToSetLocked(setID, toolName, toolToDescriptor(toolName, r.exec[toolName]))
+	r.bindToolLocked(setID, toolName, &mcpProxyTool{name: toolName, serverID: setID, reg: r})
 }
 
 func (r *CapabilityRegistry) ConnectMCPServer(setID string, entry ServerEntry) error {
@@ -437,8 +453,9 @@ func (r *CapabilityRegistry) ConnectMCPServer(setID string, entry ServerEntry) e
 	r.UpdateSetHealth(setID, HealthOK)
 	r.mu.Lock()
 	if s, ok := r.sets[setID]; ok {
+		// ToolCount is maintained by bindToolLocked; only ConnectedAt needs
+		// updating here.
 		s.ConnectedAt = now.Format(time.RFC3339)
-		s.ToolCount = len(mcpTools)
 	}
 	r.mu.Unlock()
 
@@ -449,13 +466,19 @@ func (r *CapabilityRegistry) DisconnectMCPServer(setID string) error {
 	r.mu.Lock()
 	client := r.mcpClients[setID]
 	delete(r.mcpClients, setID)
+	var removed []string
 	for name, owner := range r.toolOwner {
 		if owner == setID {
+			removed = append(removed, name)
 			delete(r.exec, name)
 			delete(r.toolOwner, name)
 		}
 	}
 	if s, ok := r.sets[setID]; ok {
+		for _, name := range removed {
+			s.Tools = removeToolDescriptor(s.Tools, name)
+		}
+		s.ToolCount = len(s.Tools)
 		s.Health = HealthDown
 		s.ConnectedAt = ""
 	}
@@ -570,19 +593,6 @@ func (r *CapabilityRegistry) RegisterExtension(setID string, set *CapabilitySet,
 	r.disposes[setID] = unwind
 	r.mu.Unlock()
 	return unwind, nil
-}
-
-// DisposeSet unwinds a previously registered extension effect and removes it
-// from the registry. Idempotent: disposing a non-existent or already-disposed
-// set is a no-op.
-func (r *CapabilityRegistry) DisposeSet(setID string) {
-	r.mu.Lock()
-	d, ok := r.disposes[setID]
-	delete(r.disposes, setID)
-	r.mu.Unlock()
-	if ok && d != nil {
-		d()
-	}
 }
 
 // removeSetInternal performs the full teardown for a set: unregister tools and

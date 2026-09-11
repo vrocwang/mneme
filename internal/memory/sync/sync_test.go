@@ -5,10 +5,6 @@ import (
 	"testing"
 )
 
-
-
-
-
 func TestManager_RegisterAndSync(t *testing.T) {
 	m := NewManager(nil)
 	m.Register(&stubConnector{name: "test"})
@@ -18,33 +14,9 @@ func TestManager_RegisterAndSync(t *testing.T) {
 	}
 }
 
-
-
 // ── RSSConnector tests ───────────────────────────────────────────────
 
-
-
-
 // ── WebPageConnector tests ───────────────────────────────────────────
-
-
-
-
-
-// ── helpers ──────────────────────────────────────────────────────────
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && searchSubstring(s, substr)
-}
-
-func searchSubstring(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
-}
 
 type stubConnector struct{ name string }
 

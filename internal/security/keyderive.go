@@ -3,6 +3,7 @@ package security
 import (
 	"crypto/rand"
 	"fmt"
+	ws "github.com/simon/mneme/internal/workspace"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,7 +14,7 @@ const argonKeyLen = 32
 
 // KeyFilePath returns the path to the encryption key file for a workspace.
 func KeyFilePath(workspace string) string {
-	return filepath.Join(workspace, "secrets", "encryption.key")
+	return filepath.Join(ws.SecretsDir(workspace), "encryption.key")
 }
 
 // LoadOrCreateKey loads an existing encryption key file or creates a new one.

@@ -64,5 +64,3 @@ func (r *Redactor) Redact(text string) (string, []string) {
 	}
 	return result, found
 }
-
-var unsafeFilenameChars = regexp.MustCompile(`[<>:"/\\|?*\x00-\x1f]`)

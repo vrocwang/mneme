@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/simon/mneme/internal/agent"
 	"github.com/simon/mneme/internal/approval"
@@ -35,10 +36,10 @@ import (
 	"github.com/simon/mneme/internal/notifications"
 	"github.com/simon/mneme/internal/observability"
 	"github.com/simon/mneme/internal/prompts"
-	"github.com/simon/mneme/internal/routing"
 	"github.com/simon/mneme/internal/security"
 	"github.com/simon/mneme/internal/skills"
 	"github.com/simon/mneme/internal/subconscious"
+	"github.com/simon/mneme/internal/todos"
 	"github.com/simon/mneme/internal/tools"
 	"github.com/simon/mneme/internal/workspace"
 	"github.com/simon/mneme/pkg/events"
@@ -80,8 +81,8 @@ type AppCore struct {
 
 	MonitorMgr *monitor.Manager
 	SyncMgr    *memsync.Manager
+	TodoStore  *todos.Store
 
-	ModelRouter    *routing.Router
 	SecurityPolicy *security.SecurityPolicy
 	ApprovalGate   *approval.Gate
 
@@ -105,6 +106,8 @@ type AppCore struct {
 	TaskStore        *agent.TaskStore
 
 	StartupErrors []string
+
+	shutdownOnce sync.Once
 }
 
 // NewAppCore creates an uninitialized application core.
@@ -119,8 +122,6 @@ func (a *AppCore) Init(headless bool) {
 
 	// ── Observability ─────────────────────────────────────────────────
 	a.ObsHub = observability.InitFromConfig(
-		a.Cfg.Observability.SentryDSN,
-		a.Cfg.Observability.TracingEnabled,
 		a.Cfg.Observability.LogLevel,
 		a.Cfg.Workspace,
 		a.Log,
@@ -170,7 +171,7 @@ func (a *AppCore) Init(headless bool) {
 
 	// ── Session DB ───────────────────────────────────────────────────
 	if a.DB != nil {
-		legacyDir := filepath.Join(a.Cfg.Workspace, "data", "agent_sessions")
+		legacyDir := filepath.Join(workspace.DataDir(a.Cfg.Workspace), "agent_sessions")
 		sessionDB, err := agent.NewSessionDB(a.DB, legacyDir)
 		if err != nil {
 			a.addStartupError("session DB", err)
@@ -228,11 +229,11 @@ func (a *AppCore) Init(headless bool) {
 
 	// Register late tools now that capReg is available.
 	if a.Pipeline != nil && a.CapReg != nil && a.ConvStore != nil {
-		RegisterLateTools(a.CapReg, a.ConvStore, a.Pipeline, a.Provider, a.Cfg.Agent.DefaultModel, bundle.NewRegistry(a.Cfg.Bundles.Disabled))
+		RegisterLateTools(a.CapReg, a.ConvStore, a.Pipeline, a.Provider, a.Cfg.ModelForRoute("summary"), bundle.NewRegistry(a.Cfg.Bundles.Disabled))
 	}
 
 	// ── Goals store & tools ────────────────────────────────────────────
-	goalsPath := filepath.Join(a.Cfg.Workspace, "data", "MEMORY_GOALS.md")
+	goalsPath := filepath.Join(workspace.DataDir(a.Cfg.Workspace), "MEMORY_GOALS.md")
 	if goalsStore, err := goals.NewStore(goalsPath); err == nil && a.CapReg != nil {
 		if bundle.NewRegistry(a.Cfg.Bundles.Disabled).IsEnabled(bundle.BundleGoals) {
 			goals.RegisterTools(a.CapReg, goalsStore)
@@ -242,22 +243,33 @@ func (a *AppCore) Init(headless bool) {
 		a.Log.Warn("memory goals store init failed", "error", err)
 	}
 
+	// ── Todo / task-board store & tools ───────────────────────────────
+	// AppCore owns the store so the agent tools and the Wails todo RPCs read
+	// and write the same boards.
+	if a.CapReg != nil && bundle.NewRegistry(a.Cfg.Bundles.Disabled).IsEnabled(bundle.BundleTodos) {
+		a.TodoStore = todos.NewStore(a.Cfg.Workspace)
+		todos.RegisterTools(a.CapReg, a.TodoStore)
+		a.Log.Info("todo store initialized", "dir", a.Cfg.Workspace)
+	}
+
 	// ── Prompt manager ───────────────────────────────────────────────
 	a.PromptMgr = prompts.New(a.Cfg.Workspace)
 
 	// ── Injectors ────────────────────────────────────────────────────
-	skillsDir := filepath.Join(a.Cfg.Workspace, "skills")
+	skillsDir := workspace.SkillsDir(a.Cfg.Workspace)
 	skillsReg := skills.NewRegistry()
 	a.SkillsInjector = agent.NewSkillsInjector(skillsDir).WithRegistry(skillsReg)
 	if err := a.SkillsInjector.Load(); err != nil {
 		a.Log.Warn("failed to load skills", "dir", skillsDir, "error", err)
 	}
-	a.ExperienceInjector = agent.NewExperienceInjector(a.Learning)
 	a.WorkflowInjector = agent.NewWorkflowInjector(
-		filepath.Join(a.Cfg.Workspace, "workflows"),
+		workspace.WorkflowsDir(a.Cfg.Workspace),
 		a.Cfg.Workspace,
 	)
 	a.WorkflowInjector.Load()
+	// The ExperienceInjector is created after the Learning engine is
+	// initialised below; constructing it here would pass a nil engine and
+	// permanently disable prior-learning injection.
 
 	// ── Event bus ────────────────────────────────────────────────────
 	a.EventBus = events.NewBus()
@@ -276,11 +288,8 @@ func (a *AppCore) Init(headless bool) {
 
 	// ── Chat service ─────────────────────────────────────────────────
 	a.ChatService = agent.NewChatService(agent.ChatServiceConfig{
-		Log: a.Log,
-		ResolveModel: func(msg string) string {
-			return a.ModelRouter.Resolve(routing.ClassifyTaskKind(msg))
-		},
-		SaveUserMessage: SaveUserMessage(func() *conversations.Store { return a.ConvStore }),
+		Log:             a.Log,
+		SaveUserMessage: SaveUserMessage(func() *conversations.Store { return a.ConvStore }, a.Log),
 	})
 	a.HookReg = agent.NewPostTurnHookRegistry().WithLogger(a.Log)
 	a.ChatService.SetHookRegistry(a.HookReg)
@@ -299,6 +308,10 @@ func (a *AppCore) Init(headless bool) {
 
 		// Start channels from config via CapabilityRegistry.
 		for name, chCfg := range a.Cfg.Channels {
+			if chCfg.Disabled {
+				a.Log.Info("channel disabled by config", "name", name)
+				continue
+			}
 			capCfg := capability.ChannelConfig{
 				Token:      chCfg.Token,
 				WebhookURL: chCfg.WebhookURL,
@@ -314,26 +327,13 @@ func (a *AppCore) Init(headless bool) {
 		a.ChannelOrch.StartAll(context.Background())
 	}
 
-	// ── Model router ─────────────────────────────────────────────────
-	a.ModelRouter = routing.NewRouter(a.Cfg.Agent.DefaultModel)
-	for _, r := range routing.DefaultRoutes() {
-		a.ModelRouter.SetRoute(r.Kind, a.Cfg.Agent.DefaultModel)
-	}
-	var providerModels []routing.ProviderModel
-	for _, p := range a.Cfg.Providers {
-		providerModels = append(providerModels, routing.ProviderModel{Name: p.Name, Models: p.Models})
-	}
-	if len(providerModels) > 0 {
-		a.ModelRouter.ConfigureFromProviders(providerModels)
-	}
-
 	// ── Cron ─────────────────────────────────────────────────────────
 	a.Cron = cron.New(a.Log)
 	if a.DB != nil {
 		a.Cron.WithStore(a.DB)
 	}
 	if a.ChatService != nil {
-		a.Cron.WithChatSender(NewCronChatSender(a.ChatService))
+		a.Cron.WithChatSender(NewCronChatSender(func() *agent.ChatService { return a.ChatService }))
 	}
 	a.Cron.WithShellRunner(NewShellRunner())
 	// Cron jobs are registered by the "cron-jobs" event bundle; the scheduler
@@ -353,7 +353,7 @@ func (a *AppCore) Init(headless bool) {
 	if a.Cfg.Learning.Enabled {
 		a.Learning = learning.New(a.Log)
 		if a.Provider != nil {
-			a.Learning.SetProvider(a.Provider, a.Cfg.Agent.DefaultModel)
+			a.Learning.SetProvider(a.Provider, a.Cfg.ModelForRoute("reasoning"))
 		}
 		if a.DB != nil {
 			store, _ := learning.NewSQLiteStore(a.DB)
@@ -367,6 +367,11 @@ func (a *AppCore) Init(headless bool) {
 	} else {
 		a.Log.Info("learning disabled by config")
 	}
+
+	// Prior-learning injection is created here, after a.Learning exists. It is
+	// nil when learning is disabled, which the memory middleware treats as
+	// "no injection" rather than an error.
+	a.ExperienceInjector = agent.NewExperienceInjector(a.Learning)
 
 	// ── Metrics ──────────────────────────────────────────────────────
 	a.Metrics = health.NewRegistry()
@@ -409,6 +414,7 @@ func (a *AppCore) Init(headless bool) {
 		Pipeline:     a.Pipeline,
 		Provider:     a.Provider,
 		Learning:     a.Learning,
+		Exp:          a.ExperienceInjector,
 		SyncMgr:      a.SyncMgr,
 		Subcon:       a.Subcon,
 		Heartbeat:    a.Heartbeat,
@@ -428,12 +434,10 @@ func (a *AppCore) Init(headless bool) {
 	}
 
 	// ── Post-bootstrap tools ─────────────────────────────────────────
-	// GUI calls RegisterPostBootstrapTools again with the real automator.
-
-	// ── Wire extension RPC ───────────────────────────────────────────
-	if a.CapReg != nil {
-		capability.WireRPC(a.CapReg)
-	}
+	// Cron and monitor tools depend on the scheduler/manager created above.
+	// Register them here, not in BootstrapGUI, so headless CLI/run/MCP modes
+	// get them too.
+	RegisterPostBootstrapTools(a.CapReg, a.Cron, a.MonitorMgr, bundle.NewRegistry(a.Cfg.Bundles.Disabled))
 
 	// ── eino integration ──────────────────────────────────────────────
 	// Create the eino agent pipeline and wire it to ChatService.
@@ -487,15 +491,18 @@ func (a *AppCore) Init(headless bool) {
 		cbm := einocb.NewManager(a.AuditLogger, a.Learning)
 		a.Callbacks = cbm
 
+		routeModels := eino.CollectRouteModels(context.Background(), a.Cfg, a.Log)
 		agentSet, agentSetErr := eino.NewAgentSet(context.Background(), &eino.AgentSetConfig{
-			Workspace:       a.Cfg.Workspace,
-			PromptMgr:       a.PromptMgr,
-			FailoverModels:  failoverModels,
-			ChatModel:       chatModel,
-			AllTools:        allTools,
-			MessageModifier: memMW.ModifyMessages,
-			SecurityMW:      secMW,
-			BreakerMW:       breakerMW,
+			Workspace:            a.Cfg.Workspace,
+			PromptMgr:            a.PromptMgr,
+			FailoverModels:       failoverModels,
+			ChatModel:            chatModel,
+			AllTools:             allTools,
+			MessageModifier:      memMW.ModifyMessages,
+			SecurityMW:           secMW,
+			BreakerMW:            breakerMW,
+			DefaultMaxIterations: a.Cfg.Agent.Limits.MaxToolRounds,
+			Models:               routeModels,
 		}, &agentRegistryAdapter{capReg: a.CapReg})
 		if agentSetErr != nil {
 			a.Log.Warn("eino: failed to create agent set", "err", agentSetErr)
@@ -595,15 +602,31 @@ func (a *AppCore) Init(headless bool) {
 	a.Log.Info("app core initialization complete")
 }
 
-// Shutdown stops all components in reverse dependency order.
+// Shutdown stops all components in reverse dependency order. Idempotent: a
+// second call is a no-op, so GUI and CLI teardown can both invoke it safely.
 func (a *AppCore) Shutdown() {
+	a.shutdownOnce.Do(a.shutdown)
+}
+
+func (a *AppCore) shutdown() {
 	a.Log.Info("app core stopping")
-	// Shutdown event published by caller before unsubscribing.
+	// Deny any pending approval requests first so blocked tool calls (and the
+	// UI waiting on them) are released instead of hanging until timeout.
+	if a.ApprovalGate != nil {
+		a.ApprovalGate.CancelAll("app shutdown")
+	}
+	// Stop background work that touches the DB before closing it.
+	if a.TaskDispatcher != nil {
+		a.TaskDispatcher.Stop()
+	}
 	if a.CapReg != nil {
 		a.CapReg.Shutdown()
 	}
 	if a.ChannelOrch != nil {
 		a.ChannelOrch.StopAll()
+	}
+	if a.MonitorMgr != nil {
+		a.MonitorMgr.StopAll()
 	}
 	if a.Heartbeat != nil {
 		a.Heartbeat.Stop()
@@ -622,6 +645,10 @@ func (a *AppCore) Shutdown() {
 	}
 	if a.DB != nil {
 		a.DB.Close()
+	}
+	// Flush and close the log/report writer last so shutdown steps are recorded.
+	if a.ObsHub != nil {
+		a.ObsHub.Close()
 	}
 }
 
@@ -688,6 +715,8 @@ func (a *agentRegistryAdapter) AgentDefs() []eino.AgentDef {
 			ToolAllowlist: d.ToolAllowlist,
 			Hidden:        d.Hidden,
 			SystemPrompt:  systemPrompt,
+			MaxIterations: d.MaxIterations,
+			Model:         d.Model,
 		})
 	}
 	return defs

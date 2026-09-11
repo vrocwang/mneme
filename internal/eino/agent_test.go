@@ -2,6 +2,8 @@ package eino
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/cloudwego/eino/adk"
@@ -9,6 +11,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 
+	"github.com/simon/mneme/internal/config"
 	"github.com/simon/mneme/internal/prompts"
 )
 
@@ -152,3 +155,77 @@ func TestBuildFailoverConfig_WithModels(t *testing.T) {
 
 // guard against accidentally dropping the adk-import in future edits.
 var _ adk.Agent
+
+func TestCollectRouteModels_EmptyConfig(t *testing.T) {
+	if m := CollectRouteModels(context.Background(), &config.Config{}, nil); m != nil {
+		t.Errorf("expected nil map with no routes, got %d entries", len(m))
+	}
+	if m := CollectRouteModels(context.Background(), nil, nil); m != nil {
+		t.Errorf("expected nil map for nil config, got %d entries", len(m))
+	}
+}
+
+func TestCollectRouteModels_ResolvesConfiguredRoutes(t *testing.T) {
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{
+			Name:   "openai",
+			Type:   "openai",
+			APIKey: "test-key",
+			Models: []string{"model-a", "model-b"},
+		}},
+	}
+	cfg.Agent.ModelRoutes = map[string]string{
+		"coding":    "model-a",
+		"reasoning": "model-b",
+		"unset":     "", // empty route must be skipped, not error
+	}
+	got := CollectRouteModels(context.Background(), cfg, nil)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 resolved routes, got %d", len(got))
+	}
+	for _, kind := range []string{"coding", "reasoning"} {
+		if got[kind] == nil {
+			t.Errorf("route %q was not resolved", kind)
+		}
+	}
+	if _, ok := got["unset"]; ok {
+		t.Error("empty route value should be skipped")
+	}
+}
+
+func TestFinishContent_MaxIterationsNotice(t *testing.T) {
+	// Hitting the iteration bound with no output yields a user-visible notice.
+	if got := finishContent("", true); got != maxIterationsNotice {
+		t.Errorf("empty partial result should yield the notice, got %q", got)
+	}
+	if got := finishContent("   ", true); got != maxIterationsNotice {
+		t.Errorf("whitespace-only partial result should yield the notice, got %q", got)
+	}
+	// Partial content is returned unchanged.
+	if got := finishContent("partial answer", true); got != "partial answer" {
+		t.Errorf("partial content must be preserved, got %q", got)
+	}
+	// A normal completion is never modified.
+	if got := finishContent("", false); got != "" {
+		t.Errorf("normal completion should not inject a notice, got %q", got)
+	}
+}
+
+func TestIsMaxIterationsErr(t *testing.T) {
+	if isMaxIterationsErr(nil) {
+		t.Error("nil error must not match the iteration limit")
+	}
+	if !isMaxIterationsErr(adk.ErrExceedMaxIterations) {
+		t.Error("the adk sentinel must match")
+	}
+	wrapped := fmt.Errorf("agent failed: %w", adk.ErrExceedMaxIterations)
+	if !isMaxIterationsErr(wrapped) {
+		t.Error("a wrapped sentinel must match")
+	}
+	if !isMaxIterationsErr(errors.New("exceeds max iterations")) {
+		t.Error("the message form must match")
+	}
+	if isMaxIterationsErr(errors.New("network timeout")) {
+		t.Error("unrelated errors must not match")
+	}
+}

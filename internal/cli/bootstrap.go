@@ -21,6 +21,20 @@ func bootstrapChat() (*boot.AppCore, error) {
 	return bootstrapLevel(true)
 }
 
+// activeCores tracks every AppCore created during this CLI process so Run can
+// tear them all down on exit. AppCore.Shutdown is idempotent.
+var activeCores []*boot.AppCore
+
+// ShutdownAll stops every AppCore created by this process, newest first. It is
+// invoked once from Run's defer, so CLI commands never leak the DB handle,
+// extension subprocesses, or background goroutines.
+func ShutdownAll() {
+	for i := len(activeCores) - 1; i >= 0; i-- {
+		activeCores[i].Shutdown()
+	}
+	activeCores = nil
+}
+
 func bootstrapLevel(full bool) (*boot.AppCore, error) {
 	workspace := config.WorkspaceDir()
 	configPath := config.ConfigPath(workspace)
@@ -35,5 +49,6 @@ func bootstrapLevel(full bool) (*boot.AppCore, error) {
 	core := boot.NewAppCore(cfg, log)
 	// For CLI, skip desktop/channels/webhook (headless mode).
 	core.Init(true)
+	activeCores = append(activeCores, core)
 	return core, nil
 }

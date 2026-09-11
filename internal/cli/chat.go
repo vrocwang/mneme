@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"github.com/simon/mneme/internal/agent"
 	"github.com/simon/mneme/internal/security"
@@ -19,6 +20,9 @@ func runChat(args []string) error {
 	}
 	if core.Provider == nil {
 		return fmt.Errorf("no inference provider configured; check config.toml [providers]")
+	}
+	if core.Runner == nil {
+		return fmt.Errorf("agent runner unavailable (eino integration failed); check the startup log for provider errors")
 	}
 
 	svc := core.ChatService
@@ -93,8 +97,12 @@ func runChat(args []string) error {
 			continue
 		}
 
-		// Streaming agent turn.
+		// Streaming agent turn. Every terminal event (done or error) carries
+		// Done=true; the turn must end on either, otherwise a model/network
+		// error would leave the loop blocked on <-done forever. A sync.Once
+		// keeps a duplicate terminal event from panicking on a double close.
 		done := make(chan struct{})
+		var closeOnce sync.Once
 		svc.StreamMessage(ctx, threadID, input, func(evt agent.StreamEvent) {
 			switch evt.Type {
 			case "token":
@@ -107,7 +115,9 @@ func runChat(args []string) error {
 				fmt.Printf("\n  ✗ %s\n", evt.Content)
 			case "done":
 				fmt.Println()
-				close(done)
+			}
+			if evt.Done {
+				closeOnce.Do(func() { close(done) })
 			}
 		})
 		<-done

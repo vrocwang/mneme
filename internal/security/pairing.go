@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
+	ws "github.com/simon/mneme/internal/workspace"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -30,7 +31,6 @@ type PairingGuard struct {
 	mu             sync.RWMutex
 	hashedTokens   map[string]bool // SHA-256 hashed tokens
 	tokenPath      string
-	createdAt      time.Time
 	failedAttempts int
 	lockedUntil    time.Time
 	log            *slog.Logger
@@ -42,7 +42,6 @@ func NewPairingGuard(workspace string, log *slog.Logger) (*PairingGuard, error) 
 	pg := &PairingGuard{
 		hashedTokens: make(map[string]bool),
 		tokenPath:    tokenPath,
-		createdAt:    time.Now().UTC(),
 		log:          log,
 	}
 
@@ -85,7 +84,7 @@ func hashToken(token string) string {
 
 // loadPersistedHashes loads previously authorized token hashes from disk.
 func (pg *PairingGuard) loadPersistedHashes(workspace string) {
-	hashPath := filepath.Join(workspace, "secrets", "token_hashes")
+	hashPath := filepath.Join(ws.SecretsDir(workspace), "token_hashes")
 	data, err := os.ReadFile(hashPath)
 	if err != nil {
 		return // no persisted hashes
@@ -207,7 +206,6 @@ func (pg *PairingGuard) Rotate() error {
 	pg.mu.Lock()
 	pg.hashedTokens = make(map[string]bool)
 	pg.hashedTokens[hashToken(newToken)] = true
-	pg.createdAt = time.Now().UTC()
 	pg.mu.Unlock()
 
 	if err := os.WriteFile(pg.tokenPath, []byte(newToken), 0600); err != nil {

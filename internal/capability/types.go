@@ -10,12 +10,12 @@ import (
 type SourceKind string
 
 const (
-	KindBuiltin    SourceKind = "builtin"
-	KindExtension  SourceKind = "extension"
-	KindMCPServer  SourceKind = "mcp_server"
-	KindSkill      SourceKind = "skill"
-	KindUserAgent  SourceKind = "user_agent"
-	KindAgentPack  SourceKind = "agent_pack"
+	KindBuiltin   SourceKind = "builtin"
+	KindExtension SourceKind = "extension"
+	KindMCPServer SourceKind = "mcp_server"
+	KindSkill     SourceKind = "skill"
+	KindUserAgent SourceKind = "user_agent"
+	KindAgentPack SourceKind = "agent_pack"
 )
 
 // SetHealth reports the connection health of a capability set.
@@ -100,22 +100,4 @@ type SkillManifest struct {
 	Homepage    string   `yaml:"homepage" json:"homepage,omitempty"`
 	Tags        []string `yaml:"tags" json:"tags,omitempty"`
 	Tools       []string `yaml:"tools" json:"tools,omitempty"`
-}
-
-// SkillToolDef is a tool definition within a skill manifest (manifest.json variant).
-type SkillToolDef struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	Command     string          `json:"command"`
-	InputSchema json.RawMessage `json:"input_schema,omitempty"`
-}
-
-// SkillAgentDef is an agent definition within a skill manifest (manifest.json variant).
-type SkillAgentDef struct {
-	ID            string   `json:"id"`
-	Name          string   `json:"name"`
-	Description   string   `json:"description"`
-	Tier          string   `json:"tier"`
-	SystemPrompt  string   `json:"system_prompt,omitempty"`
-	ToolAllowlist []string `json:"tool_allowlist,omitempty"`
 }
