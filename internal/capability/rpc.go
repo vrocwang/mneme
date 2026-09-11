@@ -243,22 +243,22 @@ func (r *CapabilityRPC) AddMCPServer(name, transport, command, url string, args 
 		return fmt.Errorf("marshal server entry: %w", err)
 	}
 	set := &CapabilitySet{
-		ID: "mcp:" + name, Name: name, Kind: KindMCPServer,
+		ID: MCPSetID(name), Name: name, Kind: KindMCPServer,
 		Description: "External MCP server", Config: entry, Enabled: true, Health: HealthUnknown,
 	}
 	if err := r.reg.AddSet(set); err != nil {
 		return err
 	}
-	if err := r.reg.ConnectMCPServer("mcp:"+name, entryObj); err != nil {
+	if err := r.reg.ConnectMCPServer(MCPSetID(name), entryObj); err != nil {
 		// Rollback the just-added set so a retry with corrected config is not
 		// blocked by a stale "already registered" entry.
-		_ = r.reg.RemoveSet("mcp:" + name)
+		_ = r.reg.RemoveSet(MCPSetID(name))
 		return fmt.Errorf("connect failed: %w", err)
 	}
 	// Persist so ReconnectPersistedServers re-connects it after restart.
 	if r.mcpPersister != nil {
 		if perr := r.mcpPersister.PersistMCPServer(&PersistedMCPServer{
-			ServerID: "mcp:" + name, QualifiedName: name, DisplayName: name,
+			ServerID: MCPSetID(name), QualifiedName: name, DisplayName: name,
 			Command: command, Args: args, Transport: transport,
 			DeploymentURL: url, Enabled: true,
 		}); perr != nil {
@@ -272,12 +272,12 @@ func (r *CapabilityRPC) RemoveMCPServer(name string) error {
 	if !r.ok() {
 		return nil
 	}
-	r.reg.DisconnectMCPServer("mcp:" + name)
-	err := r.reg.RemoveSet("mcp:" + name)
+	r.reg.DisconnectMCPServer(MCPSetID(name))
+	err := r.reg.RemoveSet(MCPSetID(name))
 	if r.mcpPersister != nil {
 		// Always clean up persisted state, even if the in-memory set was
 		// already absent (e.g. after a restart that failed to reconnect).
-		if perr := r.mcpPersister.RemoveMCPServer("mcp:" + name); perr != nil {
+		if perr := r.mcpPersister.RemoveMCPServer(MCPSetID(name)); perr != nil {
 			return perr
 		}
 		// Suppress a "set not found" error: removing a server that exists
@@ -291,20 +291,20 @@ func (r *CapabilityRPC) ConnectMCPServer(name string) error {
 	if !r.ok() {
 		return nil
 	}
-	set, ok := r.reg.GetSet("mcp:" + name)
+	set, ok := r.reg.GetSet(MCPSetID(name))
 	if !ok {
 		return nil
 	}
 	var entry ServerEntry
 	json.Unmarshal(set.Config, &entry)
-	return r.reg.ConnectMCPServer("mcp:"+name, entry)
+	return r.reg.ConnectMCPServer(MCPSetID(name), entry)
 }
 
 func (r *CapabilityRPC) DisconnectMCPServer(name string) error {
 	if !r.ok() {
 		return nil
 	}
-	return r.reg.DisconnectMCPServer("mcp:" + name)
+	return r.reg.DisconnectMCPServer(MCPSetID(name))
 }
 
 // ── Extension management ────────────────────────────────
@@ -396,7 +396,7 @@ func (r *CapabilityRPC) UninstallExtension(category, name string) error {
 		return err
 	}
 	// Remove from registry so it disappears immediately.
-	setID := "extension:" + name
+	setID := ExtensionSetID(name)
 	r.reg.RemoveSet(setID)
 	return nil
 }
@@ -609,7 +609,7 @@ func loadExtension(reg *CapabilityRegistry, ext *tools.DiscoveredExtension, work
 		return fmt.Errorf("start extension %q: %w", ext.Manifest.Name, err)
 	}
 
-	setID := "extension:" + ext.Manifest.Name
+	setID := ExtensionSetID(ext.Manifest.Name)
 
 	// Collect tools and agents up front so the whole extension can be
 	// registered as a single effect (RegisterExtension reserves the set ID

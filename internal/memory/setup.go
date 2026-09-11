@@ -6,6 +6,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/simon/mneme/internal/config"
+
 	"github.com/simon/mneme/internal/embeddings"
 	embproviders "github.com/simon/mneme/internal/embeddings/providers"
 	"github.com/simon/mneme/internal/inference"
@@ -13,23 +15,25 @@ import (
 )
 
 // SetupEmbedder creates an embedding provider and wires it into the pipeline.
-// providerType: "ollama", "openai", or "" to disable.
-func SetupEmbedder(p *Pipeline, providerType, baseURL, apiKey string, log *slog.Logger) {
-	if providerType == "" {
+// cfg.Provider: "ollama", "openai", or "" to disable.
+func SetupEmbedder(p *Pipeline, cfg config.EmbeddingConfig, log *slog.Logger) {
+	if cfg.Provider == "" {
 		return
 	}
 	var embedder embeddings.Provider
-	switch providerType {
+	switch cfg.Provider {
 	case "ollama":
+		baseURL := cfg.BaseURL
 		if baseURL == "" {
 			baseURL = "http://localhost:11434"
 		}
-		embedder = embproviders.NewOllama(baseURL)
+		embedder = embproviders.NewOllama(baseURL, cfg.Model)
 	case "openai":
+		apiKey := cfg.APIKey
 		if apiKey == "" {
 			apiKey = os.Getenv("OPENAI_API_KEY")
 		}
-		embedder = embproviders.NewOpenAI(apiKey)
+		embedder = embproviders.NewOpenAI(apiKey, cfg.BaseURL, cfg.Model)
 	}
 	if embedder != nil {
 		p.WithEmbedder(embeddings.NewBatchedProvider(embedder, 200*time.Millisecond, 8))

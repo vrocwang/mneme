@@ -8,14 +8,14 @@ import (
 )
 
 func TestOpenAIEmbedderName(t *testing.T) {
-	o := NewOpenAI("sk-test123")
+	o := NewOpenAI("sk-test123", "", "")
 	if o.Name() != "openai" {
 		t.Errorf("expected name 'openai', got %q", o.Name())
 	}
 }
 
 func TestOpenAIEmbedderDimensions(t *testing.T) {
-	o := NewOpenAI("sk-test123")
+	o := NewOpenAI("sk-test123", "", "")
 	if o.Dimensions() != 1536 {
 		t.Errorf("expected 1536 dimensions, got %d", o.Dimensions())
 	}

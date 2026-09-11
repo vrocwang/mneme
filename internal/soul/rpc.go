@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/simon/mneme/internal/workspace"
 )
 
-// RPC exposes SOUL.md and IDENTITY.md editing to the Wails frontend.
+// RPC exposes the identity files editing to the Wails frontend.
 type RPC struct {
 	workspace string
 }
@@ -20,22 +22,22 @@ func NewRPC(workspace string) *RPC {
 
 // GetSOUL returns the contents of SOUL.md.
 func (r *RPC) GetSOUL() (string, error) {
-	return r.readFile("SOUL.md")
+	return r.readFile(workspace.FileSoul)
 }
 
 // SetSOUL overwrites SOUL.md with the given content.
 func (r *RPC) SetSOUL(content string) error {
-	return r.writeFile("SOUL.md", content)
+	return r.writeFile(workspace.FileSoul, content)
 }
 
 // GetIdentity returns the contents of IDENTITY.md.
 func (r *RPC) GetIdentity() (string, error) {
-	return r.readFile("IDENTITY.md")
+	return r.readFile(workspace.FileIdentity)
 }
 
 // SetIdentity overwrites IDENTITY.md with the given content.
 func (r *RPC) SetIdentity(content string) error {
-	return r.writeFile("IDENTITY.md", content)
+	return r.writeFile(workspace.FileIdentity, content)
 }
 
 func (r *RPC) readFile(name string) (string, error) {

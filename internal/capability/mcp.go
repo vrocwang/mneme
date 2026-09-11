@@ -18,7 +18,7 @@ func SetMCPEventHook(fn MCPEventFunc) { mcpEventFn = fn }
 
 // connectMCPServer connects to an MCP server and registers its tools.
 func connectMCPServer(reg *CapabilityRegistry, srv ServerEntry, log *slog.Logger) error {
-	setID := "mcp:" + srv.Name
+	setID := MCPSetID(srv.Name)
 
 	entry, err := json.Marshal(srv)
 	if err != nil {

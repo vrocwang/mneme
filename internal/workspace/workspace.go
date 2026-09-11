@@ -7,6 +7,16 @@ import (
 	"path/filepath"
 )
 
+// Identity file names created at workspace bootstrap. Shared by the soul
+// editor, subconscious evaluators, and the sandbox blocklist so the same
+// names never drift between subsystems.
+const (
+	FileSoul      = "SOUL.md"
+	FileIdentity  = "IDENTITY.md"
+	FileHeartbeat = "HEARTBEAT.md"
+	FileProfile   = "PROFILE.md"
+)
+
 var layout = []string{
 	"agents",            // user-defined agent TOML definitions
 	"agent_task_boards", // agent kanban task boards
@@ -30,7 +40,7 @@ var layout = []string{
 // already exist. These provide the agent with its core identity and operating
 // instructions — matching Rust workspace/ops.rs bundled_default_contents.
 var bundledFiles = map[string]string{
-	"SOUL.md": `# Mneme Soul
+	FileSoul: `# Mneme Soul
 
 You are Mneme, a personal AI assistant. You are helpful, concise, and
 precise. You operate in the user's best interest and respect their autonomy.
@@ -42,7 +52,7 @@ precise. You operate in the user's best interest and respect their autonomy.
 - Respect the user's tools, filesystem, and privacy.
 - Execute tasks efficiently: plan, act, verify.
 `,
-	"IDENTITY.md": `# Mneme Identity
+	FileIdentity: `# Mneme Identity
 
 This file defines your persistent identity and preferences. The user can edit
 it to customize how you behave, what you know about them, and how you should

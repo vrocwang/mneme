@@ -80,7 +80,7 @@ func registerSkillSet(reg *CapabilityRegistry, m SkillManifest) error {
 	}
 
 	set := &CapabilitySet{
-		ID:          "skill:" + slug,
+		ID:          SkillSetID(slug),
 		Name:        m.Name,
 		Kind:        KindSkill,
 		Description: desc,

@@ -125,7 +125,7 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 			if _, exists := reg.GetAgent(def.ID); exists {
 				reg.UnregisterAgent(def.ID)
 			}
-			reg.RegisterAgentSet("agent-pack:"+def.ID, capability.KindAgentPack, "Agent Pack: "+def.Name, def)
+			reg.RegisterAgentSet(capability.AgentPackSetID(def.ID), capability.KindAgentPack, "Agent Pack: "+def.Name, def)
 		}
 		for _, err := range packErrs {
 			log.Warn("agent pack parse error", "dir", dir, "error", err)
@@ -198,7 +198,7 @@ func ReconnectPersistedServers(reg *capability.CapabilityRegistry, mcpStore *mcp
 		if !s.Enabled {
 			continue
 		}
-		setID := "mcp:" + s.QualifiedName
+		setID := capability.MCPSetID(s.QualifiedName)
 		entry := s.ToServerEntry()
 		entryJSON, err := json.Marshal(entry)
 		if err != nil {

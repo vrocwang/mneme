@@ -1,6 +1,8 @@
 package security
 
 import (
+	"github.com/simon/mneme/internal/workspace"
+
 	"fmt"
 	"os"
 	"path/filepath"
@@ -36,10 +38,10 @@ var WorkspaceInternalFiles = []string{
 	"core.token",
 	"dev-keychain.json",
 	".env",
-	"SOUL.md",
-	"IDENTITY.md",
-	"HEARTBEAT.md",
-	"PROFILE.md",
+	workspace.FileSoul,
+	workspace.FileIdentity,
+	workspace.FileHeartbeat,
+	workspace.FileProfile,
 }
 
 type TrustedRoot struct {

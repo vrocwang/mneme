@@ -97,7 +97,7 @@ func (t *listToolsTool) Execute(ctx context.Context, args map[string]interface{}
 	if server == "" {
 		return pkgtools.Result{Error: "server name is required"}
 	}
-	setID := "mcp:" + server
+	setID := capability.MCPSetID(server)
 	set, ok := t.deps.Reg.GetSet(setID)
 	if !ok {
 		return pkgtools.Result{Error: fmt.Sprintf("MCP server %q not found", server)}
@@ -321,7 +321,7 @@ func (t *installTool) Execute(ctx context.Context, args map[string]interface{}) 
 		return pkgtools.Result{Error: "name is required"}
 	}
 
-	setID := "mcp:" + name
+	setID := capability.MCPSetID(name)
 	if _, ok := t.deps.Reg.GetSet(setID); ok {
 		return pkgtools.Result{Error: fmt.Sprintf("server %q is already installed. Use mcp_uninstall first to reinstall.", name)}
 	}
@@ -421,7 +421,7 @@ func (t *uninstallTool) Execute(ctx context.Context, args map[string]interface{}
 	if name == "" {
 		return pkgtools.Result{Error: "name is required"}
 	}
-	setID := "mcp:" + name
+	setID := capability.MCPSetID(name)
 	_ = t.deps.Reg.DisconnectMCPServer(setID)
 	if err := t.deps.Reg.RemoveSet(setID); err != nil {
 		return pkgtools.Result{Error: fmt.Sprintf("uninstall: %v", err)}
@@ -455,7 +455,7 @@ func (t *connectTool) Execute(ctx context.Context, args map[string]interface{}) 
 	if name == "" {
 		return pkgtools.Result{Error: "name is required"}
 	}
-	setID := "mcp:" + name
+	setID := capability.MCPSetID(name)
 	if err := t.deps.Reg.ConnectSet(setID); err != nil {
 		return pkgtools.Result{Error: fmt.Sprintf("connect: %v", err)}
 	}
@@ -488,7 +488,7 @@ func (t *disconnectTool) Execute(ctx context.Context, args map[string]interface{
 	if name == "" {
 		return pkgtools.Result{Error: "name is required"}
 	}
-	setID := "mcp:" + name
+	setID := capability.MCPSetID(name)
 	if err := t.deps.Reg.DisconnectSet(setID); err != nil {
 		return pkgtools.Result{Error: fmt.Sprintf("disconnect: %v", err)}
 	}

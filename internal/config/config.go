@@ -99,7 +99,8 @@ type MemoryConfig struct {
 // EmbeddingConfig selects and configures the embedding provider.
 type EmbeddingConfig struct {
 	Provider string `toml:"provider"` // "ollama", "openai", or "" to disable
-	BaseURL  string `toml:"base_url"` // override API base URL (Ollama)
+	Model    string `toml:"model"`    // model name, empty = provider default
+	BaseURL  string `toml:"base_url"` // override API base URL
 	APIKey   string `toml:"api_key"`  // API key (OpenAI)
 }
 
@@ -531,6 +532,20 @@ func (c *Config) mergeEnvOverrides() {
 			c.Cron.HeartbeatIntervalSecs = n
 		}
 	}
+	// ── Embeddings ──
+	if v := os.Getenv("MNEME_EMBEDDING_PROVIDER"); v != "" {
+		c.Embedding.Provider = v
+	}
+	if v := os.Getenv("MNEME_EMBEDDING_MODEL"); v != "" {
+		c.Embedding.Model = v
+	}
+	if v := os.Getenv("MNEME_EMBEDDING_BASE_URL"); v != "" {
+		c.Embedding.BaseURL = v
+	}
+	if v := os.Getenv("MNEME_EMBEDDING_API_KEY"); v != "" {
+		c.Embedding.APIKey = v
+	}
+
 	// ── Search ──
 	// Brave: MNEME_SEARCH_BRAVE_KEY preferred; BRAVE_API_KEY as back-compat alias.
 	if v := os.Getenv("MNEME_SEARCH_BRAVE_KEY"); v != "" {

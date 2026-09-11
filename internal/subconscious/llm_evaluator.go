@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/simon/mneme/internal/inference"
+	"github.com/simon/mneme/internal/workspace"
 )
 
 // LLMEvaluatorConfig tunes the LLM-based background evaluator.
@@ -240,7 +241,7 @@ func (e *LLMEvaluator) writeEnvironment(b *strings.Builder) {
 
 	// Load SOUL.md for identity context (matches Rust's load_identity_context).
 	if e.workspace != "" {
-		soulPath := filepath.Join(e.workspace, "SOUL.md")
+		soulPath := filepath.Join(e.workspace, workspace.FileSoul)
 		if data, err := os.ReadFile(soulPath); err == nil && len(data) > 0 {
 			b.WriteString("## Identity (SOUL.md)\n\n")
 			b.WriteString(string(data))

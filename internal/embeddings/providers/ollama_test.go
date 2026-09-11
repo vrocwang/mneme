@@ -9,14 +9,14 @@ import (
 )
 
 func TestOllamaEmbedderName(t *testing.T) {
-	o := NewOllama("http://localhost:11434")
+	o := NewOllama("http://localhost:11434", "")
 	if o.Name() != "ollama" {
 		t.Errorf("expected name 'ollama', got %q", o.Name())
 	}
 }
 
 func TestOllamaEmbedderDimensions(t *testing.T) {
-	o := NewOllama("http://localhost:11434")
+	o := NewOllama("http://localhost:11434", "")
 	if o.Dimensions() != 768 {
 		t.Errorf("expected 768 dimensions, got %d", o.Dimensions())
 	}
@@ -34,7 +34,7 @@ func TestOllamaEmbedSuccess(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	o := NewOllama(srv.URL)
+	o := NewOllama(srv.URL, "")
 	vecs, err := o.Embed(context.Background(), []string{"hello world"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -53,7 +53,7 @@ func TestOllamaEmbedServerError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	o := NewOllama(srv.URL)
+	o := NewOllama(srv.URL, "")
 	_, err := o.Embed(context.Background(), []string{"test"})
 	if err == nil {
 		t.Error("expected error for 500 response")
@@ -70,7 +70,7 @@ func TestOllamaEmbedContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	o := NewOllama(srv.URL)
+	o := NewOllama(srv.URL, "")
 	_, err := o.Embed(ctx, []string{"test"})
 	if err == nil {
 		t.Error("expected error for cancelled context")

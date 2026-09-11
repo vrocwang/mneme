@@ -126,7 +126,7 @@ func NewPipeline(db *sql.DB, provider inference.Provider, cfg *config.Config, ca
 		log.Warn("entity registry init failed, running without entity extraction", "error", err)
 	}
 
-	memory.SetupEmbedder(pipeline, cfg.Embedding.Provider, cfg.Embedding.BaseURL, cfg.Embedding.APIKey, log)
+	memory.SetupEmbedder(pipeline, cfg.Embedding, log)
 	if provider != nil {
 		memory.SetupArchivist(pipeline, provider, cfg.Agent.DefaultModel, log)
 		pipeline.SetEntityEnricher(entities.NewLLMEnricher(func(ctx context.Context, prompt string) (string, error) {

@@ -40,7 +40,7 @@ func discoverLegacyExtensions(reg *CapabilityRegistry, legacyExtensionsDir strin
 			continue
 		}
 
-		setID := "extension:" + proc.Manifest.Name
+		setID := ExtensionSetID(proc.Manifest.Name)
 		set := &CapabilitySet{
 			ID:          setID,
 			Name:        proc.Manifest.Name,

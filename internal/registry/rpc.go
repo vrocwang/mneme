@@ -119,7 +119,7 @@ func (r *RPC) InstallMCPServer(name, transport, command, url string, args []stri
 	if name == "" {
 		return fmt.Errorf("name is required")
 	}
-	setID := "mcp:" + name
+	setID := capability.MCPSetID(name)
 	if _, ok := r.reg.GetSet(setID); ok {
 		return fmt.Errorf("server %q is already installed", name)
 	}
@@ -186,7 +186,7 @@ func (r *RPC) UninstallMCPServer(name string) error {
 	if name == "" {
 		return fmt.Errorf("name is required")
 	}
-	setID := "mcp:" + name
+	setID := capability.MCPSetID(name)
 	_ = r.reg.DisconnectMCPServer(setID)
 	if err := r.reg.RemoveSet(setID); err != nil {
 		return err
@@ -206,7 +206,7 @@ func (r *RPC) GetMCPServerStatus(name string) (MCPServerStatus, error) {
 	if name == "" {
 		return MCPServerStatus{}, fmt.Errorf("name is required")
 	}
-	setID := "mcp:" + name
+	setID := capability.MCPSetID(name)
 	set, ok := r.reg.GetSet(setID)
 	if !ok {
 		return MCPServerStatus{Name: name, Connected: false, Tools: nil}, nil
@@ -216,7 +216,7 @@ func (r *RPC) GetMCPServerStatus(name string) (MCPServerStatus, error) {
 	var tools []MCPServerToolInfo
 
 	// Resolve tools owned by this server's capability set.
-	for _, td := range r.reg.ToolsInSet("mcp:" + name) {
+	for _, td := range r.reg.ToolsInSet(capability.MCPSetID(name)) {
 		tools = append(tools, MCPServerToolInfo{Name: td.Name, Description: td.Description})
 	}
 
@@ -237,7 +237,7 @@ func (r *RPC) CallMCPTool(serverName, toolName string, args map[string]interface
 	// Verify the tool is owned by the named server's set, then execute by
 	// raw name (MCP tools are registered under their server-side names).
 	owned := false
-	for _, td := range r.reg.ToolsInSet("mcp:" + serverName) {
+	for _, td := range r.reg.ToolsInSet(capability.MCPSetID(serverName)) {
 		if td.Name == toolName {
 			owned = true
 			break

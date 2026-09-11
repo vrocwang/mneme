@@ -116,7 +116,7 @@ func discoverExtensions(reg *CapabilityRegistry, dirs []string, log *slog.Logger
 				continue
 			}
 
-			setID := "extension:" + mf.Name
+			setID := ExtensionSetID(mf.Name)
 			set := &CapabilitySet{
 				ID:          setID,
 				Name:        mf.Name,

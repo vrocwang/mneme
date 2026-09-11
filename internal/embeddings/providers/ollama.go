@@ -15,8 +15,13 @@ type Ollama struct {
 	model   string
 }
 
-func NewOllama(baseURL string) *Ollama {
-	return &Ollama{baseURL: strings.TrimRight(baseURL, "/"), client: &http.Client{}, model: "nomic-embed-text"}
+// NewOllama creates an Ollama embedding provider. Empty model falls back
+// to the default embedding model.
+func NewOllama(baseURL, model string) *Ollama {
+	if model == "" {
+		model = "nomic-embed-text"
+	}
+	return &Ollama{baseURL: strings.TrimRight(baseURL, "/"), client: &http.Client{}, model: model}
 }
 
 func (p *Ollama) Name() string    { return "ollama" }
