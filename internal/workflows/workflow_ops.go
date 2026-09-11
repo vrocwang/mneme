@@ -1,4 +1,4 @@
-package agent_workflows
+package workflows
 
 import (
 	"fmt"

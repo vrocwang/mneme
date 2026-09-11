@@ -74,16 +74,8 @@ export function RemoveMCPServer(arg1) {
   return window['go']['capability']['CapabilityRPC']['RemoveMCPServer'](arg1);
 }
 
-export function SetLegacyExtensionsDir(arg1) {
-  return window['go']['capability']['CapabilityRPC']['SetLegacyExtensionsDir'](arg1);
-}
-
 export function SetRegistry(arg1) {
   return window['go']['capability']['CapabilityRPC']['SetRegistry'](arg1);
-}
-
-export function SetSkillsDir(arg1) {
-  return window['go']['capability']['CapabilityRPC']['SetSkillsDir'](arg1);
 }
 
 export function UninstallExtension(arg1, arg2) {

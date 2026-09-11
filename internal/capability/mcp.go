@@ -2,8 +2,34 @@ package capability
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 )
+
+// NewMCPServerSet builds the capability-set descriptor for an MCP server. Every
+// install, reconnect, and discovery path constructs server sets through it, so
+// the ID scheme, kind, health, and config encoding are defined in one place
+// instead of being re-derived from an identical literal at each call site.
+func NewMCPServerSet(entry ServerEntry) *CapabilitySet {
+	cfg, err := json.Marshal(entry)
+	if err != nil {
+		slog.Warn("failed to marshal MCP server entry", "name", entry.Name, "error", err)
+		cfg = nil
+	}
+	desc := "External MCP server"
+	if entry.Transport != "" {
+		desc = fmt.Sprintf("MCP server: %s (%s)", entry.Name, entry.Transport)
+	}
+	return &CapabilitySet{
+		ID:          MCPSetID(entry.Name),
+		Name:        entry.Name,
+		Kind:        KindMCPServer,
+		Description: desc,
+		Config:      cfg,
+		Enabled:     entry.Enabled,
+		Health:      HealthUnknown,
+	}
+}
 
 // MCPEventFunc is called when an MCP server connects or disconnects.
 // The capability package owns no event types — callers wire their own publishing.
@@ -20,17 +46,7 @@ func SetMCPEventHook(fn MCPEventFunc) { mcpEventFn = fn }
 func connectMCPServer(reg *CapabilityRegistry, srv ServerEntry, log *slog.Logger) error {
 	setID := MCPSetID(srv.Name)
 
-	entry, err := json.Marshal(srv)
-	if err != nil {
-		log.Warn("failed to marshal MCP server entry", "name", srv.Name, "error", err)
-		entry = nil
-	}
-
-	set := &CapabilitySet{
-		ID: setID, Name: srv.Name, Kind: KindMCPServer,
-		Description: "External MCP server", Config: entry,
-		Enabled: srv.Enabled, Health: HealthUnknown,
-	}
+	set := NewMCPServerSet(srv)
 	if err := reg.AddSet(set); err != nil {
 		return err
 	}

@@ -190,37 +190,6 @@ func (t *Tracker) ListChangedPaths(root string) ([]string, error) {
 	return paths, nil
 }
 
-// WatchDir polls a directory at the given interval and calls onChange when files
-// are created, modified, or deleted. Returns a stop function.
-func (t *Tracker) WatchDir(root string, interval time.Duration, onChange func([]FileChange)) (func(), error) {
-	_, err := t.TakeSnapshot(root)
-	if err != nil {
-		return nil, err
-	}
-
-	done := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-done:
-				return
-			case <-ticker.C:
-				changes, err := t.Diff(root)
-				if err != nil {
-					continue
-				}
-				if len(changes) > 0 && onChange != nil {
-					onChange(changes)
-				}
-			}
-		}
-	}()
-
-	return func() { close(done) }, nil
-}
-
 // fileChecksum returns the SHA-256 hex digest of a file's contents.
 func fileChecksum(path string) string {
 	f, err := os.Open(path)

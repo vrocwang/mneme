@@ -37,7 +37,6 @@ import (
 	"github.com/simon/mneme/internal/observability"
 	"github.com/simon/mneme/internal/prompts"
 	"github.com/simon/mneme/internal/security"
-	"github.com/simon/mneme/internal/skills"
 	"github.com/simon/mneme/internal/subconscious"
 	"github.com/simon/mneme/internal/todos"
 	"github.com/simon/mneme/internal/tools"
@@ -97,7 +96,6 @@ type AppCore struct {
 	CheckPointStore *agent.SQLiteCheckPointStore
 
 	// DAG automation engine.
-	DAGStore  *dag.Store
 	DAGRunner *dag.Runner
 
 	// Background task execution.
@@ -163,6 +161,7 @@ func (a *AppCore) Init(headless bool) {
 		} else {
 			enabled := approvalGateEnabled()
 			a.ApprovalGate = approval.NewGate(approvalStore, nil, a.Log, enabled)
+			a.ApprovalGate.SetAuditLogger(a.AuditLogger)
 			if !enabled {
 				a.Log.Info("approval gate disabled via MNEME_APPROVAL_GATE")
 			}
@@ -225,11 +224,11 @@ func (a *AppCore) Init(headless bool) {
 	}
 
 	// ── Capability registry ──────────────────────────────────────────
-	a.CapReg, a.McpStore = NewCapRegistry(a.Cfg, a.DB, a.Log)
+	a.CapReg, a.McpStore = NewCapRegistry(a.Cfg, a.DB, a.AuditLogger, a.Log)
 
 	// Register late tools now that capReg is available.
 	if a.Pipeline != nil && a.CapReg != nil && a.ConvStore != nil {
-		RegisterLateTools(a.CapReg, a.ConvStore, a.Pipeline, a.Provider, a.Cfg.ModelForRoute("summary"), bundle.NewRegistry(a.Cfg.Bundles.Disabled))
+		RegisterLateTools(a.CapReg, a.ConvStore, a.Pipeline, a.Provider, a.Cfg.ModelForRoute(config.RouteSummary), bundle.NewRegistry(a.Cfg.Bundles.Disabled))
 	}
 
 	// ── Goals store & tools ────────────────────────────────────────────
@@ -257,8 +256,7 @@ func (a *AppCore) Init(headless bool) {
 
 	// ── Injectors ────────────────────────────────────────────────────
 	skillsDir := workspace.SkillsDir(a.Cfg.Workspace)
-	skillsReg := skills.NewRegistry()
-	a.SkillsInjector = agent.NewSkillsInjector(skillsDir).WithRegistry(skillsReg)
+	a.SkillsInjector = agent.NewSkillsInjector(skillsDir)
 	if err := a.SkillsInjector.Load(); err != nil {
 		a.Log.Warn("failed to load skills", "dir", skillsDir, "error", err)
 	}
@@ -353,7 +351,7 @@ func (a *AppCore) Init(headless bool) {
 	if a.Cfg.Learning.Enabled {
 		a.Learning = learning.New(a.Log)
 		if a.Provider != nil {
-			a.Learning.SetProvider(a.Provider, a.Cfg.ModelForRoute("reasoning"))
+			a.Learning.SetProvider(a.Provider, a.Cfg.ModelForRoute(config.RouteReasoning))
 		}
 		if a.DB != nil {
 			store, _ := learning.NewSQLiteStore(a.DB)
@@ -540,7 +538,6 @@ func (a *AppCore) Init(headless bool) {
 			if err != nil {
 				a.Log.Warn("dag store init failed", "error", err)
 			} else {
-				a.DAGStore = dagStore
 				dagExecutor := &dag.NodeExecutor{
 					AgentRunner: func(ctx context.Context, prompt string) (string, error) {
 						result := a.BackgroundRunner.RunAsync(ctx, "dag_agent", prompt)
@@ -705,17 +702,32 @@ func (a *agentRegistryAdapter) AgentDefs() []eino.AgentDef {
 	defs := make([]eino.AgentDef, 0, len(descs))
 	for _, d := range descs {
 		systemPrompt := ""
+		denylist := d.ToolDenylist
+		maxIter := d.MaxIterations
 		if def, ok := a.capReg.GetAgent(d.ID); ok && def != nil {
 			systemPrompt = def.SystemPrompt
+			// An extension agent's declared tool policy is enforced here: its
+			// deny list joins the denylist and maxToolRounds bounds the loop.
+			if p := def.ToolPolicy; p != nil {
+				denylist = append(append([]string{}, denylist...), p.DenyTools...)
+				if maxIter <= 0 && p.MaxToolRounds > 0 {
+					maxIter = p.MaxToolRounds
+				}
+				if len(p.RequireApprovalFor) > 0 {
+					slog.Warn("agent toolPolicy.requireApprovalFor is not enforced; use a tool's permission level instead",
+						"agent", d.ID, "tools", p.RequireApprovalFor)
+				}
+			}
 		}
 		defs = append(defs, eino.AgentDef{
 			ID:            d.ID,
 			Name:          d.Name,
 			Description:   d.Description,
 			ToolAllowlist: d.ToolAllowlist,
+			ToolDenylist:  denylist,
 			Hidden:        d.Hidden,
 			SystemPrompt:  systemPrompt,
-			MaxIterations: d.MaxIterations,
+			MaxIterations: maxIter,
 			Model:         d.Model,
 		})
 	}

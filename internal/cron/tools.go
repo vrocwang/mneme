@@ -322,7 +322,7 @@ func slugify(s string) string {
 // RegisterTools registers all cron tools with the capability registry under
 // the "cron" set.
 func RegisterTools(reg *capability.CapabilityRegistry, sched *Scheduler) {
-	capability.RegisterSetTools(reg, "cron", "Cron",
+	capability.RegisterSetTools(reg, capability.SetCron, "Cron",
 		NewCronListTool(sched),
 		NewCronAddTool(sched),
 		NewCronRemoveTool(sched),

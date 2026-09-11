@@ -125,23 +125,6 @@ func (s *SQLiteStore) ListTasks() ([]ScheduledTask, error) {
 	return tasks, rows.Err()
 }
 
-func (s *SQLiteStore) DeleteTask(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	_, err := s.db.Exec(`DELETE FROM tasks WHERE id = ?`, id)
-	return err
-}
-
-func (s *SQLiteStore) MarkTaskRun(id string, ranAt time.Time, nextRunAt time.Time) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	_, err := s.db.Exec(
-		`UPDATE tasks SET last_run_at = ?, next_run_at = ?, updated_at = datetime('now') WHERE id = ?`,
-		ranAt.Format(time.RFC3339), nextRunAt.Format(time.RFC3339), id,
-	)
-	return err
-}
-
 // ── Reflection persistence ────────────────────────────────────────────────────
 
 func (s *SQLiteStore) AddReflection(ref Reflection) error {
@@ -198,33 +181,7 @@ func (s *SQLiteStore) ListReflections(limit int) ([]Reflection, error) {
 	return refs, rows.Err()
 }
 
-func (s *SQLiteStore) MarkReflectionActedOn(id string, at time.Time) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	_, err := s.db.Exec(`UPDATE reflections SET acted_on_at = ? WHERE id = ?`, at.Format(time.RFC3339), id)
-	return err
-}
-
-func (s *SQLiteStore) CountReflections() (int, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var count int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM reflections`).Scan(&count)
-	return count, err
-}
-
 // ── Engine state persistence ──────────────────────────────────────────────────
-
-func (s *SQLiteStore) GetEngineState(key string) (string, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var value string
-	err := s.db.QueryRow(`SELECT value FROM engine_state WHERE key = ?`, key).Scan(&value)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	return value, err
-}
 
 func (s *SQLiteStore) SetEngineState(key, value string) error {
 	s.mu.Lock()
@@ -247,44 +204,6 @@ func (s *SQLiteStore) LogDecision(tickNumber int64, evaluator, decision, actionT
 		tickNumber, evaluator, decision, actionType, actionTitle, actionMessage,
 	)
 	return err
-}
-
-func (s *SQLiteStore) ListDecisionLog(limit int) ([]DecisionLogEntry, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if limit <= 0 {
-		limit = 100
-	}
-	rows, err := s.db.Query(
-		`SELECT id, tick_number, evaluator, decision, action_type, action_title, action_message, created_at
-		 FROM decision_log ORDER BY id DESC LIMIT ?`, limit,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var entries []DecisionLogEntry
-	for rows.Next() {
-		var e DecisionLogEntry
-		if err := rows.Scan(&e.ID, &e.TickNumber, &e.Evaluator, &e.Decision, &e.ActionType, &e.ActionTitle, &e.ActionMessage, &e.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scan decision log: %w", err)
-		}
-		entries = append(entries, e)
-	}
-	return entries, rows.Err()
-}
-
-// DecisionLogEntry is a recorded decision from the subconscious engine.
-type DecisionLogEntry struct {
-	ID            int64  `json:"id"`
-	TickNumber    int64  `json:"tick_number"`
-	Evaluator     string `json:"evaluator"`
-	Decision      string `json:"decision"`
-	ActionType    string `json:"action_type"`
-	ActionTitle   string `json:"action_title"`
-	ActionMessage string `json:"action_message"`
-	CreatedAt     string `json:"created_at"`
 }
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────

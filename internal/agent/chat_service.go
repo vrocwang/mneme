@@ -85,13 +85,6 @@ func NewChatService(cfg ChatServiceConfig) *ChatService {
 	return svc
 }
 
-// AddTurnCallback registers a hook to run after each successful turn.
-func (cs *ChatService) AddTurnCallback(h TurnCallback) {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-	cs.postTurn = append(cs.postTurn, h)
-}
-
 // SetHookRegistry attaches a PostTurnHookRegistry. Hooks fire after postTurn
 // callbacks, asynchronously, with panic recovery. Nil-safe.
 func (cs *ChatService) SetHookRegistry(h *PostTurnHookRegistry) { cs.hooks = h }
@@ -327,7 +320,7 @@ func (cs *ChatService) recordSessionTurn(threadID, prompt string, result *TurnRe
 	sessionID := threadID
 	rec := cs.sessionDB.GetSession(sessionID)
 	if rec == nil {
-		rec = cs.sessionDB.CreateSession(sessionID, "general", "chat")
+		rec = cs.sessionDB.CreateSession(sessionID, GeneralAgentID, "chat")
 	}
 
 	turnIndex := rec.TurnCount + 1
@@ -338,8 +331,9 @@ func (cs *ChatService) recordSessionTurn(threadID, prompt string, result *TurnRe
 		errMsg = turnErr.Error()
 	}
 
-	// Update session counters.
-	_ = cs.sessionDB.UpdateSession(sessionID, func(r *SessionRecord) {
+	// Update session counters. A failure here silently corrupts the ledger and
+	// cost totals, so it is surfaced rather than dropped.
+	if err := cs.sessionDB.UpdateSession(sessionID, func(r *SessionRecord) {
 		r.ThreadID = threadID
 		r.TurnCount++
 		if result != nil {
@@ -350,13 +344,15 @@ func (cs *ChatService) recordSessionTurn(threadID, prompt string, result *TurnRe
 		if turnErr != nil {
 			r.Error = errMsg
 		}
-	})
+	}); err != nil {
+		cs.log.Warn("failed to update session counters", "session", sessionID, "error", err)
+	}
 
 	// Append a run-ledger entry for this turn.
 	entry := RunLedgerEntry{
 		RunID:       uuid.New().String(),
 		SessionID:   sessionID,
-		AgentID:     "general",
+		AgentID:     GeneralAgentID,
 		Prompt:      prompt,
 		TurnIndex:   turnIndex,
 		Status:      status,
@@ -375,6 +371,8 @@ func (cs *ChatService) recordSessionTurn(threadID, prompt string, result *TurnRe
 
 	// Mark session as failed on error so the ledger is queryable for outages.
 	if turnErr != nil {
-		_ = cs.sessionDB.CompleteSession(sessionID, errMsg)
+		if err := cs.sessionDB.CompleteSession(sessionID, errMsg); err != nil {
+			cs.log.Warn("failed to mark session complete", "session", sessionID, "error", err)
+		}
 	}
 }

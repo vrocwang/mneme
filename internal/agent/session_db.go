@@ -205,29 +205,6 @@ func (db *SessionDB) GetSession(sessionID string) *SessionRecord {
 	return rec
 }
 
-// ListRecentSessions returns the most recent sessions.
-func (db *SessionDB) ListRecentSessions(limit int) []*SessionRecord {
-	db.mu.RLock()
-	defer db.mu.RUnlock()
-
-	rows, err := db.db.Query(
-		`SELECT id, agent_id, thread_id, origin, status, turn_count, tool_calls, total_tokens, total_cost, messages_json, created_at, updated_at, completed_at, error
-		 FROM sessions ORDER BY created_at DESC LIMIT ?`, limit)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-
-	var result []*SessionRecord
-	for rows.Next() {
-		rec, err := scanSession(rows)
-		if err == nil && rec != nil {
-			result = append(result, rec)
-		}
-	}
-	return result
-}
-
 // AppendLedger records a run in the ledger.
 func (db *SessionDB) AppendLedger(entry RunLedgerEntry) {
 	db.mu.Lock()
@@ -241,45 +218,6 @@ func (db *SessionDB) AppendLedger(entry RunLedgerEntry) {
 		entry.CostUSD, entry.ToolCalls, entry.Status, entry.Error,
 		entry.StartedAt.Format(time.RFC3339), entry.CompletedAt.Format(time.RFC3339),
 	)
-}
-
-// QueryLedger returns ledger entries for a session.
-func (db *SessionDB) QueryLedger(sessionID string) []RunLedgerEntry {
-	db.mu.RLock()
-	defer db.mu.RUnlock()
-
-	rows, err := db.db.Query(
-		`SELECT id, session_id, agent_id, prompt, turn_index, tool_calls_json, tokens_in, tokens_out, tokens_used, cost_usd, tool_calls, status, error, started_at, completed_at
-		 FROM run_ledger WHERE session_id = ? ORDER BY started_at ASC`, sessionID)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-
-	var result []RunLedgerEntry
-	for rows.Next() {
-		entry := scanLedger(rows)
-		if entry != nil {
-			result = append(result, *entry)
-		}
-	}
-	return result
-}
-
-// TotalCostSince returns the sum of costs since a given time.
-func (db *SessionDB) TotalCostSince(since time.Time) float64 {
-	db.mu.RLock()
-	defer db.mu.RUnlock()
-
-	var total sql.NullFloat64
-	err := db.db.QueryRow(
-		`SELECT SUM(cost_usd) FROM run_ledger WHERE completed_at >= ?`,
-		since.Format(time.RFC3339),
-	).Scan(&total)
-	if err != nil || !total.Valid {
-		return 0
-	}
-	return total.Float64
 }
 
 // ── Internal helpers ───────────────────────────────────────────────────────
@@ -350,41 +288,6 @@ func scanSession(scanner interface {
 		rec.CompletedAt = &t
 	}
 	return rec, nil
-}
-
-func scanLedger(scanner interface {
-	Scan(dest ...interface{}) error
-}) *RunLedgerEntry {
-	var (
-		id, sessionID, agentID, prompt, toolCallsJSON, status, errStr string
-		turnIndex, toolCalls                                          int
-		tokensIn, tokensOut, tokensUsed                               int64
-		costUSD                                                       float64
-		startedAt, completedAt                                        string
-	)
-	e := scanner.Scan(&id, &sessionID, &agentID, &prompt, &turnIndex,
-		&toolCallsJSON, &tokensIn, &tokensOut, &tokensUsed, &costUSD,
-		&toolCalls, &status, &errStr, &startedAt, &completedAt)
-	if e != nil {
-		return nil
-	}
-	return &RunLedgerEntry{
-		RunID:         id,
-		SessionID:     sessionID,
-		AgentID:       agentID,
-		Prompt:        prompt,
-		TurnIndex:     turnIndex,
-		ToolCallsJSON: toolCallsJSON,
-		TokensIn:      tokensIn,
-		TokensOut:     tokensOut,
-		TokensUsed:    tokensUsed,
-		CostUSD:       costUSD,
-		ToolCalls:     toolCalls,
-		Status:        status,
-		Error:         errStr,
-		StartedAt:     parseTime(startedAt),
-		CompletedAt:   parseTime(completedAt),
-	}
 }
 
 func parseTime(s string) time.Time {

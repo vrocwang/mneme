@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -34,11 +35,65 @@ type PairingGuard struct {
 	failedAttempts int
 	lockedUntil    time.Time
 	log            *slog.Logger
+	// audit records pairing attempts. Optional (nil disables recording).
+	audit *AuditLogger
+	// failedAuthAuditAt holds the unix-nano time of the last recorded
+	// constant-time auth failure. ValidateConstantTime is the per-request hot
+	// path and has no lockout, so without this throttle an unauthenticated
+	// flood would write an unbounded number of audit rows.
+	failedAuthAuditAt atomic.Int64
+}
+
+// failedAuthAuditInterval bounds how often a failed constant-time validation is
+// written to the audit trail (per guard).
+const failedAuthAuditInterval = 5 * time.Second
+
+// SetAuditLogger attaches an audit logger so pairing attempts — especially
+// failures and lockouts — leave a security audit trail.
+func (pg *PairingGuard) SetAuditLogger(al *AuditLogger) {
+	if pg == nil {
+		return
+	}
+	pg.audit = al
+}
+
+// recordAttempt writes an AuditPairingAttempt event. Nil-safe.
+func (pg *PairingGuard) recordAttempt(allowed bool, reason string) {
+	if pg == nil || pg.audit == nil {
+		return
+	}
+	decision := "deny"
+	if allowed {
+		decision = "allow"
+	}
+	pg.audit.Record(AuditPairingAttempt, AuditEvent{
+		Decision: decision,
+		Reason:   reason,
+	})
+}
+
+// recordFailedAuthThrottled records a failed per-request auth check at most
+// once per failedAuthAuditInterval.
+func (pg *PairingGuard) recordFailedAuthThrottled() {
+	if pg == nil || pg.audit == nil {
+		return
+	}
+	now := time.Now().UnixNano()
+	for {
+		last := pg.failedAuthAuditAt.Load()
+		if now-last < int64(failedAuthAuditInterval) {
+			return
+		}
+		if pg.failedAuthAuditAt.CompareAndSwap(last, now) {
+			pg.recordAttempt(false, "invalid token")
+			return
+		}
+	}
 }
 
 // NewPairingGuard generates a fresh bearer token and persists its hash.
 func NewPairingGuard(workspace string, log *slog.Logger) (*PairingGuard, error) {
-	tokenPath := filepath.Join(workspace, "core.token")
+	tokenPath := filepath.Join(workspace, ws.FileCoreToken)
 	pg := &PairingGuard{
 		hashedTokens: make(map[string]bool),
 		tokenPath:    tokenPath,
@@ -100,7 +155,7 @@ func (pg *PairingGuard) loadPersistedHashes(workspace string) {
 // persistHashes writes the current token hash set to disk for cross-restart auth.
 // Errors are logged but not returned — persistence is best-effort for token recovery.
 func (pg *PairingGuard) persistHashes() {
-	hashPath := filepath.Join(filepath.Dir(pg.tokenPath), "secrets", "token_hashes")
+	hashPath := filepath.Join(filepath.Dir(pg.tokenPath), ws.DirSecrets, "token_hashes")
 	var lines []string
 	for h := range pg.hashedTokens {
 		lines = append(lines, h)
@@ -117,21 +172,33 @@ func (pg *PairingGuard) persistHashes() {
 
 // Validate checks whether the provided token matches any known bearer.
 // Uses constant-time comparison and enforces brute-force lockout.
-// Uses an exclusive lock because the failure path mutates failedAttempts and
-// lockedUntil; the common success path is read-only but Go's RWMutex does not
-// support lock upgrading.
 func (pg *PairingGuard) Validate(provided string) bool {
 	if pg == nil || provided == "" {
 		return false
 	}
+	allowed, reason := pg.validateLocked(provided)
+	// Record after releasing the lock: AuditLogger.Record performs a
+	// synchronous SQLite INSERT, and holding pg.mu across it would stall every
+	// other validation (and, from ValidateConstantTime, serialize the request
+	// hot path).
+	if reason != "" {
+		pg.recordAttempt(allowed, reason)
+	}
+	return allowed
+}
 
+// validateLocked performs the validation under the exclusive lock and returns
+// the outcome plus the audit reason ("" means nothing to record). It uses an
+// exclusive lock because the failure path mutates failedAttempts and
+// lockedUntil, and Go's RWMutex does not support lock upgrading.
+func (pg *PairingGuard) validateLocked(provided string) (bool, string) {
 	pg.mu.Lock()
 	defer pg.mu.Unlock()
 
 	// Check lockout.
 	if time.Now().Before(pg.lockedUntil) {
 		pg.log.Warn("pairing validation blocked by lockout", "until", pg.lockedUntil)
-		return false
+		return false, "locked out after repeated failures"
 	}
 
 	// Lockout period has expired — reset failed attempts so a single
@@ -144,16 +211,11 @@ func (pg *PairingGuard) Validate(provided string) bool {
 	// Collect stored hashes into a slice so iteration order does not
 	// leak via map-key hashing.
 	providedHash := hashToken(provided)
-	var found bool
 	for _, h := range pg.hashedSlice() {
 		if subtle.ConstantTimeCompare([]byte(h), []byte(providedHash)) == 1 {
-			found = true
-			break
+			pg.failedAttempts = 0
+			return true, "valid token"
 		}
-	}
-	if found {
-		pg.failedAttempts = 0
-		return true
 	}
 
 	pg.failedAttempts++
@@ -163,7 +225,7 @@ func (pg *PairingGuard) Validate(provided string) bool {
 			"attempts", pg.failedAttempts,
 			"locked_until", pg.lockedUntil)
 	}
-	return false
+	return false, "invalid token"
 }
 
 // TokenPath returns the path where the bearer token is persisted.
@@ -181,39 +243,6 @@ func (pg *PairingGuard) AddToken(token string) {
 	defer pg.mu.Unlock()
 	pg.hashedTokens[hashToken(token)] = true
 	pg.persistHashes()
-}
-
-// Revoke invalidates all tokens and removes the token file.
-func (pg *PairingGuard) Revoke() error {
-	pg.mu.Lock()
-	defer pg.mu.Unlock()
-
-	pg.hashedTokens = make(map[string]bool)
-	if err := os.Remove(pg.tokenPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove token file: %w", err)
-	}
-	pg.log.Info("pairing tokens revoked")
-	return nil
-}
-
-// Rotate generates a new token, revokes all old tokens, and writes the new one.
-func (pg *PairingGuard) Rotate() error {
-	newToken, err := generateToken()
-	if err != nil {
-		return err
-	}
-
-	pg.mu.Lock()
-	pg.hashedTokens = make(map[string]bool)
-	pg.hashedTokens[hashToken(newToken)] = true
-	pg.mu.Unlock()
-
-	if err := os.WriteFile(pg.tokenPath, []byte(newToken), 0600); err != nil {
-		return fmt.Errorf("write token file: %w", err)
-	}
-	pg.persistHashes()
-	pg.log.Info("pairing token rotated (old tokens revoked)")
-	return nil
 }
 
 // LoadTokenFromEnv reads an operator-supplied bearer from MNEME_CORE_TOKEN.
@@ -241,7 +270,6 @@ func (pg *PairingGuard) ValidateConstantTime(provided string) bool {
 		return false
 	}
 	pg.mu.RLock()
-	defer pg.mu.RUnlock()
 	providedHash := hashToken(provided)
 
 	// Collect stored hashes into a slice so iteration order does not
@@ -252,6 +280,15 @@ func (pg *PairingGuard) ValidateConstantTime(provided string) bool {
 		if subtle.ConstantTimeCompare([]byte(h), []byte(providedHash)) == 1 {
 			match = 1
 		}
+	}
+	pg.mu.RUnlock()
+
+	if match != 1 {
+		// Record after releasing the read lock (Record does a synchronous DB
+		// INSERT). Counters are useless for this path (no lockout), but a
+		// throttled record keeps the audit trail useful without letting an
+		// unauthenticated flood fill the table.
+		pg.recordFailedAuthThrottled()
 	}
 	return match == 1
 }

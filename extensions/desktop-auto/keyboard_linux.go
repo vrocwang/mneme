@@ -21,6 +21,9 @@ func keyboardTool(_ context.Context, args map[string]interface{}) extsdk.Result 
 	if !hasXdotool() {
 		return extsdk.Result{Error: "xdotool not found. Install with: sudo apt install xdotool"}
 	}
+	if err := guardFrontmostApp(); err != nil {
+		return extsdk.Result{Error: err.Error()}
+	}
 
 	switch action {
 	case "type":

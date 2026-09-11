@@ -12,7 +12,6 @@ import { ApprovalCard } from './ApprovalCard';
 import { Composer } from './Composer';
 import { TodoPanel } from './TodoPanel';
 import { ToolCallItem } from './ToolTimeline';
-import type { ToolCallEntry } from '../../store/chatRuntimeSlice';
 
 export function ChatView() {
   const { dispatch } = useApp();

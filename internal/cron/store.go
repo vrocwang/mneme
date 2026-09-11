@@ -182,45 +182,6 @@ func (s *JobStore) ListRuns(jobID string, limit int) ([]RunRecord, error) {
 	return runs, rows.Err()
 }
 
-// AllRuns returns all runs ordered by time descending (capped at 200).
-func (s *JobStore) AllRuns() ([]RunRecord, error) {
-	return s.ListRuns("", 200)
-}
-
-// ListAllRuns returns all runs across all jobs (capped at 200).
-func (s *JobStore) ListAllRuns(limit int) ([]RunRecord, error) {
-	if s == nil {
-		return nil, nil
-	}
-	if limit <= 0 {
-		limit = 200
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	rows, err := s.db.Query(
-		`SELECT id, job_id, start, end_t, error, output
-		 FROM cron_runs ORDER BY start DESC LIMIT ?`,
-		limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var runs []RunRecord
-	for rows.Next() {
-		var r RunRecord
-		var start, endT string
-		if err := rows.Scan(&r.ID, &r.JobID, &start, &endT, &r.Error, &r.Output); err != nil {
-			return nil, err
-		}
-		r.Start, _ = time.Parse(time.RFC3339, start)
-		r.End, _ = time.Parse(time.RFC3339, endT)
-		runs = append(runs, r)
-	}
-	return runs, rows.Err()
-}
-
 // ── helpers ──
 
 func boolToInt(v bool) int {

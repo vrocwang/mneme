@@ -167,19 +167,6 @@ func (r *Runner) Run(ctx context.Context, graph *Graph, input *NodeInput) (*RunR
 	return rec, nil
 }
 
-// DryRun validates and compiles the graph without executing any nodes.
-// Returns the compiled graph and any validation issues. This is useful
-// for pre-flight checks before committing to execution.
-func (r *Runner) DryRun(ctx context.Context, graph *Graph, input *NodeInput) (*CompiledGraph, []ValidationIssue, error) {
-	issues := ValidateGraph(graph)
-	cg, err := Compile(graph)
-	if err != nil {
-		return nil, issues, err
-	}
-	r.log.Info("dag dry-run passed", "graph", graph.Name, "nodes", cg.NodeCount, "layers", len(cg.Layers))
-	return cg, issues, nil
-}
-
 // Cancel stops a running DAG run by its run ID.
 func (r *Runner) Cancel(runID string) bool {
 	r.mu.Lock()
@@ -189,13 +176,6 @@ func (r *Runner) Cancel(runID string) bool {
 		cancel()
 	}
 	return ok
-}
-
-// ActiveCount returns the number of currently running DAG executions.
-func (r *Runner) ActiveCount() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return len(r.active)
 }
 
 func (r *Runner) saveRecord(rec *RunRecord) {

@@ -24,7 +24,7 @@ func New() *CLI {
 	return &CLI{events: make(chan channels.Message, 64)}
 }
 
-func (c *CLI) Name() string { return "cli" }
+func (c *CLI) Name() string { return channels.ChannelCLI }
 
 func (c *CLI) Start(ctx context.Context) error {
 	ctx, c.cancel = context.WithCancel(ctx)
@@ -72,7 +72,7 @@ func (c *CLI) readLoop(ctx context.Context) {
 		}
 		msg := channels.Message{
 			ID:      fmt.Sprintf("cli-%d", time.Now().UnixMicro()),
-			Channel: "cli",
+			Channel: channels.ChannelCLI,
 			Content: sanitized,
 		}
 		select {

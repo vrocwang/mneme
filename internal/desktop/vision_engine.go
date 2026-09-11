@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"regexp"
-	"strconv"
 	"time"
 
 	"github.com/simon/mneme/internal/inference"
@@ -126,90 +124,6 @@ loop:
 	return desc, nil
 }
 
-// DescribeUI produces a UI description from a screenshot and accessibility tree
-// for use by automation tools (e.g., vision_click, ax_interact).
-func (ve *VisionEngine) DescribeUI(ctx context.Context, screenshotPath string, axTree string) (*ScreenDescription, error) {
-	return ve.AnalyzeScreen(ctx, screenshotPath, axTree)
-}
-
-// LocateByDescription finds a UI element by description and returns its pixel
-// coordinates. Matches the VisionFunc signature for use with VisionClick.
-func (ve *VisionEngine) LocateByDescription(imagePath, target string) (int, int, error) {
-	if ve.provider == nil {
-		return 0, 0, fmt.Errorf("vision_engine: no provider configured")
-	}
-
-	imageData, err := os.ReadFile(imagePath)
-	if err != nil {
-		return 0, 0, fmt.Errorf("vision_engine: read screenshot: %w", err)
-	}
-
-	prompt := fmt.Sprintf(
-		`Find the UI element best matching "%s" in this screenshot. Return ONLY a JSON object with the pixel coordinates: {"x": number, "y": number, "found": true}. If the element is not visible, return {"found": false}.`,
-		target,
-	)
-
-	msg := inference.Message{
-		Role: "user",
-		ContentBlocks: []inference.ContentBlock{
-			{Type: "text", Text: prompt},
-			{Type: "image", ImageData: base64.StdEncoding.EncodeToString(imageData), ImageType: "image/png"},
-		},
-	}
-
-	req := inference.ChatRequest{
-		Model:       ve.model,
-		Messages:    []inference.Message{msg},
-		MaxTokens:   128,
-		Temperature: 0.1,
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	tokens, errs := ve.provider.Chat(ctx, req)
-
-	var response string
-	for {
-		select {
-		case tok, ok := <-tokens:
-			if !ok {
-				goto parseCoords
-			}
-			response += tok.Text
-		case err, ok := <-errs:
-			if ok && err != nil {
-				return 0, 0, fmt.Errorf("vision_engine: locate: %w", err)
-			}
-		case <-ctx.Done():
-			return 0, 0, ctx.Err()
-		}
-	}
-
-parseCoords:
-	var coords struct {
-		X     int  `json:"x"`
-		Y     int  `json:"y"`
-		Found bool `json:"found"`
-	}
-	if err := extractJSONObject(response, &coords); err != nil {
-		// Fallback: try to extract numbers from the response text.
-		x, y, ok := extractCoords(response)
-		if !ok {
-			return 0, 0, fmt.Errorf("vision_engine: could not parse coordinates from: %s", truncateStr(response, 200))
-		}
-		coords.X = x
-		coords.Y = y
-		coords.Found = true
-	}
-
-	if !coords.Found {
-		return 0, 0, fmt.Errorf("vision_engine: element %q not found on screen", target)
-	}
-
-	return coords.X, coords.Y, nil
-}
-
 // extractJSONObject finds a balanced JSON object in a string and unmarshals
 // it into v. Uses brace-depth counting to handle nested objects, which is
 // necessary when LLM responses include nested JSON structures or extra text
@@ -256,21 +170,6 @@ parsed:
 		}
 	}
 	return json.Unmarshal([]byte(s[start:end+1]), v)
-}
-
-// extractCoords tries to find x,y numbers in a non-JSON response using regex.
-func extractCoords(s string) (int, int, bool) {
-	re := regexp.MustCompile(`\b(\d{2,4})\b`)
-	matches := re.FindAllStringSubmatch(s, 2)
-	if len(matches) < 2 {
-		return 0, 0, false
-	}
-	x, err1 := strconv.Atoi(matches[0][1])
-	y, err2 := strconv.Atoi(matches[1][1])
-	if err1 != nil || err2 != nil {
-		return 0, 0, false
-	}
-	return x, y, true
 }
 
 func buildVisionPrompt(axContext string) string {

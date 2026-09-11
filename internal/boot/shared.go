@@ -13,6 +13,7 @@ import (
 	"github.com/simon/mneme/internal/agent"
 	"github.com/simon/mneme/internal/bundle"
 	"github.com/simon/mneme/internal/capability"
+	"github.com/simon/mneme/internal/channels"
 	chancli "github.com/simon/mneme/internal/channels/cli"
 	chanweb "github.com/simon/mneme/internal/channels/web"
 	"github.com/simon/mneme/internal/config"
@@ -64,7 +65,7 @@ func NewProvider(cfg *config.Config) inference.Provider {
 // NewCapRegistry creates a CapabilityRegistry, runs BootstrapAll, and
 // reconnects any persisted MCP servers. Returns the MCP store so callers
 // can wire it into RPC handlers.
-func NewCapRegistry(cfg *config.Config, db *sql.DB, log *slog.Logger) (*capability.CapabilityRegistry, *mcpstore.Store) {
+func NewCapRegistry(cfg *config.Config, db *sql.DB, audit *security.AuditLogger, log *slog.Logger) (*capability.CapabilityRegistry, *mcpstore.Store) {
 	reg := capability.NewCapabilityRegistry()
 	mcpEntries := make([]capability.ServerEntry, len(cfg.MCPServers))
 	for i, s := range cfg.MCPServers {
@@ -82,7 +83,7 @@ func NewCapRegistry(cfg *config.Config, db *sql.DB, log *slog.Logger) (*capabili
 			mcpStore = nil
 		}
 	}
-	BootstrapAll(reg, cfg.Workspace, cfg.Security.Tier, mcpEntries, db, cfg, mcpStore, log)
+	BootstrapAll(reg, cfg.Workspace, cfg.Security.Tier, mcpEntries, db, cfg, mcpStore, audit, log)
 
 	// Reconnect persisted MCP servers from SQLite on boot.
 	ReconnectPersistedServers(reg, mcpStore, log)
@@ -130,10 +131,10 @@ func NewPipeline(db *sql.DB, provider inference.Provider, cfg *config.Config, ca
 
 	memory.SetupEmbedder(pipeline, cfg.Embedding, log)
 	if provider != nil {
-		memory.SetupArchivist(pipeline, provider, cfg.ModelForRoute("summary"), log)
+		memory.SetupArchivist(pipeline, provider, cfg.ModelForRoute(config.RouteSummary), log)
 		pipeline.SetEntityEnricher(entities.NewLLMEnricher(func(ctx context.Context, prompt string) (string, error) {
 			tokens, errs := provider.Chat(ctx, inference.ChatRequest{
-				Model: cfg.ModelForRoute("summary"), MaxTokens: 256, Temperature: 0.1,
+				Model: cfg.ModelForRoute(config.RouteSummary), MaxTokens: 256, Temperature: 0.1,
 				Messages: []inference.Message{{Role: "user", Content: prompt}},
 			})
 			var resp string
@@ -149,20 +150,25 @@ func NewPipeline(db *sql.DB, provider inference.Provider, cfg *config.Config, ca
 			return resp, chatErr
 		}))
 	}
-	pipeline.ApplyRetrievalProfile(cfg.Memory.RetrievalWeights.Profile)
-	// Explicit numeric weights override the named profile when configured.
-	pipeline.ApplyRetrievalWeights(memory.RetrievalWeights{
-		FTS5:     cfg.Memory.RetrievalWeights.FTS5,
-		Vector:   cfg.Memory.RetrievalWeights.Vector,
-		Keyword:  cfg.Memory.RetrievalWeights.Keyword,
-		Tree:     cfg.Memory.RetrievalWeights.Tree,
-		Graph:    cfg.Memory.RetrievalWeights.Graph,
-		Episodic: cfg.Memory.RetrievalWeights.Episodic,
-	})
+	// A named profile selects a preset; an empty profile means the user is
+	// supplying explicit numeric weights. Applying both unconditionally made
+	// the profile a silent no-op, because the numeric defaults are non-zero.
+	if cfg.Memory.RetrievalWeights.Profile != "" {
+		pipeline.ApplyRetrievalProfile(cfg.Memory.RetrievalWeights.Profile)
+	} else {
+		pipeline.ApplyRetrievalWeights(memory.RetrievalWeights{
+			FTS5:     cfg.Memory.RetrievalWeights.FTS5,
+			Vector:   cfg.Memory.RetrievalWeights.Vector,
+			Keyword:  cfg.Memory.RetrievalWeights.Keyword,
+			Tree:     cfg.Memory.RetrievalWeights.Tree,
+			Graph:    cfg.Memory.RetrievalWeights.Graph,
+			Episodic: cfg.Memory.RetrievalWeights.Episodic,
+		})
+	}
 
 	if capReg != nil {
 		br := bundle.NewRegistry(cfg.Bundles.Disabled)
-		RegisterLateTools(capReg, convStore, pipeline, provider, cfg.ModelForRoute("summary"), br)
+		RegisterLateTools(capReg, convStore, pipeline, provider, cfg.ModelForRoute(config.RouteSummary), br)
 	}
 
 	return pipeline, convStore
@@ -241,7 +247,7 @@ func ProviderDiagnostics(cfg *config.Config, provider inference.Provider, compan
 // VisionModel returns the model for vision/screenshot analysis.
 // Uses ModelRoutes["vision"] if configured, otherwise DefaultModel.
 func VisionModel(cfg *config.Config) string {
-	return cfg.ModelForRoute("vision")
+	return cfg.ModelForRoute(config.RouteVision)
 }
 
 // SaveUserMessage returns a function that persists a user message via the store getter.
@@ -254,7 +260,9 @@ func SaveUserMessage(getStore func() *conversations.Store, log *slog.Logger) fun
 		if s == nil {
 			return
 		}
-		s.EnsureThread(threadID, message)
+		if err := s.EnsureThread(threadID, message); err != nil && log != nil {
+			log.Warn("failed to ensure thread row", "thread", threadID, "error", err)
+		}
 		if err := s.AddMessage(threadID, "user", message); err != nil && log != nil {
 			log.Warn("failed to persist user message", "thread", threadID, "error", err)
 		}
@@ -266,7 +274,7 @@ func SaveUserMessage(getStore func() *conversations.Store, log *slog.Logger) fun
 func RegisterCoreChannels(reg *capability.CapabilityRegistry, log *slog.Logger) {
 	// Web channel
 	reg.RegisterBuiltinChannel(&capability.ChanProviderFunc{
-		NameStr: "web",
+		NameStr: channels.ChannelWeb,
 		CreateFn: func(cfg capability.ChannelConfig) (capability.Channel, error) {
 			return chanweb.New(log), nil
 		},
@@ -274,7 +282,7 @@ func RegisterCoreChannels(reg *capability.CapabilityRegistry, log *slog.Logger) 
 
 	// CLI channel
 	reg.RegisterBuiltinChannel(&capability.ChanProviderFunc{
-		NameStr: "cli",
+		NameStr: channels.ChannelCLI,
 		CreateFn: func(cfg capability.ChannelConfig) (capability.Channel, error) {
 			return chancli.New(), nil
 		},

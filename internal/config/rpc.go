@@ -10,6 +10,8 @@ import (
 	"sync"
 
 	"github.com/simon/mneme/internal/prompts"
+	"github.com/simon/mneme/internal/security"
+	"github.com/simon/mneme/internal/workspace"
 )
 
 // ConfigRPC provides runtime config read/update via Wails-bound methods.
@@ -115,7 +117,7 @@ func (r *ConfigRPC) SetSecurityTier(tier string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	switch tier {
-	case "readonly", "supervised", "full":
+	case string(security.TierReadOnly), string(security.TierSupervised), string(security.TierFull):
 		r.cfg.Security.Tier = tier
 		if err := r.cfg.Save(r.path); err != nil {
 			return err
@@ -263,8 +265,10 @@ func (r *ConfigRPC) SetWorkspace(dir string) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("creating workspace directory %q: %w", dir, err)
 	}
-	for _, sub := range []string{"data", "memory", "config", "secrets", "logs", "screenshots", "projects"} {
-		os.MkdirAll(filepath.Join(dir, sub), 0755)
+	// Create the full workspace directory structure via the layout SSOT, so a
+	// switched-to workspace has every subdirectory later code expects.
+	if err := workspace.EnsureLayout(dir); err != nil {
+		return fmt.Errorf("creating workspace layout in %q: %w", dir, err)
 	}
 
 	// Migrate all files from old workspace, then remove it.

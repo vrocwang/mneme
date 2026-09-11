@@ -16,6 +16,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+
+	"github.com/simon/mneme/internal/workspace"
 )
 
 type manifest struct {
@@ -29,7 +31,7 @@ func main() {
 	// invoked as a Wails prebuild hook).
 	_, srcFile, _, _ := runtime.Caller(0)
 	projectRoot := filepath.Dir(filepath.Dir(filepath.Dir(srcFile)))
-	extDir := filepath.Join(projectRoot, "extensions")
+	extDir := filepath.Join(projectRoot, workspace.DirExtensions)
 	distDir := filepath.Join(projectRoot, "extensions-dist")
 
 	entries, err := os.ReadDir(extDir)
@@ -55,7 +57,7 @@ func main() {
 			continue
 		}
 		srcDir := filepath.Join(extDir, e.Name())
-		manifestPath := filepath.Join(srcDir, "manifest.json")
+		manifestPath := filepath.Join(srcDir, workspace.FileExtensionManifest)
 		goMod := filepath.Join(srcDir, "go.mod")
 
 		if _, err := os.Stat(goMod); os.IsNotExist(err) {
@@ -106,7 +108,7 @@ func main() {
 
 		// Copy manifest.json so the extension is self-contained in dist.
 		if mfData, err := os.ReadFile(manifestPath); err == nil {
-			os.WriteFile(filepath.Join(dstDir, "manifest.json"), mfData, 0644)
+			os.WriteFile(filepath.Join(dstDir, workspace.FileExtensionManifest), mfData, 0644)
 		}
 
 		if targetOS != "windows" {

@@ -4,9 +4,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
-	"github.com/simon/mneme/internal/skills"
+	"github.com/simon/mneme/internal/workspace"
 )
 
 // SkillMatch represents a skill that matched a user query.
@@ -19,30 +20,14 @@ type SkillMatch struct {
 
 // SkillsInjector matches user queries against installed SKILL.md files and
 // injects relevant skill content into the system prompt to guide the agent.
-// When a skills.Registry is set, registered skills are merged with file-based
-// matches so both discovery paths contribute to prompt injection.
 type SkillsInjector struct {
 	skillsDir string
-	skills    []SkillMatch     // loaded filesystem skills content
-	registry  *skills.Registry // optional — registered skills from extensions/MCP
+	skills    []SkillMatch // loaded filesystem skills content
 }
 
 // NewSkillsInjector creates an injector that loads skills from the given directory.
 func NewSkillsInjector(skillsDir string) *SkillsInjector {
 	return &SkillsInjector{skillsDir: skillsDir}
-}
-
-// WithRegistry sets an optional skills registry. Registered skills are merged
-// with file-based matches during prompt injection.
-func (si *SkillsInjector) WithRegistry(reg *skills.Registry) *SkillsInjector {
-	si.registry = reg
-	return si
-}
-
-// Registry returns the skills registry, or nil if none is set.
-// Callers (boot, extensions, MCP) use this to register skills dynamically.
-func (si *SkillsInjector) Registry() *skills.Registry {
-	return si.registry
 }
 
 // Load reads all SKILL.md files from the skills directory.
@@ -62,7 +47,7 @@ func (si *SkillsInjector) Load() error {
 	si.skills = nil
 	for _, entry := range entries {
 		if entry.IsDir() {
-			skillPath := filepath.Join(si.skillsDir, entry.Name(), "SKILL.md")
+			skillPath := filepath.Join(si.skillsDir, entry.Name(), workspace.FileSkill)
 			data, err := os.ReadFile(skillPath)
 			if err != nil {
 				continue
@@ -93,7 +78,8 @@ func (si *SkillsInjector) Match(ctx context.Context, userMessage string) []Skill
 		}
 	}
 
-	// Sort by score descending, cap at 3 matches.
+	// Best matches first, then cap at 3.
+	sort.SliceStable(matches, func(i, j int) bool { return matches[i].Score > matches[j].Score })
 	if len(matches) > 3 {
 		matches = matches[:3]
 	}
@@ -101,20 +87,10 @@ func (si *SkillsInjector) Match(ctx context.Context, userMessage string) []Skill
 }
 
 // InjectPrompt appends matched skill content to the system prompt.
-// Merges file-based SKILL.md matches with skills registered in the registry.
 func (si *SkillsInjector) InjectPrompt(ctx context.Context, userMessage, systemPrompt string) string {
 	matches := si.Match(ctx, userMessage)
-	registrySkills := si.registrySkills()
-
-	if len(matches) == 0 && len(registrySkills) == 0 {
+	if len(matches) == 0 {
 		return systemPrompt
-	}
-
-	// Deduplicate: file-based matches take precedence over registry entries
-	// with the same name (case-insensitive).
-	seen := make(map[string]bool, len(matches))
-	for _, m := range matches {
-		seen[strings.ToLower(m.Name)] = true
 	}
 
 	var b strings.Builder
@@ -130,22 +106,7 @@ func (si *SkillsInjector) InjectPrompt(ctx context.Context, userMessage, systemP
 		b.WriteString("### " + m.Name + "\n")
 		b.WriteString(content + "\n\n")
 	}
-	for _, s := range registrySkills {
-		if seen[strings.ToLower(s.Name)] {
-			continue
-		}
-		b.WriteString("### " + s.Name + "\n")
-		b.WriteString(s.Description + "\n\n")
-	}
 	return b.String()
-}
-
-// registrySkills returns skills from the registry. Returns nil if no registry is set.
-func (si *SkillsInjector) registrySkills() []*skills.Skill {
-	if si.registry == nil {
-		return nil
-	}
-	return si.registry.List()
 }
 
 // matchSkillScore computes how well a skill matches the user message.

@@ -13,19 +13,14 @@ type RebuildScheduler struct {
 	log      *slog.Logger
 	interval time.Duration
 
-	mu            sync.Mutex
-	lastEvent     time.Time
-	running       bool
-	debounceTimer *time.Timer
-	stopCh        chan struct{}
-	stopped       chan struct{}
+	mu      sync.Mutex
+	running bool
+	stopCh  chan struct{}
+	stopped chan struct{}
 }
 
 // RebuildInterval is the default periodic rebuild interval.
 const RebuildInterval = 30 * time.Minute
-
-// EventRebuildDelay is the debounce window after a triggering event.
-const EventRebuildDelay = 60 * time.Second
 
 // NewRebuildScheduler creates a rebuild scheduler.
 func NewRebuildScheduler(detector *StabilityDetector, log *slog.Logger) *RebuildScheduler {
@@ -85,30 +80,6 @@ func (s *RebuildScheduler) StartPeriodic(ctx context.Context) {
 func (s *RebuildScheduler) Stop() {
 	close(s.stopCh)
 	<-s.stopped
-}
-
-// OnTriggerEvent is called when a rebuild-triggering event occurs.
-// Uses timer-based debounce: multiple events within EventRebuildDelay collapse
-// into a single rebuild, with no goroutine accumulation.
-func (s *RebuildScheduler) OnTriggerEvent() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.lastEvent = time.Now()
-
-	if s.debounceTimer == nil {
-		s.debounceTimer = time.AfterFunc(EventRebuildDelay, func() {
-			s.mu.Lock()
-			elapsed := time.Since(s.lastEvent)
-			s.mu.Unlock()
-
-			if elapsed >= EventRebuildDelay {
-				s.runRebuild("event")
-			}
-		})
-	} else {
-		s.debounceTimer.Reset(EventRebuildDelay)
-	}
 }
 
 func (s *RebuildScheduler) runRebuild(trigger string) {

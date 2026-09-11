@@ -7,6 +7,7 @@ import { AppProvider } from './state/AppContext';
 import AppRouter from './AppRouter';
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
 import { KeyringConsentOverlay } from './components/keyring/KeyringConsentOverlay';
+import { NotificationBridge } from './components/notifications/NotificationBridge';
 import { Walkthrough } from './components/walkthrough/Walkthrough';
 import * as api from './services/wails';
 
@@ -65,6 +66,7 @@ export default function App() {
       <PersistGate loading={null} persistor={persistor}>
         <I18nProvider>
           <AppProvider>
+            <NotificationBridge />
             {showOnboarding && <OnboardingWizard onComplete={handleComplete} />}
             <KeyringConsentOverlay />
             <Walkthrough />

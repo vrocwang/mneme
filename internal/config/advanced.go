@@ -55,7 +55,11 @@ type RetrievalWeightsConfig struct {
 	Episodic float64 `toml:"episodic" json:"episodic"`
 }
 
-func defaultRetrievalWeights() RetrievalWeightsConfig {
+// DefaultRetrievalWeights returns the authoritative default signal weights.
+// internal/memory derives its fallback weights from this, so the two cannot
+// drift apart (they previously duplicated the same numbers with a "keep in
+// sync" comment).
+func DefaultRetrievalWeights() RetrievalWeightsConfig {
 	return RetrievalWeightsConfig{FTS5: 0.30, Vector: 0.25, Keyword: 0.08, Tree: 0.0, Graph: 0.22, Episodic: 0.15}
 }
 

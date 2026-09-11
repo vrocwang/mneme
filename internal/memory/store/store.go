@@ -207,42 +207,7 @@ func (s *Store) DeleteByContent(substr string) (int64, error) {
 	return n, nil
 }
 
-// SearchWithVector performs FTS5 BM25 search including vector columns for reranking.
-// Falls back to LIKE when FTS5 is unavailable.
-func (s *Store) SearchWithVector(query string, limit int) ([]MemoryChunk, error) {
-	ftsQuery := escapeFTS5Query(query)
-	rows, err := s.db.Query(
-		`SELECT mc.id, mc.source, mc.taint, mc.content, mc.summary, mc.vector, mc.embedding_model, mc.created_at
-		 FROM memory_chunks mc
-		 JOIN memory_chunks_fts fts ON mc.id = fts.rowid
-		 WHERE memory_chunks_fts MATCH ?
-		 ORDER BY bm25(memory_chunks_fts, 0.0, 5.0, 2.0)
-		 LIMIT ?`,
-		ftsQuery, limit,
-	)
-	if err != nil {
-		return s.searchWithVectorLike(query, limit)
-	}
-	defer rows.Close()
-	return s.scanChunksWithVector(rows)
-}
-
 // searchWithVectorLike is the LIKE-based fallback when FTS5 is unavailable.
-func (s *Store) searchWithVectorLike(query string, limit int) ([]MemoryChunk, error) {
-	rows, err := s.db.Query(
-		`SELECT id, source, taint, content, summary, vector, embedding_model, created_at
-		 FROM memory_chunks
-		 WHERE content LIKE ? OR summary LIKE ?
-		 ORDER BY created_at DESC
-		 LIMIT ?`,
-		"%"+query+"%", "%"+query+"%", limit,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	return s.scanChunksWithVector(rows)
-}
 
 // Search performs FTS5 BM25 full-text search over memory chunks.
 // Falls back to LIKE search when the FTS5 table is unavailable (e.g. during migration).
@@ -287,19 +252,6 @@ func (s *Store) ListRecent(limit int) ([]MemoryChunk, error) {
 	rows, err := s.db.Query(
 		"SELECT id, source, taint, content, summary, created_at FROM memory_chunks ORDER BY created_at DESC LIMIT ?",
 		limit,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	return s.scanChunks(rows)
-}
-
-// ListBySource returns chunks from a specific source.
-func (s *Store) ListBySource(source string, limit int) ([]MemoryChunk, error) {
-	rows, err := s.db.Query(
-		"SELECT id, source, taint, content, summary, created_at FROM memory_chunks WHERE source = ? ORDER BY created_at DESC LIMIT ?",
-		source, limit,
 	)
 	if err != nil {
 		return nil, err

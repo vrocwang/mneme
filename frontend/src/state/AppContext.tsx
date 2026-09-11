@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, useCallback, useRef, useEffect } from 'react';
+import React, { createContext, useContext, useReducer, useCallback, useRef, useEffect, useMemo } from 'react';
 import { load, save } from '../lib/persist';
 
 // ── State ─────────────────────────────────────────────────────────────────
@@ -25,7 +25,8 @@ type Action =
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'TOGGLE_SIDEBAR':
-      save('sidebar', String(!state.sidebarOpen));
+      // Persistence is handled by the effect in AppProvider; reducers must stay
+      // pure (React may invoke them twice under StrictMode/concurrent renders).
       return { ...state, sidebarOpen: !state.sidebarOpen };
     case 'ADD_TOAST':
       return { ...state, toasts: [...state.toasts, action.toast] };
@@ -82,8 +83,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     save('sidebar', String(state.sidebarOpen));
   }, [state.sidebarOpen]);
 
+  // Memoize so `actions` keeps a stable identity; consumers list it in their
+  // useCallback deps, and a fresh object each render would invalidate them.
+  const value = useMemo(
+    () => ({ state, dispatch, actions: { toggleSidebar, addToast } }),
+    [state, dispatch, toggleSidebar, addToast],
+  );
+
   return (
-    <AppContext.Provider value={{ state, dispatch, actions: { toggleSidebar, addToast } }}>
+    <AppContext.Provider value={value}>
       {children}
     </AppContext.Provider>
   );

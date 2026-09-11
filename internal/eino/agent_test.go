@@ -31,20 +31,20 @@ func toolsOf(names ...string) []tool.BaseTool {
 }
 
 func TestFilterToolsByAllowlist_EmptyAllowlistReturnsNil(t *testing.T) {
-	if got := filterToolsByAllowlist(toolsOf("a", "b"), nil); got != nil {
+	if got := filterAgentTools(toolsOf("a", "b"), nil, nil); got != nil {
 		t.Errorf("empty allowlist should return nil, got %d tools", len(got))
 	}
 }
 
 func TestFilterToolsByAllowlist_EmptyInputReturnsNil(t *testing.T) {
-	if got := filterToolsByAllowlist(nil, []string{"a"}); got != nil {
+	if got := filterAgentTools(nil, []string{"a"}, nil); got != nil {
 		t.Errorf("empty input should return nil, got %d tools", len(got))
 	}
 }
 
 func TestFilterToolsByAllowlist_WildcardReturnsAll(t *testing.T) {
 	in := toolsOf("a", "b", "c")
-	got := filterToolsByAllowlist(in, []string{"*"})
+	got := filterAgentTools(in, []string{"*"}, nil)
 	if len(got) != 3 {
 		t.Fatalf("wildcard should return all tools, got %d", len(got))
 	}
@@ -56,7 +56,7 @@ func TestFilterToolsByAllowlist_WildcardReturnsAll(t *testing.T) {
 }
 
 func TestFilterToolsByAllowlist_SpecificNames(t *testing.T) {
-	got := filterToolsByAllowlist(toolsOf("read_file", "write_file", "shell"), []string{"read_file", "shell"})
+	got := filterAgentTools(toolsOf("read_file", "write_file", "shell"), []string{"read_file", "shell"}, nil)
 	if len(got) != 2 {
 		t.Fatalf("expected 2 tools, got %d", len(got))
 	}
@@ -71,14 +71,14 @@ func TestFilterToolsByAllowlist_SpecificNames(t *testing.T) {
 }
 
 func TestFilterToolsByAllowlist_NoMatch(t *testing.T) {
-	got := filterToolsByAllowlist(toolsOf("a", "b"), []string{"missing"})
+	got := filterAgentTools(toolsOf("a", "b"), []string{"missing"}, nil)
 	if len(got) != 0 {
 		t.Errorf("expected 0 tools for non-matching allowlist, got %d", len(got))
 	}
 }
 
 func TestFilterToolsByAllowlist_PreservesOrder(t *testing.T) {
-	got := filterToolsByAllowlist(toolsOf("z", "a", "m"), []string{"a", "m", "z"})
+	got := filterAgentTools(toolsOf("z", "a", "m"), []string{"a", "m", "z"}, nil)
 	if len(got) != 3 {
 		t.Fatalf("expected 3 tools, got %d", len(got))
 	}
@@ -90,6 +90,29 @@ func TestFilterToolsByAllowlist_PreservesOrder(t *testing.T) {
 	}
 	if names[0] != "z" || names[1] != "a" || names[2] != "m" {
 		t.Errorf("expected input order z,a,m, got %v", names)
+	}
+}
+
+func TestFilterAgentTools_DenylistWins(t *testing.T) {
+	// A wildcard allowlist admits everything except the denylist entries.
+	got := filterAgentTools(toolsOf("a", "b", "c"), []string{"*"}, []string{"b"})
+	if len(got) != 2 {
+		t.Fatalf("expected 2 tools after denylist, got %d", len(got))
+	}
+	for _, tl := range got {
+		info, _ := tl.Info(context.Background())
+		if info.Name == "b" {
+			t.Error("denied tool b must not survive the filter")
+		}
+	}
+	// The denylist also subtracts from an explicit allowlist.
+	got = filterAgentTools(toolsOf("read_file", "shell"), []string{"read_file", "shell"}, []string{"shell"})
+	if len(got) != 1 {
+		t.Fatalf("expected 1 tool after denylist, got %d", len(got))
+	}
+	info, _ := got[0].Info(context.Background())
+	if info.Name != "read_file" {
+		t.Errorf("expected read_file to survive, got %q", info.Name)
 	}
 }
 

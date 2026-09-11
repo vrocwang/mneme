@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/simon/mneme/internal/config"
 	"github.com/simon/mneme/internal/memory/store"
 	"github.com/simon/mneme/internal/memory/tree"
 )
@@ -25,18 +26,20 @@ type RetrievalWeights struct {
 }
 
 // DefaultWeights returns the fallback retrieval weights used when no explicit
-// weights have been applied. It MUST stay in sync with
-// internal/config.defaultRetrievalWeights(), which is the authoritative default
-// applied at boot (boot.NewPipeline → ApplyRetrievalWeights).
+// weights have been applied. It is derived from the authoritative config
+// default so the two definitions cannot drift apart.
 func DefaultWeights() RetrievalWeights {
-	return RetrievalWeights{FTS5: 0.30, Vector: 0.25, Keyword: 0.08, Tree: 0.0, Graph: 0.22, Episodic: 0.15}
+	c := config.DefaultRetrievalWeights()
+	return RetrievalWeights{
+		FTS5: c.FTS5, Vector: c.Vector, Keyword: c.Keyword,
+		Tree: c.Tree, Graph: c.Graph, Episodic: c.Episodic,
+	}
 }
 
 // WeightProfile is a named retrieval weight configuration.
 type WeightProfile string
 
 const (
-	ProfileBalanced   WeightProfile = "balanced"
 	ProfileSemantic   WeightProfile = "semantic"
 	ProfileLexical    WeightProfile = "lexical"
 	ProfileGraphFirst WeightProfile = "graph_first"

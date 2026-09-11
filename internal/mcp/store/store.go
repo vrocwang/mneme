@@ -44,16 +44,6 @@ func (s *InstalledServer) ToServerEntry() capability.ServerEntry {
 	}
 }
 
-// ConnStatus is a per-server connection status summary.
-type ConnStatus struct {
-	ServerID      string `json:"server_id"`
-	QualifiedName string `json:"qualified_name"`
-	DisplayName   string `json:"display_name"`
-	Status        string `json:"status"` // connected, disconnected, error, disabled
-	ToolCount     int    `json:"tool_count"`
-	LastError     string `json:"last_error,omitempty"`
-}
-
 // Store provides SQLite-backed persistence for MCP installations.
 type Store struct {
 	db *sql.DB
@@ -185,80 +175,7 @@ func (s *Store) DeleteServer(serverID string) (bool, error) {
 	return n > 0, nil
 }
 
-// UpdateLastConnected sets the last_connected_at timestamp for a server.
-func (s *Store) UpdateLastConnected(serverID string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	ts := time.Now().UnixMilli()
-	_, err := s.db.Exec("UPDATE mcp_servers SET last_connected_at = ? WHERE server_id = ?", ts, serverID)
-	return err
-}
-
-// UpdateEnabled flips the enabled flag on an installed server.
-func (s *Store) UpdateEnabled(serverID string, enabled bool) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	_, err := s.db.Exec("UPDATE mcp_servers SET enabled = ? WHERE server_id = ?", boolToInt(enabled), serverID)
-	return err
-}
-
-// UpdateEnvKeys updates the env_keys list for a server (after reconfiguring env values).
-func (s *Store) UpdateEnvKeys(serverID string, keys []string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	b, _ := json.Marshal(keys)
-	_, err := s.db.Exec("UPDATE mcp_servers SET env_keys_json = ? WHERE server_id = ?", string(b), serverID)
-	return err
-}
-
 // ── Env values ──────────────────────────────────────────────────────────
-
-// SetEnvValues stores (insert or replace) env key-value pairs for a server.
-// Values are never returned in list/status responses.
-func (s *Store) SetEnvValues(serverID string, env map[string]string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Delete all existing env rows, then re-insert the current set.
-	if _, err := s.db.Exec("DELETE FROM mcp_client_env WHERE server_id = ?", serverID); err != nil {
-		return err
-	}
-	for k, v := range env {
-		if _, err := s.db.Exec(
-			"INSERT INTO mcp_client_env (server_id, key, value) VALUES (?, ?, ?)",
-			serverID, k, v,
-		); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// LoadEnvValues returns the stored env values for a server. Never serialize
-// or log these values.
-func (s *Store) LoadEnvValues(serverID string) (map[string]string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	rows, err := s.db.Query("SELECT key, value FROM mcp_client_env WHERE server_id = ?", serverID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	out := make(map[string]string)
-	for rows.Next() {
-		var k, v string
-		if err := rows.Scan(&k, &v); err != nil {
-			return nil, err
-		}
-		out[k] = v
-	}
-	return out, rows.Err()
-}
 
 // ── Registry cache ──────────────────────────────────────────────────────
 

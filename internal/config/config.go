@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -181,7 +182,7 @@ func DefaultConfig() *Config {
 			Limits:       defaultAgentLimits(),
 		},
 		Security: SecurityConfig{
-			Tier:     "supervised",
+			Tier:     string(security.TierSupervised),
 			Commands: defaultSecurityCommands(),
 		},
 		Providers: []ProviderConfig{
@@ -199,7 +200,7 @@ func DefaultConfig() *Config {
 		},
 		Memory: MemoryConfig{
 			Pipeline:         defaultMemoryPipelineConfig(),
-			RetrievalWeights: defaultRetrievalWeights(),
+			RetrievalWeights: DefaultRetrievalWeights(),
 		},
 		Tools: ToolsConfig{
 			Shell: defaultToolsShellConfig(),
@@ -267,11 +268,6 @@ func (c *Config) ResolveActionDir() string {
 	return c.ProjectsDir()
 }
 
-// DataPath returns the resolved runtime data directory.
-func (c *Config) DataPath(sub ...string) string {
-	return filepath.Join(append([]string{workspace.DataDir(c.Workspace)}, sub...)...)
-}
-
 // ConfigDir returns the config override directory (<workspace>/config).
 func (c *Config) ConfigDir(sub ...string) string {
 	return filepath.Join(append([]string{workspace.ConfigDir(c.Workspace)}, sub...)...)
@@ -319,8 +315,8 @@ func (c *Config) SecretsDir() string {
 }
 
 // ConfigPath returns the path to config.toml inside the given workspace.
-func ConfigPath(workspace string) string {
-	return filepath.Join(workspace, "config.toml")
+func ConfigPath(root string) string {
+	return filepath.Join(root, workspace.FileConfig)
 }
 
 // Load reads config from path. On first run, creates directory and writes defaults.
@@ -333,8 +329,13 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Save defaults BEFORE merging env secrets so the on-disk file
-			// never contains plaintext API keys from the environment.
-			_ = cfg.Save(path)
+			// never contains plaintext API keys from the environment. A
+			// read-only workspace is not fatal, but the user should know the
+			// defaults will not persist.
+			if saveErr := cfg.Save(path); saveErr != nil {
+				slog.Warn("could not persist default config; it will be regenerated on each start",
+					"path", path, "error", saveErr)
+			}
 			cfg.mergeEnvOverrides()
 			return cfg, nil
 		}
@@ -632,6 +633,15 @@ func (c *Config) EffectiveModel() string {
 	return ""
 }
 
+// Model-route kinds. These are the keys accepted by ModelForRoute and by
+// agent definitions' `model` field, so the literal must not drift between the
+// call sites that consume a route and the roster that names one.
+const (
+	RouteReasoning = "reasoning" // learning reflection, subconscious evaluator, triage
+	RouteSummary   = "summary"   // memory archivist, entity extraction, smart walk
+	RouteVision    = "vision"    // screenshot analysis
+)
+
 // ModelForRoute returns the model configured for a task kind, falling back to
 // the effective default model.
 //
@@ -674,7 +684,7 @@ func (c *Config) BuildSecurityPolicy() *security.SecurityPolicy {
 	}
 
 	return &security.SecurityPolicy{
-		WorkspaceOnly:  c.Security.Tier == "readonly",
+		WorkspaceOnly:  c.Security.Tier == string(security.TierReadOnly),
 		WorkspaceRoot:  c.Workspace,
 		ActionDir:      actionDir,
 		TrustedRoots:   trustedRoots,

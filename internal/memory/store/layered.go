@@ -311,31 +311,6 @@ func (s *LayeredStore) DeleteAtomsOlderThan(ctx context.Context, cutoff time.Tim
 	return res.RowsAffected()
 }
 
-// GetScenario returns a single scenario by ID. This is the L1→L2 upward
-// drill-down path: an atom's ScenarioID points directly at its scenario, so no
-// fuzzy atom_ids matching is needed.
-func (s *LayeredStore) GetScenario(ctx context.Context, id int64) (*Scenario, error) {
-	row := s.db.QueryRowContext(ctx,
-		`SELECT id, content, atom_ids, vector, embedding_model, created_at
-		 FROM mem_l2_scenario WHERE id = ?`, id)
-	var sc Scenario
-	var atomIDsJSON string
-	var vectorBlob []byte
-	if err := row.Scan(&sc.ID, &sc.Content, &atomIDsJSON, &vectorBlob, &sc.EmbeddingModel, &sc.CreatedAt); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-	if atomIDsJSON != "" {
-		_ = json.Unmarshal([]byte(atomIDsJSON), &sc.AtomIDs)
-	}
-	if len(vectorBlob) > 0 {
-		sc.Vector, _ = DecodeVector(vectorBlob)
-	}
-	return &sc, nil
-}
-
 // ── Migration ──────────────────────────────────────────────────────────
 
 // MigrateChunksToAtoms copies every legacy memory_chunk into mem_l1_atom as a

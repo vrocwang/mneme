@@ -26,29 +26,6 @@ type Message struct {
 	ToolID        string         `json:"tool_id,omitempty"`
 }
 
-// HasMultimodal returns true if the message contains image content blocks.
-func (m *Message) HasMultimodal() bool {
-	for _, b := range m.ContentBlocks {
-		if b.Type == "image" {
-			return true
-		}
-	}
-	return false
-}
-
-// TextContent returns the plain-text representation of the message content.
-func (m *Message) TextContent() string {
-	if m.Content != "" {
-		return m.Content
-	}
-	for _, b := range m.ContentBlocks {
-		if b.Type == "text" {
-			return b.Text
-		}
-	}
-	return ""
-}
-
 // ToolCall is a structured tool invocation from the provider (native tool calling).
 type ToolCall struct {
 	ID        string          `json:"id"`
@@ -98,16 +75,4 @@ type ChatRequest struct {
 type Provider interface {
 	Name() string
 	Chat(ctx context.Context, req ChatRequest) (<-chan Token, <-chan error)
-}
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-// IsToolCall checks if a message contains a native tool call (vs text content).
-func (m *Message) IsToolCall() bool {
-	return m.ToolCall != nil
-}
-
-// IsToolResult checks if a message is a tool result (role == "tool").
-func (m *Message) IsToolResult() bool {
-	return m.Role == "tool"
 }

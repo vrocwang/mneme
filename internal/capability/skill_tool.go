@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/simon/mneme/internal/workspace"
 	"github.com/simon/mneme/pkg/tools"
 	"gopkg.in/yaml.v3"
 )
@@ -85,7 +86,7 @@ func (t *skillInstallTool) Execute(ctx context.Context, args map[string]interfac
 		return tools.Result{Error: fmt.Sprintf("marshal manifest: %v", err)}
 	}
 	written := fmt.Sprintf("---\n%s---\n%s", string(fullContent), body)
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(written), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(skillDir, workspace.FileSkill), []byte(written), 0644); err != nil {
 		return tools.Result{Error: fmt.Sprintf("write SKILL.md: %v", err)}
 	}
 

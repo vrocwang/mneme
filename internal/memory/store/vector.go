@@ -55,9 +55,3 @@ func CosineSimilarity(a, b []float32) float64 {
 	}
 	return sim
 }
-
-// VectorSearchResult is a scored memory chunk from vector search.
-type VectorSearchResult struct {
-	Chunk      MemoryChunk
-	Similarity float64
-}

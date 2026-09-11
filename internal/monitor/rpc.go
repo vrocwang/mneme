@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"context"
+	"log/slog"
 	"time"
 )
 
@@ -98,6 +99,7 @@ func (r *RPC) StartRun(req StartRunRequest) *StartRunResult {
 	ctx := context.Background()
 	id, err := m.Start(ctx, req.Command, timeout, req.UsePTY)
 	if err != nil {
+		slog.Warn("monitor start failed", "command", req.Command, "error", err)
 		return &StartRunResult{RunID: ""}
 	}
 	return &StartRunResult{RunID: id}
@@ -111,6 +113,7 @@ func (r *RPC) GetRun(runID string) *RunSummary {
 	}
 	run, err := m.Get(runID)
 	if err != nil {
+		slog.Warn("monitor get failed", "run", runID, "error", err)
 		return nil
 	}
 	var endedAt int64
@@ -136,6 +139,7 @@ func (r *RPC) ReadOutput(runID string) string {
 	}
 	output, err := m.ReadOutput(runID)
 	if err != nil {
+		slog.Warn("monitor read output failed", "run", runID, "error", err)
 		return ""
 	}
 	return output
@@ -147,5 +151,7 @@ func (r *RPC) StopRun(runID string) {
 	if m == nil {
 		return
 	}
-	_ = m.Stop(runID)
+	if err := m.Stop(runID); err != nil {
+		slog.Warn("monitor stop failed", "run", runID, "error", err)
+	}
 }

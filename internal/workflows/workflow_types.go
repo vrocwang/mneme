@@ -1,6 +1,8 @@
-// Package agent_workflows provides phase-keyed lifecycle guidance for agent
-// tasks via WORKFLOW.md files. Modeled after the Rust core's agent_workflows.
-package agent_workflows
+// Workflow definitions and phase-keyed lifecycle guidance, discovered from
+// WORKFLOW.md files. This file was the agent_workflows package; it is now part
+// of internal/workflows so discovery, authoring, and execution share one
+// package, one workspace directory, and one capability set.
+package workflows
 
 import "time"
 

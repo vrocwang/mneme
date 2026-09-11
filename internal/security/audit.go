@@ -14,15 +14,14 @@ import (
 type AuditEventKind string
 
 const (
-	AuditToolExecution     AuditEventKind = "tool.execution"
-	AuditToolBlocked       AuditEventKind = "tool.blocked"
-	AuditCommandBlocked    AuditEventKind = "command.blocked"
-	AuditPathViolation     AuditEventKind = "path.violation"
-	AuditInjectionBlock    AuditEventKind = "injection.block"
-	AuditApprovalPrompt    AuditEventKind = "approval.prompt"
-	AuditApprovalDecide    AuditEventKind = "approval.decide"
-	AuditSandboxEscalation AuditEventKind = "sandbox.escalation"
-	AuditPairingAttempt    AuditEventKind = "pairing.attempt"
+	AuditToolExecution  AuditEventKind = "tool.execution"
+	AuditToolBlocked    AuditEventKind = "tool.blocked"
+	AuditCommandBlocked AuditEventKind = "command.blocked"
+	AuditPathViolation  AuditEventKind = "path.violation"
+	AuditInjectionBlock AuditEventKind = "injection.block"
+	AuditApprovalPrompt AuditEventKind = "approval.prompt"
+	AuditApprovalDecide AuditEventKind = "approval.decide"
+	AuditPairingAttempt AuditEventKind = "pairing.attempt"
 )
 
 // AuditEvent is a security-relevant event recorded for review.

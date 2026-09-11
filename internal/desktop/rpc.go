@@ -6,30 +6,23 @@ import (
 )
 
 // CompanionProvider is the interface for lazy-lookup of runtime objects.
-// App satisfies this; DesktopRPC calls GetCompanionLoop / GetContext at
-// activation time rather than at Bind registration time.
+// App satisfies it; DesktopRPC resolves every dependency at call time rather
+// than at Bind registration time, because Wails evaluates Bind before OnStartup
+// creates these components.
 type CompanionProvider interface {
 	GetCompanionLoop() *CompanionLoop
+	GetScreenIntelLoop() *ScreenIntelLoop
 	GetContext() context.Context
 }
 
 // RPC provides Wails-bound desktop companion methods.
 type DesktopRPC struct {
-	app         CompanionProvider
-	screenIntel *ScreenIntelLoop
+	app CompanionProvider
 }
 
-// NewDesktopRPC creates a desktop RPC handler. Nothing is pre-captured;
-// all runtime dependencies (companion loop, context) are looked up lazily
-// via the app interface at call time, after OnStartup has initialised them.
+// NewDesktopRPC creates a desktop RPC handler. Nothing is pre-captured.
 func NewDesktopRPC(app CompanionProvider) *DesktopRPC {
 	return &DesktopRPC{app: app}
-}
-
-// WithScreenIntel attaches a screen intelligence loop for RPC control.
-func (r *DesktopRPC) WithScreenIntel(si *ScreenIntelLoop) *DesktopRPC {
-	r.screenIntel = si
-	return r
 }
 
 // ActivateCompanion starts the desktop companion loop.
@@ -43,29 +36,22 @@ func (r *DesktopRPC) ActivateCompanion() string {
 
 // StartScreenIntel starts the periodic screen intelligence loop.
 func (r *DesktopRPC) StartScreenIntel() string {
-	if r.screenIntel == nil {
+	si := r.app.GetScreenIntelLoop()
+	if si == nil {
 		return "Screen intelligence not available."
 	}
-	r.screenIntel.Start(r.app.GetContext())
+	si.Start(r.app.GetContext())
 	return "Screen intelligence started"
 }
 
 // StopScreenIntel stops the periodic screen intelligence loop.
 func (r *DesktopRPC) StopScreenIntel() string {
-	if r.screenIntel == nil {
+	si := r.app.GetScreenIntelLoop()
+	if si == nil {
 		return "Screen intelligence not available."
 	}
-	r.screenIntel.Stop()
+	si.Stop()
 	return "Screen intelligence stopped"
-}
-
-// RegisterActivateCallback sets a callback invoked on push-to-talk activation.
-func (r *DesktopRPC) RegisterActivateCallback() {
-	if r.app.GetCompanionLoop() != nil {
-		r.app.GetCompanionLoop().SetActivateCallback(func() {
-			go r.app.GetCompanionLoop().Activate(r.app.GetContext())
-		})
-	}
 }
 
 // StartCompanionLoop starts the desktop companion loop.
@@ -98,12 +84,13 @@ func (r *DesktopRPC) GetVoiceEngines() map[string]string {
 
 // StartScreenIntelligence starts screen intelligence with a configurable interval.
 func (r *DesktopRPC) StartScreenIntelligence(intervalSecs int) string {
-	if r.screenIntel == nil {
+	si := r.app.GetScreenIntelLoop()
+	if si == nil {
 		return "Screen intelligence not available."
 	}
 	if intervalSecs > 0 {
-		r.screenIntel.SetInterval(time.Duration(intervalSecs) * time.Second)
+		si.SetInterval(time.Duration(intervalSecs) * time.Second)
 	}
-	r.screenIntel.Start(r.app.GetContext())
+	si.Start(r.app.GetContext())
 	return "Screen intelligence started"
 }

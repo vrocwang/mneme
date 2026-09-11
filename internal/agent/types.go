@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"strings"
 	"time"
 )
@@ -40,21 +39,10 @@ type StreamEvent struct {
 	Done     bool   `json:"done"`
 }
 
-// StreamCallback is called for each stream event.
-type StreamCallback func(evt StreamEvent)
-
-// HookContext carries metadata available to post-turn hooks.
-type HookContext struct {
-	ThreadID  string
-	AgentName string
-	AgentID   string
-	AgentTier AgentTier
-	Model     string
-}
-
-// TurnEndHook is called after a turn completes. AgentExperience.CaptureHook
-// implements this to persist agent behavior patterns.
-type TurnEndHook func(ctx context.Context, hc HookContext, result *TurnResult)
+// GeneralAgentID is the ID of the top-level orchestrator agent. It is the
+// roster entry the general agent is built from and the identity recorded on
+// session and ledger rows.
+const GeneralAgentID = "general"
 
 // DefaultCredentialScrubber masks known credential patterns from output.
 func DefaultCredentialScrubber(output string) string {
@@ -102,22 +90,3 @@ func truncateStr(s string, max int) string {
 	}
 	return s[:max] + "..."
 }
-
-// ── Tool policy / tier types (kept for agent definitions) ──
-
-// AgentToolPolicy defines per-tool access control for an agent.
-type AgentToolPolicy struct {
-	RequireApprovalFor []string `json:"requireApprovalFor,omitempty"`
-	DenyTools          []string `json:"denyTools,omitempty"`
-	MaxToolRounds      int      `json:"maxToolRounds,omitempty"`
-}
-
-// AgentTier labels the spawn hierarchy (chat > reasoning > worker).
-type AgentTier string
-
-const (
-	TierChat      AgentTier = "chat"
-	TierReasoning AgentTier = "reasoning"
-	TierWorker    AgentTier = "worker"
-)
-

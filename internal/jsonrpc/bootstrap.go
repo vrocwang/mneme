@@ -11,7 +11,7 @@ import (
 
 // Bootstrap creates and optionally starts the JSON-RPC server. Returns nil if
 // the inference HTTP server is disabled in config.
-func Bootstrap(cfg *config.Config, provider inference.Provider, bus *events.Bus, log *slog.Logger) *Server {
+func Bootstrap(cfg *config.Config, provider inference.Provider, bus *events.Bus, audit *security.AuditLogger, log *slog.Logger) *Server {
 	if cfg == nil || !cfg.InferenceHTTP.Enabled {
 		return nil
 	}
@@ -38,6 +38,7 @@ func Bootstrap(cfg *config.Config, provider inference.Provider, bus *events.Bus,
 		log.Warn("failed to create pairing guard; HTTP endpoints will be unavailable", "error", err)
 		return srv
 	}
+	guard.SetAuditLogger(audit)
 	// Accept an operator-supplied token from the environment when present.
 	if envToken, ok := security.LoadTokenFromEnv(); ok {
 		guard.AddToken(envToken)

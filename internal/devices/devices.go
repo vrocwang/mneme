@@ -150,46 +150,6 @@ func (m *Manager) ListPaired() []Device {
 	return out
 }
 
-// EstablishTunnel sets up an encrypted tunnel to a paired device.
-func (m *Manager) EstablishTunnel(ctx context.Context, deviceID string, conn net.Conn) (*Tunnel, error) {
-	m.mu.RLock()
-	dev, ok := m.devices[deviceID]
-	m.mu.RUnlock()
-	if !ok || !dev.Paired {
-		return nil, fmt.Errorf("device %q not paired", deviceID)
-	}
-
-	sessionKey := make([]byte, 32)
-	if _, err := rand.Read(sessionKey); err != nil {
-		return nil, fmt.Errorf("generate session key: %w", err)
-	}
-
-	t := &Tunnel{
-		DeviceID:    deviceID,
-		Conn:        conn,
-		SessionKey:  sessionKey,
-		Established: time.Now(),
-	}
-
-	m.mu.Lock()
-	m.tunnels[deviceID] = t
-	m.mu.Unlock()
-
-	m.log.Info("tunnel established", "device", deviceID)
-	return t, nil
-}
-
-// CloseTunnel tears down a device tunnel.
-func (m *Manager) CloseTunnel(deviceID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if t, ok := m.tunnels[deviceID]; ok {
-		t.Conn.Close()
-		delete(m.tunnels, deviceID)
-		m.log.Info("tunnel closed", "device", deviceID)
-	}
-}
-
 // ActiveTunnelCount returns the number of active tunnels.
 func (m *Manager) ActiveTunnelCount() int {
 	m.mu.RLock()

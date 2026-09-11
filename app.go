@@ -31,9 +31,9 @@ import (
 	"github.com/simon/mneme/internal/memory"
 	"github.com/simon/mneme/internal/memory/conversations"
 	"github.com/simon/mneme/internal/monitor"
-	"github.com/simon/mneme/internal/registry"
+	"github.com/simon/mneme/internal/notifications"
+	"github.com/simon/mneme/internal/security"
 	"github.com/simon/mneme/internal/webhooks"
-	workspace "github.com/simon/mneme/internal/workspace"
 	"github.com/simon/mneme/pkg/events"
 )
 
@@ -50,7 +50,6 @@ type App struct {
 	appStateRPC *app_state.AppStateRPC
 	agentRPC    *agent.AgentRPC
 	approvalRPC *approval.ApprovalRPC
-	mcpRegRPC   *registry.RPC
 
 	// Event subscriptions (managed by subscribers.go)
 	eventSubs *subscriberSet
@@ -100,12 +99,7 @@ func (a *App) wireRPC() {
 	if a.capRPC != nil {
 		a.capRPC.SetRegistry(a.CapReg)
 		a.capRPC.SetMCPPersister(a.McpStore)
-		a.capRPC.SetLegacyExtensionsDir(workspace.ExtensionsDir(a.Cfg.Workspace))
-		a.capRPC.SetSkillsDir(workspace.SkillsDir(a.Cfg.Workspace))
-		a.capRPC.SetAgentsDir(workspace.AgentsDir(a.Cfg.Workspace))
-	}
-	if a.mcpRegRPC != nil {
-		a.mcpRegRPC.Wire(a.CapReg, a.McpStore)
+		a.capRPC.SetWorkspace(a.Cfg.Workspace)
 	}
 	if a.agentRPC != nil {
 		a.agentRPC.SetRegistry(a.CapReg)
@@ -142,17 +136,23 @@ func (a *App) GetCompanionLoop() *desktop.CompanionLoop {
 	}
 	return nil
 }
-func (a *App) GetThreadStore() *conversations.Store { return a.ConvStore }
-func (a *App) GetProvider() inference.Provider      { return a.Provider }
-func (a *App) GetDB() *sql.DB                       { return a.DB }
-func (a *App) GetRegistryRPC() *registry.RPC        { return a.mcpRegRPC }
-func (a *App) SetRegistryRPC(rpc *registry.RPC)     { a.mcpRegRPC = rpc }
-func (a *App) SetAgentRPC(rpc *agent.AgentRPC)      { a.agentRPC = rpc }
-func (a *App) GetSessionDB() *agent.SessionDB       { return a.SessionDB }
-func (a *App) GetMonitorManager() *monitor.Manager  { return a.MonitorMgr }
-func (a *App) GetMetricsRegistry() *health.Registry { return a.Metrics }
-func (a *App) GetCostTracker() *cost.Tracker        { return a.CostTracker }
-func (a *App) GetChatService() *agent.ChatService   { return a.ChatService }
+func (a *App) GetScreenIntelLoop() *desktop.ScreenIntelLoop {
+	if a.gui != nil {
+		return a.gui.ScreenIntel
+	}
+	return nil
+}
+func (a *App) GetThreadStore() *conversations.Store  { return a.ConvStore }
+func (a *App) GetProvider() inference.Provider       { return a.Provider }
+func (a *App) GetDB() *sql.DB                        { return a.DB }
+func (a *App) SetAgentRPC(rpc *agent.AgentRPC)       { a.agentRPC = rpc }
+func (a *App) GetSessionDB() *agent.SessionDB        { return a.SessionDB }
+func (a *App) GetMonitorManager() *monitor.Manager   { return a.MonitorMgr }
+func (a *App) GetMetricsRegistry() *health.Registry  { return a.Metrics }
+func (a *App) GetCostTracker() *cost.Tracker         { return a.CostTracker }
+func (a *App) GetChatService() *agent.ChatService    { return a.ChatService }
+func (a *App) GetNotifBus() *notifications.Bus       { return a.NotifBus }
+func (a *App) GetAuditLogger() *security.AuditLogger { return a.AuditLogger }
 func (a *App) GetWebhookTM() *webhooks.TunnelManager {
 	if a.gui != nil {
 		return a.gui.WebhookTM

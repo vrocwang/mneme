@@ -27,6 +27,7 @@ import (
 	"github.com/simon/mneme/internal/memory/conversations"
 	memsync "github.com/simon/mneme/internal/memory/sync"
 	"github.com/simon/mneme/internal/notifications"
+	"github.com/simon/mneme/internal/security"
 	"github.com/simon/mneme/internal/subconscious"
 	"github.com/simon/mneme/pkg/dispose"
 )
@@ -46,6 +47,10 @@ type Deps struct {
 	Workspace    string
 	SecurityTier string
 	Log          *slog.Logger
+
+	// Audit records security-relevant events (blocked commands, path
+	// violations, approval decisions). Optional; nil-safe for every consumer.
+	Audit *security.AuditLogger
 
 	// Search / network configuration for tool bundles.
 	BraveAPIKey  string
@@ -133,6 +138,9 @@ func (r *Registry) Run(ctx context.Context, d *Deps, bundles []Bundle) (dispose.
 		}
 		disposeFn, err := b.Register(ctx, d)
 		if err != nil {
+			// Unwind what already registered: a bundle that fails mid-way must
+			// not leave the registry holding live effects from earlier bundles.
+			dispose.Compose(disposes...)()
 			return nil, err
 		}
 		if disposeFn != nil {

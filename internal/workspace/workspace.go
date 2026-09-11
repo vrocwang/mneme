@@ -17,6 +17,15 @@ const (
 	FileProfile   = "PROFILE.md"
 )
 
+// Well-known file names inside a workspace. Kept here so the name is written
+// once and cannot drift between the writer and the reader.
+const (
+	FileConfig            = "config.toml" // active configuration
+	FileCoreToken         = "core.token"  // device-pairing token
+	FileExtensionManifest = "manifest.json"
+	FileSkill             = "SKILL.md"
+)
+
 // Workspace subdirectory names. These are the single source of truth for the
 // on-disk layout: callers use filepath.Join(root, workspace.DirX) (or the Path
 // helpers below) instead of repeating literals, so renaming a directory is a
@@ -117,12 +126,23 @@ var (
 	HasExtensions    bool
 )
 
-func Bootstrap(root string) error {
+// EnsureLayout creates every standard workspace subdirectory. It is the single
+// source of truth for the on-disk layout, used both by first-run Bootstrap and
+// by workspace switching, so a freshly pointed-at workspace is never missing a
+// directory that later code assumes exists.
+func EnsureLayout(root string) error {
 	for _, dir := range layout {
 		path := filepath.Join(root, dir)
 		if err := os.MkdirAll(path, 0755); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func Bootstrap(root string) error {
+	if err := EnsureLayout(root); err != nil {
+		return err
 	}
 	// Seed bundled files if they don't already exist.
 	for name, content := range bundledFiles {
@@ -144,7 +164,7 @@ func ExtractEmbeddedExtensions(root string) error {
 		return nil
 	}
 	extFS := ExtensionSources
-	extDir := filepath.Join(root, "extensions")
+	extDir := filepath.Join(root, DirExtensions)
 
 	// Check if at least one extension subdirectory already exists with a
 	// manifest. If so, skip extraction — the user may have installed or
@@ -158,7 +178,7 @@ func ExtractEmbeddedExtensions(root string) error {
 			continue
 		}
 		dstDir := filepath.Join(extDir, entry.Name())
-		if _, err := os.Stat(filepath.Join(dstDir, "manifest.json")); err == nil {
+		if _, err := os.Stat(filepath.Join(dstDir, FileExtensionManifest)); err == nil {
 			// Already exists — skip all extraction.
 			return nil
 		}

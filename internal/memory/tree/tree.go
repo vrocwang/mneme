@@ -207,73 +207,9 @@ func (t *Tree) Seal(nodeID string, summary string) error {
 	return nil
 }
 
-// SealWithCascade seals a node and then checks whether the parent node has
-// accumulated enough sealed children to trigger a cascade seal upward.
-// When the parent's sealed child count reaches BucketSize, the parent is
-// sealed with an aggregated summary and the cascade continues upward.
-func (t *Tree) SealWithCascade(nodeID, summary string) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.sealWithCascadeLocked(nodeID, summary)
-}
-
 // sealWithCascadeLocked implements the cascade logic while the mutex is held.
 // It recursively seals parent nodes without dropping and re-acquiring the lock,
 // avoiding the deadlock risk when a panic occurs between Unlock/Lock.
-func (t *Tree) sealWithCascadeLocked(nodeID, summary string) error {
-	node, ok := t.nodeMap[nodeID]
-	if !ok {
-		return nil
-	}
-	now := time.Now()
-	node.SealedAt = &now
-	node.Summary = summary
-	t.persistSealLocked(node)
-
-	// Cascade upward: if parent has enough sealed children, seal the parent.
-	if node.ParentID != "" && node.ParentID != "root" {
-		parent := t.nodeMap[node.ParentID]
-		if parent != nil {
-			sealed := 0
-			for _, child := range parent.Children {
-				if child.SealedAt != nil {
-					sealed++
-				}
-			}
-			if sealed >= t.bucketSize {
-				parentSummary := t.buildAggregateSummaryLocked(parent)
-				return t.sealWithCascadeLocked(parent.ID, parentSummary)
-			}
-		}
-	}
-	return nil
-}
-
-func (t *Tree) persistSealLocked(node *Node) {
-	if t.db == nil {
-		return
-	}
-	summary := node.Summary
-	now := node.SealedAt.Format(time.RFC3339)
-	if _, err := t.db.Exec(
-		`UPDATE mem_tree_nodes SET summary = ?, sealed_at = ?, count = ? WHERE id = ?`,
-		summary, now, node.Count, node.ID); err != nil {
-		slog.Warn("tree: failed to persist seal", "node_id", node.ID, "error", err)
-	}
-}
-
-func (t *Tree) buildAggregateSummaryLocked(parent *Node) string {
-	var parts []string
-	for _, child := range parent.Children {
-		if child.Summary != "" {
-			parts = append(parts, child.Summary)
-		}
-	}
-	if len(parts) == 0 {
-		return fmt.Sprintf("aggregated %d children", len(parent.Children))
-	}
-	return strings.Join(parts, "; ")
-}
 
 // BucketSize returns the bucket size threshold for sealing.
 func (t *Tree) BucketSize() int { return t.bucketSize }

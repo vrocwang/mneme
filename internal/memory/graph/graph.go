@@ -7,8 +7,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-
-	"github.com/simon/mneme/internal/memory/store"
 )
 
 // Edge represents a weighted co-occurrence relationship between two entities.
@@ -82,53 +80,6 @@ func (g *Graph) load() error {
 		g.edges[key] = &edgeCopy
 	}
 	return rows.Err()
-}
-
-// RecordCoOccurrenceWithEmbeddings records co-occurrence and computes
-// embedding-based similarity for edge pairs in a single lock-held operation.
-// When embeddings are provided, edge weights blend co-occurrence frequency (70%)
-// with cosine similarity of entity embeddings (30%).
-func (g *Graph) RecordCoOccurrenceWithEmbeddings(entities []string, embeddings map[string][]float32) {
-	if len(entities) < 2 {
-		return
-	}
-
-	g.mu.Lock()
-	defer g.mu.Unlock()
-
-	// Evict lowest-weight edges if we've exceeded the in-memory cap.
-	if len(g.edges) >= maxInMemoryEdges {
-		g.evictLocked(len(g.edges) - maxInMemoryEdges + 1)
-	}
-
-	deduped := dedupeEntities(entities)
-	for i := 0; i < len(deduped); i++ {
-		for j := i + 1; j < len(deduped); j++ {
-			key := edgeKey(deduped[i], deduped[j])
-			if existing, ok := g.edges[key]; ok {
-				existing.Count++
-				// Blend co-occurrence weight with embedding similarity when available.
-				baseWeight := computeWeight(existing.Count)
-				if embeddings != nil {
-					embA := embeddings[deduped[i]]
-					embB := embeddings[deduped[j]]
-					if len(embA) > 0 && len(embB) > 0 {
-						sim := cosineSimilarity(embA, embB)
-						existing.Weight = 0.7*baseWeight + 0.3*sim
-						continue
-					}
-				}
-				existing.Weight = baseWeight
-			} else {
-				g.edges[key] = &Edge{
-					Source: deduped[i],
-					Target: deduped[j],
-					Count:  1,
-					Weight: computeWeight(1),
-				}
-			}
-		}
-	}
 }
 
 // RecordCoOccurrence records that a set of entities appeared together in the same context.
@@ -294,20 +245,6 @@ func (g *Graph) GetRelated(entity string, limit int, traversalDepth int) []Edge 
 	return results
 }
 
-// GetAllEdges returns all edges in the graph.
-func (g *Graph) GetAllEdges() []Edge {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	results := make([]Edge, 0, len(g.edges))
-	for _, e := range g.edges {
-		results = append(results, *e)
-	}
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Weight > results[j].Weight
-	})
-	return results
-}
-
 // Stats returns summary statistics.
 func (g *Graph) Stats() map[string]interface{} {
 	g.mu.RLock()
@@ -345,9 +282,6 @@ func edgeKey(a, b string) string {
 
 // cosineSimilarity delegates to store.CosineSimilarity, which clamps
 // results to [0, 1] for semantically meaningful scores.
-func cosineSimilarity(a, b []float32) float64 {
-	return store.CosineSimilarity(a, b)
-}
 
 func dedupeEntities(entities []string) []string {
 	seen := make(map[string]bool)

@@ -95,18 +95,11 @@ var (
 )
 
 // ── Optional capability interfaces (internal-only) ──────────────────────
-
-// VersionedTool allows a tool to declare its version.
-type VersionedTool interface {
-	Tool
-	Version() string
-}
-
-// ScopedTool allows a tool to declare where it is available.
-type ScopedTool interface {
-	Tool
-	Scope() ToolScope
-}
+//
+// Only interfaces that are actually type-asserted somewhere are declared here.
+// A declared-but-never-asserted interface is dead weight: extensions are
+// separate processes and cannot implement an internal/ interface, so it could
+// never gain an implementation.
 
 // PermissionedTool allows a tool to declare its default risk tier.
 type PermissionedTool interface {
@@ -118,12 +111,6 @@ type PermissionedTool interface {
 type SideEffectTool interface {
 	Tool
 	SideEffects() bool
-}
-
-// OutputCappedTool allows a tool to declare its max output length.
-type OutputCappedTool interface {
-	Tool
-	MaxResultChars() int
 }
 
 // CategorizedTool allows a tool to declare its category.
@@ -142,18 +129,6 @@ type ConcurrencySafeTool interface {
 type ConcurrencySafeWithArgs interface {
 	Tool
 	ConcurrencySafeWithArgs(args map[string]interface{}) bool
-}
-
-// RuntimeContextProvider supplies metadata for policy enforcement.
-type RuntimeContextProvider interface {
-	Tool
-	GeneratedRuntimeContext() map[string]interface{}
-}
-
-// MarkdownSupportedTool reports whether a tool can return markdown output.
-type MarkdownSupportedTool interface {
-	Tool
-	SupportsMarkdown() bool
 }
 
 // Ensure Tool still referenced (for tools that use context).

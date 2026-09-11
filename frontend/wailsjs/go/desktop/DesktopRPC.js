@@ -10,10 +10,6 @@ export function GetVoiceEngines() {
   return window['go']['desktop']['DesktopRPC']['GetVoiceEngines']();
 }
 
-export function RegisterActivateCallback() {
-  return window['go']['desktop']['DesktopRPC']['RegisterActivateCallback']();
-}
-
 export function StartCompanionLoop() {
   return window['go']['desktop']['DesktopRPC']['StartCompanionLoop']();
 }
@@ -34,6 +30,3 @@ export function StopScreenIntel() {
   return window['go']['desktop']['DesktopRPC']['StopScreenIntel']();
 }
 
-export function WithScreenIntel(arg1) {
-  return window['go']['desktop']['DesktopRPC']['WithScreenIntel'](arg1);
-}

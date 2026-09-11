@@ -12,17 +12,16 @@ import (
 
 	agenttoml "github.com/simon/mneme/internal/agent/toml"
 	"github.com/simon/mneme/internal/tools"
+	ws "github.com/simon/mneme/internal/workspace"
 	"gopkg.in/yaml.v3"
 )
 
 // CapabilityRPC provides Wails-bound methods for the frontend capability page.
 // The registry is set during app startup; methods return empty results before that.
 type CapabilityRPC struct {
-	reg                 *CapabilityRegistry
-	mcpPersister        MCPServerPersister
-	legacyExtensionsDir string
-	skillsDir           string
-	agentsDir           string
+	reg          *CapabilityRegistry
+	mcpPersister MCPServerPersister
+	workspace    string
 }
 
 // MCPServerPersister persists MCP server installations across restarts.
@@ -55,21 +54,40 @@ func NewCapabilityRPC(reg *CapabilityRegistry) *CapabilityRPC {
 // When nil (e.g. no database), Add/Remove operate in-memory only.
 func (r *CapabilityRPC) SetMCPPersister(p MCPServerPersister) { r.mcpPersister = p }
 
-// SetLegacyExtensionsDir sets the extensions directory path for InstallLegacyExtension.
-func (r *CapabilityRPC) SetLegacyExtensionsDir(dir string) { r.legacyExtensionsDir = dir }
-
-// SetSkillsDir sets the skills directory path for InstallSkill.
-func (r *CapabilityRPC) SetSkillsDir(dir string) { r.skillsDir = dir }
-
-// SetAgentsDir sets the directory where user-defined agent TOML files are read
-// and written (workspace/agents). It is set explicitly by the composition root
-// so no path is reconstructed from another directory.
-func (r *CapabilityRPC) SetAgentsDir(dir string) { r.agentsDir = dir }
+// SetWorkspace sets the active workspace root. Every install/scan path the RPC
+// touches (extensions, skills, user agents) is derived from it, so no path is
+// reconstructed from a sibling directory and the layout stays owned by
+// internal/workspace.
+func (r *CapabilityRPC) SetWorkspace(dir string) { r.workspace = dir }
 
 // SetRegistry updates the registry reference. Called after startup creates it.
 func (r *CapabilityRPC) SetRegistry(reg *CapabilityRegistry) { r.reg = reg }
 
 func (r *CapabilityRPC) ok() bool { return r.reg != nil }
+
+// agentsDir returns workspace/agents or an error when no workspace is set.
+func (r *CapabilityRPC) agentsDir() (string, error) {
+	if r.workspace == "" {
+		return "", fmt.Errorf("workspace not configured")
+	}
+	return ws.AgentsDir(r.workspace), nil
+}
+
+// skillsDir returns workspace/skills or an error when no workspace is set.
+func (r *CapabilityRPC) skillsDir() (string, error) {
+	if r.workspace == "" {
+		return "", fmt.Errorf("workspace not configured")
+	}
+	return ws.SkillsDir(r.workspace), nil
+}
+
+// extensionsDir returns workspace/extensions or an error when no workspace is set.
+func (r *CapabilityRPC) extensionsDir() (string, error) {
+	if r.workspace == "" {
+		return "", fmt.Errorf("workspace not configured")
+	}
+	return ws.ExtensionsDir(r.workspace), nil
+}
 
 // ── Set queries ───────────────────────────────────────
 
@@ -188,10 +206,10 @@ func (r *CapabilityRPC) CreateAgent(def map[string]interface{}) error {
 	if agentDef.ID == "" || agentDef.Name == "" {
 		return fmt.Errorf("agent id and name are required")
 	}
-	if r.agentsDir == "" {
-		return fmt.Errorf("agents directory not configured")
+	agentsDir, err := r.agentsDir()
+	if err != nil {
+		return err
 	}
-	agentsDir := r.agentsDir
 	if err := agenttoml.SaveAgentToFile(agentsDir, agentDef); err != nil {
 		return fmt.Errorf("save agent: %w", err)
 	}
@@ -216,10 +234,10 @@ func (r *CapabilityRPC) UpdateAgent(id string, def map[string]interface{}) error
 		return fmt.Errorf("invalid agent definition: %w", err)
 	}
 	agentDef.ID = id
-	if r.agentsDir == "" {
-		return fmt.Errorf("agents directory not configured")
+	agentsDir, err := r.agentsDir()
+	if err != nil {
+		return err
 	}
-	agentsDir := r.agentsDir
 	if err := agenttoml.SaveAgentToFile(agentsDir, agentDef); err != nil {
 		return fmt.Errorf("save agent: %w", err)
 	}
@@ -234,10 +252,10 @@ func (r *CapabilityRPC) DeleteAgent(id string) error {
 	if _, ok := r.reg.GetAgent(id); !ok {
 		return fmt.Errorf("agent %q not found", id)
 	}
-	if r.agentsDir == "" {
-		return fmt.Errorf("agents directory not configured")
+	agentsDir, err := r.agentsDir()
+	if err != nil {
+		return err
 	}
-	agentsDir := r.agentsDir
 	if err := agenttoml.DeleteAgentFile(agentsDir, id); err != nil {
 		return fmt.Errorf("delete agent: %w", err)
 	}
@@ -249,17 +267,27 @@ func (r *CapabilityRPC) AddMCPServer(name, transport, command, url string, args 
 	if !r.ok() {
 		return nil
 	}
+	if name == "" {
+		return fmt.Errorf("name is required")
+	}
+	// Reject a duplicate before touching the registry: AddSet would fail
+	// anyway, but an explicit message tells the caller how to recover.
+	if _, exists := r.reg.GetSet(MCPSetID(name)); exists {
+		return fmt.Errorf("server %q is already installed", name)
+	}
+	if transport != "stdio" && transport != "http" {
+		return fmt.Errorf("unknown transport %q: use 'stdio' or 'http'", transport)
+	}
+	if transport == "stdio" && command == "" {
+		return fmt.Errorf("command is required for stdio transport")
+	}
+	if transport == "http" && url == "" {
+		return fmt.Errorf("url is required for http transport")
+	}
 	entryObj := ServerEntry{
 		Name: name, Transport: transport, Command: command, Args: args, URL: url, Enabled: true,
 	}
-	entry, err := json.Marshal(entryObj)
-	if err != nil {
-		return fmt.Errorf("marshal server entry: %w", err)
-	}
-	set := &CapabilitySet{
-		ID: MCPSetID(name), Name: name, Kind: KindMCPServer,
-		Description: "External MCP server", Config: entry, Enabled: true, Health: HealthUnknown,
-	}
+	set := NewMCPServerSet(entryObj)
 	if err := r.reg.AddSet(set); err != nil {
 		return err
 	}
@@ -313,7 +341,9 @@ func (r *CapabilityRPC) ConnectMCPServer(name string) error {
 		return nil
 	}
 	var entry ServerEntry
-	json.Unmarshal(set.Config, &entry)
+	if err := json.Unmarshal(set.Config, &entry); err != nil {
+		return fmt.Errorf("set %q: invalid MCP config: %w", name, err)
+	}
 	return r.reg.ConnectMCPServer(MCPSetID(name), entry)
 }
 
@@ -361,11 +391,7 @@ func (r *CapabilityRPC) ListExtensions() []ExtensionInfo {
 	}
 
 	// Scan disk for extensions not yet loaded.
-	workspace := filepath.Dir(r.legacyExtensionsDir)
-	if workspace == "" || workspace == "." {
-		workspace, _ = os.Getwd()
-	}
-	for _, dir := range DefaultExtensionDirs(workspace) {
+	for _, dir := range DefaultExtensionDirs(r.workspace) {
 		discovery := tools.NewExtensionDiscovery(dir)
 		discovered, _ := discovery.Discover()
 		for _, d := range discovered {
@@ -392,23 +418,21 @@ func (r *CapabilityRPC) ListExtensions() []ExtensionInfo {
 
 // InstallExtension installs an extension from a directory path.
 func (r *CapabilityRPC) InstallExtension(packagePath string) error {
-	workspace := filepath.Dir(r.legacyExtensionsDir)
-	if workspace == "" || workspace == "." {
+	if r.workspace == "" {
 		return fmt.Errorf("workspace not configured")
 	}
-	discovery := tools.NewExtensionDiscovery(workspace)
+	discovery := tools.NewExtensionDiscovery(r.workspace)
 	ext, err := discovery.InstallExtension(packagePath)
 	if err != nil {
 		return err
 	}
 	// Load immediately: build, start, register tools/agents.
-	return loadExtension(r.reg, ext, workspace, nil)
+	return loadExtension(r.reg, ext, r.workspace, nil)
 }
 
 // UninstallExtension removes an extension by category and name.
 func (r *CapabilityRPC) UninstallExtension(category, name string) error {
-	workspace := filepath.Dir(r.legacyExtensionsDir)
-	discovery := tools.NewExtensionDiscovery(workspace)
+	discovery := tools.NewExtensionDiscovery(r.workspace)
 	if err := discovery.UninstallExtension(category, name); err != nil {
 		return err
 	}
@@ -424,17 +448,21 @@ func (r *CapabilityRPC) UninstallExtension(category, name string) error {
 // executable, and reloads extension discovery. Supports any executable:
 // Go binaries, shell scripts, Python, Ruby, Node.js (via shebang).
 func (r *CapabilityRPC) InstallLegacyExtension(sourcePath string) error {
-	if !r.ok() || r.legacyExtensionsDir == "" {
+	if !r.ok() {
 		return nil
+	}
+	extDir, err := r.extensionsDir()
+	if err != nil {
+		return err
 	}
 	if _, err := os.Stat(sourcePath); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(r.legacyExtensionsDir, 0755); err != nil {
+	if err := os.MkdirAll(extDir, 0755); err != nil {
 		return err
 	}
 	base := filepath.Base(sourcePath)
-	dest := filepath.Join(r.legacyExtensionsDir, base)
+	dest := filepath.Join(extDir, base)
 	src, err := os.Open(sourcePath)
 	if err != nil {
 		return err
@@ -451,7 +479,7 @@ func (r *CapabilityRPC) InstallLegacyExtension(sourcePath string) error {
 	if err := os.Chmod(dest, 0755); err != nil {
 		return err
 	}
-	_, err = discoverLegacyExtensions(r.reg, r.legacyExtensionsDir, slog.Default())
+	_, err = discoverLegacyExtensions(r.reg, extDir, nil, slog.Default())
 	return err
 }
 
@@ -460,8 +488,12 @@ func (r *CapabilityRPC) InstallLegacyExtension(sourcePath string) error {
 // URL: http/https URL to a SKILL.md file (e.g. raw GitHub URL).
 // The skill is written to skills/<name>/SKILL.md and registered as KindSkill.
 func (r *CapabilityRPC) InstallSkill(source string) error {
-	if !r.ok() || r.skillsDir == "" {
+	if !r.ok() {
 		return nil
+	}
+	skillsDir, dirErr := r.skillsDir()
+	if dirErr != nil {
+		return dirErr
 	}
 	var data []byte
 	var err error
@@ -481,12 +513,12 @@ func (r *CapabilityRPC) InstallSkill(source string) error {
 		return fmt.Errorf("SKILL.md missing required 'name' field in YAML frontmatter")
 	}
 	// Write to skills/<name>/SKILL.md
-	skillDir := filepath.Join(r.skillsDir, m.Name)
+	skillDir := filepath.Join(skillsDir, m.Name)
 	if err := os.MkdirAll(skillDir, 0755); err != nil {
 		return err
 	}
 	// Preserve original source for URL-installed skills
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), data, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(skillDir, ws.FileSkill), data, 0644); err != nil {
 		return err
 	}
 	return r.registerSkill(*m)
@@ -623,6 +655,6 @@ func loadExtension(reg *CapabilityRegistry, ext *tools.DiscoveredExtension, work
 	// Load and register through the single shared loading path.
 	// RegisterExtension fails closed: on a duplicate set ID it returns before
 	// mutating any state, and it tracks the process for Shutdown/dispose.
-	_, err = launchExtensionProc(reg, binaryPath, &ext.Manifest, log)
+	_, err = launchExtensionProc(reg, binaryPath, &ext.Manifest, nil, log)
 	return err
 }

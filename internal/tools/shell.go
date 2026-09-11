@@ -50,6 +50,28 @@ type Shell struct {
 	runner         subprocess.Runner
 	maxOutputBytes int
 	safeEnvVars    []string
+	// audit records blocked commands. Optional: nil disables audit recording.
+	audit *security.AuditLogger
+}
+
+// SetAuditLogger attaches a security audit logger so blocked commands leave an
+// audit trail. Returns the receiver for chaining at construction sites.
+func (t *Shell) SetAuditLogger(al *security.AuditLogger) *Shell {
+	t.audit = al
+	return t
+}
+
+// recordBlocked writes an AuditCommandBlocked event. Nil-safe.
+func (t *Shell) recordBlocked(command, reason string) {
+	if t.audit == nil {
+		return
+	}
+	t.audit.Record(security.AuditCommandBlocked, security.AuditEvent{
+		ToolName: "shell",
+		Command:  command,
+		Decision: "deny",
+		Reason:   reason,
+	})
 }
 
 func NewShell(workspaceRoot string, tier security.Tier, toolsShellCfg config.ToolsShellConfig, sandboxCfg config.SandboxConfig) *Shell {
@@ -117,9 +139,11 @@ func (t *Shell) Execute(ctx context.Context, args map[string]interface{}) Result
 	blockHighRisk, requireMediumApproval := security.CommandPolicy()
 	_, decision, err := security.CheckGatedCommand(command, t.tier, blockHighRisk, requireMediumApproval)
 	if err != nil {
+		t.recordBlocked(command, err.Error())
 		return Result{Error: err.Error()}
 	}
 	if decision == security.Prompt && !security.IsApprovalHandled(ctx) {
+		t.recordBlocked(command, "requires interactive approval")
 		return Result{Error: fmt.Sprintf("command %q requires approval in %s tier; route through the tool executor for interactive approval", security.NormalizeBase(command), t.tier)}
 	}
 
@@ -129,6 +153,7 @@ func (t *Shell) Execute(ctx context.Context, args map[string]interface{}) Result
 	// that need to run arbitrary commands the user may not know in advance.
 	if t.tier == security.TierReadOnly {
 		if !security.IsCommandAllowed(command) {
+			t.recordBlocked(command, "not in readonly-tier allowlist")
 			return Result{Error: fmt.Sprintf("command %q not in allowlist", security.NormalizeBase(command))}
 		}
 	}

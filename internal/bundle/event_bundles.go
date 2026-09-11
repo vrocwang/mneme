@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/simon/mneme/internal/agent"
+	"github.com/simon/mneme/internal/config"
 	"github.com/simon/mneme/internal/cron"
 	"github.com/simon/mneme/internal/health"
 	"github.com/simon/mneme/internal/learning"
@@ -180,7 +181,7 @@ func subconsciousBundle() Bundle {
 		d.Subcon.Register(subconscious.NewIdleReminderEvaluator(d.Log))
 
 		if d.Provider != nil && d.Pipeline != nil && d.Cfg != nil {
-			llmEval := subconscious.NewLLMEvaluator(d.Log, d.Provider, d.Cfg.ModelForRoute("reasoning"),
+			llmEval := subconscious.NewLLMEvaluator(d.Log, d.Provider, d.Cfg.ModelForRoute(config.RouteReasoning),
 				subconscious.NewMemoryPipelineAdapter(d.Pipeline)).
 				WithWorkspace(d.Workspace)
 			if d.Learning != nil {

@@ -300,30 +300,6 @@ func (p *Pipeline) ForgetAtomsOlderThan(ctx context.Context, age time.Duration) 
 	return p.layered.DeleteAtomsOlderThan(ctx, cutoff)
 }
 
-// AtomDrillDown returns the L0 source refs and L2 scenario for a single atom,
-// enabling the full traceability chain: scenario → atom → conversation message.
-func (p *Pipeline) AtomDrillDown(ctx context.Context, atomID int64) (*store.Atom, *store.Scenario, error) {
-	if p.layered == nil {
-		return nil, nil, fmt.Errorf("layered store not available")
-	}
-	atoms, err := p.layered.ListAtomsByIDs(ctx, []int64{atomID})
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(atoms) == 0 {
-		return nil, nil, fmt.Errorf("atom %d not found", atomID)
-	}
-	atom := &atoms[0]
-	var scenario *store.Scenario
-	if atom.ScenarioID > 0 {
-		scenario, err = p.layered.GetScenario(ctx, atom.ScenarioID)
-		if err != nil {
-			return atom, nil, err
-		}
-	}
-	return atom, scenario, nil
-}
-
 // HasExternalContent returns true when the store contains memory chunks with
 // TaintExternalSync created since the specified time. A zero since means all
 // time. Used by the subconscious engine to decide whether to scope the turn
@@ -677,28 +653,6 @@ func lastRuneIndex(haystack, sep []rune) int {
 	return -1
 }
 
-// Search performs hybrid search across memory store and tree.
-// When a multi-strategy retriever is configured, it combines FTS5, vector,
-// keyword, and tree signals with configurable weights.
-// TreeContext returns namespace-level memory summaries from tree root
-// children for injection into the system prompt. Returns empty string when
-// no summaries are available.
-func (p *Pipeline) TreeContext() string {
-	if p.memTree == nil {
-		return ""
-	}
-	summaries := p.memTree.RootSummaries()
-	if len(summaries) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("Memory context:\n")
-	for _, s := range summaries {
-		b.WriteString(fmt.Sprintf("- %s\n", s))
-	}
-	return b.String()
-}
-
 // TreeSummary is a lightweight view of a tree node for external consumers.
 type TreeSummary struct {
 	ID      string
@@ -797,15 +751,6 @@ func (p *Pipeline) TreeSearchNodes(query string, limit int) []TreeSummary {
 	return out
 }
 
-// SearchCrossSession searches the episodic log across all sessions, excluding
-// the given thread ID. Returns formatted episodic results.
-func (p *Pipeline) SearchCrossSession(query string, excludeThreadID string, limit int) ([]conversations.EpisodicResult, error) {
-	if p.convStore == nil {
-		return nil, nil
-	}
-	return p.convStore.SearchEpisodic(query, excludeThreadID, limit)
-}
-
 // SearchAtoms performs FTS5 full-text search over L1 atomic facts and returns
 // the matching atoms, newest first. This is the layered-model retrieval entry:
 // it returns the fine-grained facts extracted from conversations rather than
@@ -818,18 +763,6 @@ func (p *Pipeline) SearchAtoms(ctx context.Context, query string, limit int) ([]
 		ctx = context.Background()
 	}
 	return p.layered.SearchAtoms(ctx, query, limit)
-}
-
-// ListRecentAtoms returns the most recent L1 atomic facts. A nil/disabled
-// layered store yields nil, nil.
-func (p *Pipeline) ListRecentAtoms(ctx context.Context, limit int) ([]store.Atom, error) {
-	if p.layered == nil {
-		return nil, nil
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return p.layered.ListAtomsRecent(ctx, limit)
 }
 
 // SearchAtomsByVector returns the top-k L1 atoms by vector similarity to the
@@ -1119,14 +1052,16 @@ func (p *Pipeline) extractPersona(ctx context.Context, scenarioID int64, atoms [
 			if idx := strings.Index(msg, c.pattern); idx >= 0 {
 				val := extractAfter(msg[idx+len(c.pattern):])
 				if val != "" && len(val) < 200 {
-					_ = p.profileStore.UpsertFacet(&profile.ProfileFacet{
+					if err := p.profileStore.UpsertFacet(&profile.ProfileFacet{
 						FacetType:        c.facetType,
 						Key:              c.key,
 						Value:            val,
 						Confidence:       0.5,
 						SourceSegmentIDs: fmt.Sprintf("%d", scenarioID),
 						LastSeenAt:       now,
-					})
+					}); err != nil {
+						p.log.Warn("failed to persist profile facet", "key", c.key, "error", err)
+					}
 				}
 				break
 			}

@@ -23,15 +23,11 @@ var ssrfDialGuardFn = blockPrivateIPs
 
 // HTTPGet performs an HTTP GET request.
 type HTTPGet struct {
-	client      *http.Client
-	proxyConfig config.ProxyConfig
+	client *http.Client
 }
 
 func NewHTTPGet(proxyConfig config.ProxyConfig) *HTTPGet {
-	return &HTTPGet{
-		client:      buildHTTPClient(proxyConfig),
-		proxyConfig: proxyConfig,
-	}
+	return &HTTPGet{client: buildHTTPClient(proxyConfig)}
 }
 
 func (t *HTTPGet) Schema() Schema {
@@ -88,15 +84,11 @@ func (t *HTTPGet) Execute(ctx context.Context, args map[string]interface{}) Resu
 
 // HTTPPost performs an HTTP POST request.
 type HTTPPost struct {
-	client      *http.Client
-	proxyConfig config.ProxyConfig
+	client *http.Client
 }
 
 func NewHTTPPost(proxyConfig config.ProxyConfig) *HTTPPost {
-	return &HTTPPost{
-		client:      buildHTTPClient(proxyConfig),
-		proxyConfig: proxyConfig,
-	}
+	return &HTTPPost{client: buildHTTPClient(proxyConfig)}
 }
 
 func (t *HTTPPost) Schema() Schema {
@@ -224,12 +216,12 @@ func isPrivateIP(ip net.IP) bool {
 // ssrfBlockedNetworks holds CIDR ranges that must never be reachable by agent
 // network tools but are not covered by net.IP.IsPrivate.
 var ssrfBlockedNetworks = mustParseCIDRs(
-	"0.0.0.0/8",       // "this network"
-	"100.64.0.0/10",   // carrier-grade NAT
-	"169.254.0.0/16",  // link-local (also covered by IsLinkLocalUnicast)
-	"198.18.0.0/15",   // benchmarking
-	"224.0.0.0/4",     // multicast
-	"240.0.0.0/4",     // reserved (including 255.255.255.255/32)
+	"0.0.0.0/8",      // "this network"
+	"100.64.0.0/10",  // carrier-grade NAT
+	"169.254.0.0/16", // link-local (also covered by IsLinkLocalUnicast)
+	"198.18.0.0/15",  // benchmarking
+	"224.0.0.0/4",    // multicast
+	"240.0.0.0/4",    // reserved (including 255.255.255.255/32)
 )
 
 func mustParseCIDRs(cidrs ...string) []*net.IPNet {

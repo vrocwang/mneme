@@ -469,32 +469,6 @@ func (q *Queue) markDone(jobID string) {
 	}
 }
 
-// ShouldRetry returns true if the job has not yet reached its max attempts.
-// Useful for status checks and monitoring.
-func (q *Queue) ShouldRetry(jobID string) bool {
-	var attempts, maxAttempts int
-	err := q.cfg.DB.QueryRowContext(context.Background(),
-		`SELECT attempts, max_attempts FROM mem_jobs WHERE id = ?`, jobID,
-	).Scan(&attempts, &maxAttempts)
-	if err != nil {
-		return false
-	}
-	return attempts < maxAttempts
-}
-
-// AttemptsForJob returns the number of execution attempts for a job.
-// Returns 0 if the job is not found.
-func (q *Queue) AttemptsForJob(jobID string) int {
-	var attempts int
-	err := q.cfg.DB.QueryRowContext(context.Background(),
-		`SELECT attempts FROM mem_jobs WHERE id = ?`, jobID,
-	).Scan(&attempts)
-	if err != nil {
-		return 0
-	}
-	return attempts
-}
-
 // ── Stale lock recovery ────────────────────────────────────────────
 
 func (q *Queue) recoverStaleLocks() error {

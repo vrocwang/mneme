@@ -82,23 +82,6 @@ func (r *CapabilityRegistry) RemoveSet(id string) error {
 	return r.removeSetInternal(id)
 }
 
-// EnsureSet adds a capability set if it does not already exist, and returns
-// the (existing or newly-created) set. It is idempotent: registering tools
-// into a domain set across multiple boot phases (e.g. late tools) is safe.
-func (r *CapabilityRegistry) EnsureSet(set *CapabilitySet) (*CapabilitySet, error) {
-	if set == nil {
-		return nil, fmt.Errorf("nil capability set")
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if existing, ok := r.sets[set.ID]; ok {
-		return existing, nil
-	}
-	normalizeSet(set)
-	r.sets[set.ID] = set
-	return set, nil
-}
-
 // replaceSet overwrites an existing set (or inserts it) with the given
 // definition. It is the idempotent re-registration path — e.g. reinstalling a
 // skill whose set ID already exists, where AddSet would fail.
@@ -586,7 +569,9 @@ func (r *CapabilityRegistry) RegisterExtension(setID string, set *CapabilitySet,
 	r.TrackExtension(setID, proc)
 
 	unwind := dispose.Once(func() {
-		_ = r.removeSetInternal(setID)
+		if err := r.removeSetInternal(setID); err != nil {
+			slog.Warn("extension teardown failed", "set_id", setID, "error", err)
+		}
 	})
 
 	r.mu.Lock()
@@ -615,6 +600,13 @@ func (r *CapabilityRegistry) removeSetInternal(id string) error {
 		if owner == id {
 			delete(r.agents, agentID)
 			delete(r.agentOwner, agentID)
+		}
+	}
+	// Channel providers are registered per set too; drop them so a removed
+	// set does not leave its providers resolvable forever.
+	for name, entry := range r.channels {
+		if entry.setID == id {
+			delete(r.channels, name)
 		}
 	}
 	mcpClient := r.mcpClients[id]

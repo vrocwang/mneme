@@ -15,7 +15,7 @@ func RegisterTools(reg *capability.CapabilityRegistry, store *Store) {
 	if reg == nil || store == nil {
 		return
 	}
-	capability.RegisterSetTools(reg, "goals", "Goals",
+	capability.RegisterSetTools(reg, capability.SetGoals, "Goals",
 		&listTool{store: store},
 		&addTool{store: store},
 		&editTool{store: store},

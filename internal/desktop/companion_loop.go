@@ -32,9 +32,6 @@ type CompanionLoop struct {
 	mu      sync.Mutex
 	running bool
 	cancel  context.CancelFunc // cancels in-flight Activate
-
-	// Hotkey activation
-	onActivate func()
 }
 
 // CompanionConfig configures the companion loop.
@@ -204,14 +201,6 @@ done:
 
 	// Step 4: TTS response
 	return c.ttsSpeak(ctx, responseText)
-}
-
-// SetActivateCallback registers a function to be called when the companion
-// should be activated by an external trigger (e.g. global hotkey).
-func (c *CompanionLoop) SetActivateCallback(fn func()) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.onActivate = fn
 }
 
 // IsRunning reports whether the companion loop is currently active.

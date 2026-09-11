@@ -82,10 +82,6 @@ export function GetProvider() {
   return window['go']['main']['App']['GetProvider']();
 }
 
-export function GetRegistryRPC() {
-  return window['go']['main']['App']['GetRegistryRPC']();
-}
-
 export function GetSessionDB() {
   return window['go']['main']['App']['GetSessionDB']();
 }
@@ -128,10 +124,6 @@ export function SetAppStateRPC(arg1) {
 
 export function SetCapRPC(arg1) {
   return window['go']['main']['App']['SetCapRPC'](arg1);
-}
-
-export function SetRegistryRPC(arg1) {
-  return window['go']['main']['App']['SetRegistryRPC'](arg1);
 }
 
 export function StreamChatMessage(arg1) {

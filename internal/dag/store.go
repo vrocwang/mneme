@@ -105,12 +105,6 @@ func (s *Store) ListGraphs() ([]string, error) {
 	return names, rows.Err()
 }
 
-// DeleteGraph removes a graph definition.
-func (s *Store) DeleteGraph(name string) error {
-	_, err := s.db.Exec(`DELETE FROM dag_graphs WHERE id = ?`, name)
-	return err
-}
-
 // SaveRun persists a run record.
 func (s *Store) SaveRun(rec *RunRecord) error {
 	stepsJSON, err := json.Marshal(rec.Steps)

@@ -2,7 +2,6 @@
 // Methods are exposed on window['go']['main']['App'] by the Wails runtime.
 
 const DEFAULT_TIMEOUT_MS = 30_000;  // 30 seconds
-const MAX_RETRIES = 2;
 
 export class RpcError extends Error {
   constructor(message: string, public code?: string, public status?: number) {
@@ -31,7 +30,7 @@ function invoke<T>(method: string, ...args: unknown[]): Promise<T> {
   const cronMethods = ['GetCronJobs', 'ToggleCronJob', 'TriggerCronJob', 'AddCronJob', 'RemoveCronJob'];
   const learningMethods = ['GetPreferences'];
   const memoryMethods = ['SearchMemory', 'ListNamespaces', 'ClearNamespace', 'SetRetrievalProfile'];
-  const companionMethods = ['ActivateCompanion', 'StartCompanionLoop', 'StopCompanionLoop', 'StartScreenIntel', 'StopScreenIntel', 'StartScreenIntelligence', 'GetVoiceEngines', 'RegisterActivateCallback'];
+  const companionMethods = ['ActivateCompanion', 'StartCompanionLoop', 'StopCompanionLoop', 'StartScreenIntel', 'StopScreenIntel', 'StartScreenIntelligence', 'GetVoiceEngines'];
   const threadMethods = ['ListThreads', 'CreateThread', 'DeleteThread', 'GetThreadMessages', 'UpdateThreadTitle'];
   const webhookMethods = ['ListTunnels', 'CreateTunnel', 'GetTunnel', 'UpdateTunnel',
     'DeleteTunnel', 'GetTunnelBandwidth', 'ListTunnelActivity', 'ClearTunnelActivity'];
@@ -40,14 +39,16 @@ function invoke<T>(method: string, ...args: unknown[]): Promise<T> {
   const keyringMethods = ['KeyringStatus', 'KeyringRetryProbe', 'KeyringConsentDecide'];
   const healthMethods = ['DoctorReport'];
   const appStateMethods = ['AppStateSnapshot'];
-  const mcpMethods = ['ListMCPServers', 'InstallMCPServer', 'UninstallMCPServer', 'GetMCPServerStatus', 'CallMCPTool'];
 	const capabilityMethods = ['ListSets', 'GetSet', 'ListAllTools', 'GetToolSchema', 'GetToolDiagnostics', 'ListAllAgents',
 		'AddMCPServer', 'RemoveMCPServer', 'ConnectMCPServer', 'DisconnectMCPServer',
 		'InstallLegacyExtension', 'InstallSkill', 'ListSkillCatalog', 'RefreshSkillCatalog', 'InstallSkillFromCatalog',
 		'ListExtensions', 'InstallExtension', 'UninstallExtension'];
   const soulMethods = ["GetSOUL", "SetSOUL", "GetIdentity", "SetIdentity"];
   const channelMethods = ['ListChannels', 'EnableChannel', 'DisableChannel'];
-  const monitorMethods = ['ListRuns', 'StartRun', 'GetRun', 'ReadOutput', 'StopRun'];
+  const monitorMethods = ['ListRuns', 'StartRun', 'ReadOutput', 'StopRun'];
+  const notificationMethods = ['ListNotifications', 'ListUnreadNotifications', 'MarkNotificationRead',
+    'MarkAllNotificationsRead', 'UnreadNotificationCount'];
+  const auditMethods = ['ListAuditEvents', 'ListAuditEventsByKind'];
   const service = soulMethods.includes(method) ? "SoulRPC"
     : channelMethods.includes(method) ? "ChannelRPC"
     : configRpcMethods.includes(method) ? "ConfigRPC"
@@ -64,9 +65,10 @@ function invoke<T>(method: string, ...args: unknown[]): Promise<T> {
     : threadMethods.includes(method) ? 'ThreadsRPC'
     : healthMethods.includes(method) ? 'HealthRPC'
     : appStateMethods.includes(method) ? 'AppStateRPC'
-    : mcpMethods.includes(method) ? 'RPC'
 	    : capabilityMethods.includes(method) ? 'CapabilityRPC'
     : monitorMethods.includes(method) ? 'MonitorRPC'
+    : notificationMethods.includes(method) ? 'NotificationsRPC'
+    : auditMethods.includes(method) ? 'AuditRPC'
     : 'App';
 
   // Wails binds structs under go.<package>.<StructName>. Try the main
@@ -93,9 +95,10 @@ function invoke<T>(method: string, ...args: unknown[]): Promise<T> {
       'HealthRPC':     {pkg: 'health'},
       'AppStateRPC':   {pkg: 'app_state'},
       'AboutRPC':      {pkg: 'about',   name: 'RPC'},
-      'RPC':           {pkg: 'registry', name: 'RPC'},
             'SoulRPC':      {pkg: 'soul', name: 'RPC'},
       'MonitorRPC':    {pkg: 'monitor', name: 'RPC'},
+      'NotificationsRPC': {pkg: 'notifications', name: 'RPC'},
+      'AuditRPC':         {pkg: 'security', name: 'AuditRPC'},
       'CapabilityRPC': {pkg: 'capability'},
       'ChannelRPC':    {pkg: 'channels', name: 'ChannelRPC'},
     };
@@ -133,97 +136,6 @@ export async function invokeWithTimeout<T>(
       'RPC_ERROR',
     );
   }
-}
-
-// invokeWithRetry retries transient RPC failures up to MAX_RETRIES times.
-export async function invokeWithRetry<T>(
-  method: string,
-  args: unknown[],
-  timeoutMs: number = DEFAULT_TIMEOUT_MS,
-): Promise<T> {
-  let lastError: Error | undefined;
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      return await invokeWithTimeout<T>(method, args, timeoutMs);
-    } catch (e) {
-      lastError = e instanceof Error ? e : new Error(String(e));
-      if (attempt < MAX_RETRIES && isTransientError(lastError)) {
-        await new Promise(r => setTimeout(r, Math.min(1000 * (attempt + 1), 5000)));
-        continue;
-      }
-      throw lastError;
-    }
-  }
-  throw lastError!;
-}
-
-// isTransientError returns true for errors likely to resolve on retry.
-function isTransientError(err: Error): boolean {
-  const msg = err.message.toLowerCase();
-  const transient = ['timeout', 'network', 'econnrefused', 'econnreset', '503', '502', '429', 'temporarily'];
-  return transient.some(t => msg.includes(t));
-}
-
-export class AbortError extends RpcError {
-  constructor(method: string) {
-    super(`RPC ${method} was aborted`, 'ABORTED');
-    this.name = 'AbortError';
-  }
-}
-
-// invokeWithAbort wraps invoke with AbortController support.
-// Pass an AbortSignal to cancel in-flight requests.
-export async function invokeWithAbort<T>(
-  method: string,
-  args: unknown[],
-  signal?: AbortSignal,
-  timeoutMs: number = DEFAULT_TIMEOUT_MS,
-): Promise<T> {
-  if (signal?.aborted) {
-    throw new AbortError(method);
-  }
-
-  const timer = new Promise<never>((_, reject) => {
-    const id = setTimeout(() => reject(new RpcError(`RPC ${method} timed out after ${timeoutMs}ms`, 'TIMEOUT')), timeoutMs);
-    if (signal) {
-      signal.addEventListener('abort', () => {
-        clearTimeout(id);
-        reject(new AbortError(method));
-      }, { once: true });
-    }
-  });
-
-  try {
-    return await Promise.race([invoke<T>(method, ...args), timer]);
-  } catch (e) {
-    if (e instanceof RpcError) throw e;
-    throw new RpcError(e instanceof Error ? e.message : String(e), 'RPC_ERROR');
-  }
-}
-
-// invokeWithRetryAndAbort combines retry logic with abort support.
-export async function invokeWithRetryAndAbort<T>(
-  method: string,
-  args: unknown[],
-  signal?: AbortSignal,
-  timeoutMs: number = DEFAULT_TIMEOUT_MS,
-): Promise<T> {
-  let lastError: Error | undefined;
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    if (signal?.aborted) throw new AbortError(method);
-    try {
-      return await invokeWithAbort<T>(method, args, signal, timeoutMs);
-    } catch (e) {
-      lastError = e instanceof Error ? e : new Error(String(e));
-      if (e instanceof AbortError) throw e;
-      if (attempt < MAX_RETRIES && isTransientError(lastError)) {
-        await new Promise(r => setTimeout(r, Math.min(1000 * (attempt + 1), 5000)));
-        continue;
-      }
-      throw lastError;
-    }
-  }
-  throw lastError!;
 }
 
 // ── Chat ──────────────────────────────────────────────────────────────
@@ -662,3 +574,36 @@ export function getSOUL() { return invoke<string>('GetSOUL'); }
 export function setSOUL(content: string) { return invoke<void>('SetSOUL', content); }
 export function getIdentity() { return invoke<string>('GetIdentity'); }
 export function setIdentity(content: string) { return invoke<void>('SetIdentity', content); }
+
+// ── Notifications (notifications.Bus) ──────────────────────────────────────
+export interface NotificationRecord {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  thread_id?: string;
+  channel?: string;
+  read: boolean;
+  created_at: string;
+}
+export function listNotifications(limit = 50) { return invoke<NotificationRecord[]>('ListNotifications', limit); }
+export function listUnreadNotifications(limit = 50) { return invoke<NotificationRecord[]>('ListUnreadNotifications', limit); }
+export function markNotificationRead(id: string) { return invoke<void>('MarkNotificationRead', id); }
+export function markAllNotificationsRead() { return invoke<void>('MarkAllNotificationsRead'); }
+export function unreadNotificationCount() { return invoke<number>('UnreadNotificationCount'); }
+
+// ── Security audit trail (security.AuditRPC) ───────────────────────────────
+export interface AuditEventRecord {
+  id: string;
+  kind: string;
+  tool_name?: string;
+  command?: string;
+  args?: string;
+  decision?: string;
+  reason?: string;
+  created_at: string;
+}
+export function listAuditEvents(limit = 50) { return invoke<AuditEventRecord[]>('ListAuditEvents', limit); }
+export function listAuditEventsByKind(kind: string, limit = 50) {
+  return invoke<AuditEventRecord[]>('ListAuditEventsByKind', kind, limit);
+}

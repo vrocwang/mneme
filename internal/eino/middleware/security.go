@@ -79,8 +79,9 @@ func (m *SecurityMiddleware) CheckTool(ctx context.Context, toolName string, arg
 	if m.Policy != nil {
 		if err := m.validatePaths(toolName, args); err != nil {
 			if m.AuditLogger != nil {
-				m.AuditLogger.Record(security.AuditToolBlocked, security.AuditEvent{
+				m.AuditLogger.Record(security.AuditPathViolation, security.AuditEvent{
 					ToolName: toolName,
+					Args:     args,
 					Decision: "deny",
 					Reason:   err.Error(),
 				})
@@ -91,6 +92,11 @@ func (m *SecurityMiddleware) CheckTool(ctx context.Context, toolName string, arg
 
 	// RequestApproval returns (Decision, *AuditEntry) — the audit entry
 	// is informational and does not represent an error.
+	//
+	// Approval prompt/decision auditing lives in approval.Gate, not here: this
+	// method runs for every tool call, but the gate only prompts a human when it
+	// actually parks. Recording here would log a "prompt" for every
+	// auto-approved tool call and flood the audit table.
 	decision, _ := m.ApprovalGate.RequestApproval(ctx, toolName, args,
 		fmt.Sprintf("tool %q requires approval", toolName))
 	if decision == approval.DecisionDeny {

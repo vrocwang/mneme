@@ -36,21 +36,28 @@ func BuiltinBundles() []Bundle {
 // Domain bundle IDs for the non-core tool groups that were previously
 // hardcoded into the Core set. Each corresponds to a named CapabilitySet and
 // can be disabled via [bundles] disabled.
+//
+// The ID doubles as the capability-set ID, so the values are aliases of the
+// capability package's domain constants rather than repeated literals: there is
+// exactly one place where a domain's ID is written.
 const (
-	BundleWorkflows = "workflows"
-	BundleMCP       = "mcp"
-	BundleConfig    = "config"
-	BundleTodos     = "todos"
-	BundleFileState = "file-state"
-	BundleSkills    = "skills"
-	BundleThreads   = "threads"
-	BundleMemory    = "memory"
-	BundleGoals     = "goals"
-	BundleDAG       = "dag"
-	BundleCron      = "cron"
-	BundleMonitor   = "monitor"
-	BundleDesktop   = "desktop"
+	BundleWorkflows = capability.SetWorkflows
+	BundleMCP       = capability.SetMCP
+	BundleConfig    = capability.SetConfig
+	BundleTodos     = capability.SetTodos
+	BundleFileState = capability.SetFileState
+	BundleSkills    = capability.SetSkills
+	BundleThreads   = capability.SetThreads
+	BundleMemory    = capability.SetMemory
+	BundleGoals     = capability.SetGoals
+	BundleDAG       = capability.SetDAG
+	BundleCron      = capability.SetCron
+	BundleMonitor   = capability.SetMonitor
 )
+
+// BundleDesktop gates GUI-only desktop components rather than a tool set, so it
+// has no capability.Set* counterpart.
+const BundleDesktop = "desktop"
 
 // RegisterBuiltin creates the shared builtin capability set, applies sandbox
 // config, and runs the enabled first-layer bundles. It must be called before
@@ -101,7 +108,9 @@ func coreToolsBundle() Bundle {
 		func(d *Deps) tools.Tool { return tools.NewWriteFile(d.Workspace) },
 		func(d *Deps) tools.Tool { return tools.NewListDir(d.Workspace) },
 		func(d *Deps) tools.Tool {
-			return tools.NewShell(d.Workspace, security.Tier(d.SecurityTier), d.Cfg.Tools.Shell, d.Cfg.Sandbox)
+			return tools.
+				NewShell(d.Workspace, security.Tier(d.SecurityTier), d.Cfg.Tools.Shell, d.Cfg.Sandbox).
+				SetAuditLogger(d.Audit)
 		},
 		func(d *Deps) tools.Tool { return tools.NewGitOps(d.Workspace) },
 		func(d *Deps) tools.Tool { return tools.NewApplyPatch(d.Workspace) },

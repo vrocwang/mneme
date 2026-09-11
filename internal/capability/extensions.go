@@ -3,6 +3,7 @@ package capability
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -19,16 +20,20 @@ import (
 // duplication between capability discovery and tools lifecycle management.
 // See tools.ExtensionManifest for the canonical definition.
 
+// ExtensionConfigLoader returns the saved configuration for an extension by
+// name. It is invoked once per launched extension and delivered through the
+// extension.configure protocol. A nil loader disables config delivery.
+type ExtensionConfigLoader func(name string) (map[string]interface{}, error)
+
 // discoverExtensions scans one or more extensions directories for subdirectories
 // containing a manifest.json, optionally builds each one, launches it as an extension
 // subprocess, and registers its tools and agents into the registry.
 //
 // Directories are tried in order. If a directory doesn't exist, it is silently
 // skipped. This allows the same code to work in development (project-root
-// extensions/) and production (workspace extensions/).
-func discoverExtensions(reg *CapabilityRegistry, dirs []string, log *slog.Logger) (int, error) {
-	loaded := 0
-
+// extensions/) and production (workspace extensions/). Per-extension failures
+// are logged and skipped: one broken extension must not abort discovery.
+func discoverExtensions(reg *CapabilityRegistry, dirs []string, loadCfg ExtensionConfigLoader, log *slog.Logger) {
 	for _, dir := range dirs {
 		if dir == "" {
 			continue
@@ -48,7 +53,7 @@ func discoverExtensions(reg *CapabilityRegistry, dirs []string, log *slog.Logger
 				continue
 			}
 			extDir := filepath.Join(dir, entry.Name())
-			mfPath := filepath.Join(extDir, "manifest.json")
+			mfPath := filepath.Join(extDir, tools.ExtensionManifestFile)
 
 			mfData, err := os.ReadFile(mfPath)
 			if err != nil {
@@ -102,7 +107,7 @@ func discoverExtensions(reg *CapabilityRegistry, dirs []string, log *slog.Logger
 			// Launch and register through the single shared loading path.
 			// StartProtoFromCommand handles native binaries, scripts with
 			// shebangs, and interpreter invocations.
-			if _, err := launchExtensionProc(reg, binaryPath, &mf, log); err != nil {
+			if _, err := launchExtensionProc(reg, binaryPath, &mf, loadCfg, log); err != nil {
 				errStr := err.Error()
 				// Windows UAC elevation requests and missing interpreters are
 				// expected for some extensions — log at info level.
@@ -115,11 +120,8 @@ func discoverExtensions(reg *CapabilityRegistry, dirs []string, log *slog.Logger
 				}
 				continue
 			}
-			loaded++
 		}
 	}
-
-	return loaded, nil
 }
 
 // launchExtensionProc starts one extension binary via the JSON-RPC protocol,
@@ -128,7 +130,7 @@ func discoverExtensions(reg *CapabilityRegistry, dirs []string, log *slog.Logger
 // discovery, and on-demand (install-time) loading. mf is the pre-parsed
 // manifest when the caller discovered one on disk; nil means the manifest
 // comes from the process handshake.
-func launchExtensionProc(reg *CapabilityRegistry, binaryPath string, mf *tools.ExtensionManifest, log *slog.Logger) (*tools.ProtoProcess, error) {
+func launchExtensionProc(reg *CapabilityRegistry, binaryPath string, mf *tools.ExtensionManifest, loadCfg ExtensionConfigLoader, log *slog.Logger) (*tools.ProtoProcess, error) {
 	proc, err := tools.StartProtoFromCommand(context.Background(), binaryPath, log)
 	if err != nil {
 		return nil, err
@@ -143,14 +145,32 @@ func launchExtensionProc(reg *CapabilityRegistry, binaryPath string, mf *tools.E
 		}
 	}
 
+	// Deliver the extension's saved configuration. This is the host half of the
+	// extension.configure protocol (the extension half is extsdk's
+	// SetConfigHandler); without it, saved per-extension config was written to
+	// disk and never reached the running extension. Failure is non-fatal: the
+	// extension may work with defaults, and the reason is logged.
+	if loadCfg != nil {
+		if cfg, cfgErr := loadCfg(mf.Name); cfgErr != nil {
+			log.Warn("extension config load failed", "name", mf.Name, "error", cfgErr)
+		} else if len(cfg) > 0 {
+			if cfgErr := proc.Configure(context.Background(), cfg); cfgErr != nil {
+				log.Warn("extension configure failed", "name", mf.Name, "error", cfgErr)
+			} else {
+				log.Info("extension configured", "name", mf.Name, "keys", len(cfg))
+			}
+		}
+	}
+
 	// Collect tools and agents up front so the whole extension can be
 	// registered as a single effect (RegisterExtension reserves the set ID
-	// first and returns a dispose func for clean unwinding).
-	var extTools []tools.Tool
-	if ts, err := proc.ListTools(context.Background()); err == nil {
-		extTools = ts
-	} else {
-		log.Warn("extension list tools failed", "name", mf.Name, "error", err)
+	// first and returns a dispose func for clean unwinding). A tool-listing
+	// failure means the extension is not usable: stop it and report rather
+	// than registering a "loaded" extension that provides nothing.
+	extTools, err := proc.ListTools(context.Background())
+	if err != nil {
+		proc.Stop()
+		return nil, fmt.Errorf("list tools for extension %s: %w", mf.Name, err)
 	}
 	var extAgents []*tools.AgentDef
 	if as, err := proc.ListAgents(context.Background()); err == nil {
@@ -328,7 +348,7 @@ func dirHasExtensionManifest(dir string) bool {
 		if !e.IsDir() {
 			continue
 		}
-		if _, err := os.Stat(filepath.Join(dir, e.Name(), "manifest.json")); err == nil {
+		if _, err := os.Stat(filepath.Join(dir, e.Name(), tools.ExtensionManifestFile)); err == nil {
 			return true
 		}
 	}

@@ -1,10 +1,9 @@
-package agent_workflows
+package workflows
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/simon/mneme/internal/capability"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,7 +18,6 @@ import (
 type ListWorkflowsTool struct {
 	userDir    string
 	projectDir string
-	cache      []*Workflow
 }
 
 // NewListWorkflowsTool creates a workflow listing tool.
@@ -40,7 +38,6 @@ func (t *ListWorkflowsTool) Schema() tools.Schema {
 
 func (t *ListWorkflowsTool) Execute(ctx context.Context, args map[string]interface{}) tools.Result {
 	workflows := DiscoverWorkflows(t.userDir, t.projectDir)
-	t.cache = workflows
 
 	if len(workflows) == 0 {
 		return tools.Result{Success: true, Output: "No workflows found."}
@@ -53,6 +50,9 @@ func (t *ListWorkflowsTool) Execute(ctx context.Context, args map[string]interfa
 		if w.Description != "" {
 			b.WriteString(fmt.Sprintf("  %s\n", w.Description))
 		}
+		// Scope (user vs project) used to be shown only by the duplicate
+		// list_workflows tool; it is surfaced here so the merge loses nothing.
+		b.WriteString(fmt.Sprintf("  Scope: %s\n", w.Scope))
 		if len(w.Phases) > 0 {
 			b.WriteString(fmt.Sprintf("  Phases: %s\n", strings.Join(w.PhaseNames(), ", ")))
 		}
@@ -63,6 +63,15 @@ func (t *ListWorkflowsTool) Execute(ctx context.Context, args map[string]interfa
 	}
 	return tools.Result{Success: true, Output: b.String()}
 }
+
+// Permission/concurrency metadata. The tool this replaced (the duplicate
+// list_workflows) declared these, so restoring them keeps the capability
+// descriptor and approval-gate risk classification accurate.
+func (t *ListWorkflowsTool) PermissionLevel() tools.PermissionLevel { return tools.PermReadOnly }
+func (t *ListWorkflowsTool) ConcurrencySafe() bool                  { return true }
+
+func (t *ReadWorkflowTool) PermissionLevel() tools.PermissionLevel { return tools.PermReadOnly }
+func (t *ReadWorkflowTool) ConcurrencySafe() bool                  { return true }
 
 // ReadWorkflowTool reads a specific workflow by directory name.
 type ReadWorkflowTool struct {
@@ -134,6 +143,9 @@ func (t *ReadWorkflowTool) Execute(ctx context.Context, args map[string]interfac
 	return tools.Result{Success: true, Output: b.String()}
 }
 
+func (t *PhaseGuidanceTool) PermissionLevel() tools.PermissionLevel { return tools.PermReadOnly }
+func (t *PhaseGuidanceTool) ConcurrencySafe() bool                  { return true }
+
 // PhaseGuidanceTool resolves phase-specific guidance and tool scope.
 type PhaseGuidanceTool struct {
 	listTool *ListWorkflowsTool
@@ -202,6 +214,9 @@ func (t *PhaseGuidanceTool) Execute(ctx context.Context, args map[string]interfa
 
 	return tools.Result{Success: true, Output: guidance}
 }
+
+func (t *CreateWorkflowTool) PermissionLevel() tools.PermissionLevel { return tools.PermWrite }
+func (t *CreateWorkflowTool) SideEffects() bool                      { return true }
 
 // CreateWorkflowTool scaffolds a new WORKFLOW.md in the user's workflow directory.
 type CreateWorkflowTool struct {
@@ -275,6 +290,9 @@ func (t *CreateWorkflowTool) Execute(ctx context.Context, args map[string]interf
 	return tools.Result{Success: true, Output: fmt.Sprintf("Created workflow %q at %s", name, dirPath)}
 }
 
+func (t *BestMatchTool) PermissionLevel() tools.PermissionLevel { return tools.PermReadOnly }
+func (t *BestMatchTool) ConcurrencySafe() bool                  { return true }
+
 // BestMatchTool finds the best workflow for a task description.
 type BestMatchTool struct {
 	listTool *ListWorkflowsTool
@@ -340,15 +358,16 @@ func sanitizeDirName(name string) string {
 	return cleaned
 }
 
-// RegisterTools registers all agent workflow tools with the capability registry
-// under the "workflows" set.
-func RegisterTools(reg *capability.CapabilityRegistry, userWorkflowsDir, projectRoot string) {
+// catalogTools returns the WORKFLOW.md discovery/authoring tools. They are
+// registered together with the execution tools by RegisterAll so the whole
+// workflow surface lives in one set and one package.
+func catalogTools(userWorkflowsDir, projectRoot string) []tools.Tool {
 	listTool := NewListWorkflowsTool(userWorkflowsDir, projectRoot)
-	capability.RegisterSetTools(reg, "workflows", "Workflows",
+	return []tools.Tool{
 		listTool,
 		NewReadWorkflowTool(listTool),
 		NewPhaseGuidanceTool(listTool),
 		NewCreateWorkflowTool(userWorkflowsDir),
 		NewBestMatchTool(listTool),
-	)
+	}
 }

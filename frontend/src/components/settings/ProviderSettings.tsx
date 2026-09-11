@@ -50,12 +50,6 @@ export function ProviderSettings() {
   }).catch(() => { api.health().then(h => setDefaultModel(String(h?.model || ''))).catch(() => {}); }); }, []);
   useEffect(() => { api.getModelRoutes().then(r => setModelRoutes(r || {})).catch(() => {}); }, []);
 
-  // All individual models from all providers, for the default model dropdown.
-  // Users select an actual API model name, not a provider name.
-  const allProviderModels = providers.flatMap(p =>
-    (p.models || []).map(m => ({ provider: p.name, model: m }))
-  );
-
   const [testingProvider, setTestingProvider] = useState<string | null>(null);
 
   const testConnection = async (provider: ProviderConfig) => {

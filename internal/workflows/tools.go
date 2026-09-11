@@ -5,52 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/simon/mneme/internal/agent_workflows"
 	"github.com/simon/mneme/internal/tools"
 )
-
-// ── list_workflows ────────────────────────────────────────────────────
-
-// ListWorkflowsTool lists installed workflows.
-type ListWorkflowsTool struct {
-	UserDir    string
-	ProjectDir string
-}
-
-func (t *ListWorkflowsTool) Schema() tools.Schema {
-	return tools.Schema{
-		Name:        "list_workflows",
-		Description: "List installed workflows (reusable, packaged agent procedures). Returns each workflow's name, dir, description, tags, and scope.",
-		Parameters: map[string]interface{}{
-			"type":       "object",
-			"properties": map[string]interface{}{},
-		},
-	}
-}
-
-func (t *ListWorkflowsTool) Execute(ctx context.Context, args map[string]interface{}) tools.Result {
-	workflows := agent_workflows.DiscoverWorkflows(t.UserDir, t.ProjectDir)
-	if len(workflows) == 0 {
-		return tools.Result{Success: true, Output: "No workflows installed."}
-	}
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("Installed workflows (%d):\n\n", len(workflows)))
-	for _, w := range workflows {
-		b.WriteString(fmt.Sprintf("- **%s** (`%s`)\n", w.Name, w.DirName))
-		if w.Description != "" {
-			b.WriteString(fmt.Sprintf("  %s\n", w.Description))
-		}
-		b.WriteString(fmt.Sprintf("  scope=%s", w.Scope))
-		if len(w.Tags) > 0 {
-			b.WriteString(fmt.Sprintf(", tags=%s", strings.Join(w.Tags, ",")))
-		}
-		b.WriteString("\n\n")
-	}
-	return tools.Result{Success: true, Output: b.String()}
-}
-
-func (t *ListWorkflowsTool) ConcurrencySafe() bool                  { return true }
-func (t *ListWorkflowsTool) PermissionLevel() tools.PermissionLevel { return tools.PermReadOnly }
 
 // ── describe_workflow ─────────────────────────────────────────────────
 
@@ -69,7 +25,7 @@ func (t *DescribeWorkflowTool) Schema() tools.Schema {
 			"properties": map[string]interface{}{
 				"workflow_id": map[string]interface{}{
 					"type":        "string",
-					"description": "Workflow id (directory name from list_workflows).",
+					"description": "Workflow id (directory name from workflow_list).",
 				},
 			},
 			"required": []string{"workflow_id"},
@@ -87,8 +43,8 @@ func (t *DescribeWorkflowTool) Execute(ctx context.Context, args map[string]inte
 		return tools.Result{Error: "workflow_id is required"}
 	}
 
-	workflows := agent_workflows.DiscoverWorkflows(t.UserDir, t.ProjectDir)
-	var wf *agent_workflows.Workflow
+	workflows := DiscoverWorkflows(t.UserDir, t.ProjectDir)
+	var wf *Workflow
 	for _, w := range workflows {
 		if w.DirName == wfID {
 			wf = w
@@ -168,8 +124,8 @@ func (t *RunWorkflowTool) Execute(ctx context.Context, args map[string]interface
 	}
 
 	// Look up the workflow to provide phase guidance.
-	workflows := agent_workflows.DiscoverWorkflows(t.UserDir, t.ProjectDir)
-	var wf *agent_workflows.Workflow
+	workflows := DiscoverWorkflows(t.UserDir, t.ProjectDir)
+	var wf *Workflow
 	for _, w := range workflows {
 		if w.DirName == wfID {
 			wf = w

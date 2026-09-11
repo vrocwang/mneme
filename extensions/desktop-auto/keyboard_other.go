@@ -18,6 +18,9 @@ func keyboardTool(_ context.Context, args map[string]interface{}) extsdk.Result 
 	if action == "" {
 		return extsdk.Result{Error: "action is required"}
 	}
+	if err := guardFrontmostApp(); err != nil {
+		return extsdk.Result{Error: err.Error()}
+	}
 
 	switch runtime.GOOS {
 	case "darwin":

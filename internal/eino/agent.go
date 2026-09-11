@@ -11,6 +11,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 
+	"github.com/simon/mneme/internal/agent"
 	einomw "github.com/simon/mneme/internal/eino/middleware"
 	"github.com/simon/mneme/internal/prompts"
 	pkgtools "github.com/simon/mneme/pkg/tools"
@@ -22,8 +23,11 @@ type AgentDef struct {
 	Name          string
 	Description   string
 	ToolAllowlist []string
-	Hidden        bool
-	SystemPrompt  string // explicit prompt (agent pack prompt.md / toml system_prompt); takes precedence over embedded PromptName
+	// ToolDenylist removes tools even when the allowlist would admit them. It
+	// is applied after the allowlist, so an explicit denial always wins.
+	ToolDenylist []string
+	Hidden       bool
+	SystemPrompt string // explicit prompt (agent pack prompt.md / toml system_prompt); takes precedence over embedded PromptName
 	// MaxIterations bounds the agent's tool-calling loop. Zero falls back to
 	// AgentSetConfig.DefaultMaxIterations.
 	MaxIterations int
@@ -40,12 +44,10 @@ type AgentRegistry interface {
 	AgentDefs() []AgentDef
 }
 
-// AgentSet holds all agents. The general agent is intended to be
-// the top-level orchestrator; it receives all sub-agents as AgentTools.
+// AgentSet holds all agents. The general agent is the top-level
+// orchestrator; it receives all sub-agents as AgentTools.
 type AgentSet struct {
-	General      adk.Agent
-	Orchestrator adk.Agent // backward compat
-	Researcher   adk.Agent // backward compat
+	General adk.Agent
 	// SubAgents holds all dynamically-created sub-agents.
 	SubAgents []adk.Agent
 }
@@ -80,9 +82,6 @@ type AgentSetConfig struct {
 	// FailoverModels, when non-empty, provides alternate chat models that
 	// the agent can fall back to when the primary ChatModel fails.
 	FailoverModels []model.ToolCallingChatModel
-
-	// Handlers are lifecycle middleware applied to every agent.
-	Handlers []adk.ChatModelAgentMiddleware
 
 	// MessageModifier transforms the message list before each turn. It is
 	// applied by the Runner before calling adk.Runner.Run().
@@ -141,7 +140,7 @@ func NewAgentSet(ctx context.Context, cfg *AgentSetConfig, registry AgentRegistr
 	// so the general agent is created from the registry like every other agent
 	// rather than hardcoded. It defaults to a built-in fallback below.
 	generalDef := AgentDef{
-		ID:            "general",
+		ID:            agent.GeneralAgentID,
 		Name:          "General",
 		Description:   "General-purpose orchestrator agent that coordinates specialists and handles conversations.",
 		ToolAllowlist: []string{"*"},
@@ -150,7 +149,7 @@ func NewAgentSet(ctx context.Context, cfg *AgentSetConfig, registry AgentRegistr
 	// Phase 1 - create sub-agents dynamically from the registry.
 	if registry != nil {
 		for _, def := range registry.AgentDefs() {
-			if def.ID == "general" {
+			if def.ID == agent.GeneralAgentID {
 				generalDef = def
 				continue // General is created in Phase 3
 			}
@@ -160,7 +159,7 @@ func NewAgentSet(ctx context.Context, cfg *AgentSetConfig, registry AgentRegistr
 			if def.Name == "" {
 				def.Name = def.ID
 			}
-			agentTools := filterToolsByAllowlist(wrappedTools, def.ToolAllowlist)
+			agentTools := filterAgentTools(wrappedTools, def.ToolAllowlist, def.ToolDenylist)
 			a, err := newAgent(ctx, agentCfg{
 				Name:          def.Name,
 				Description:   def.Description,
@@ -188,9 +187,11 @@ func NewAgentSet(ctx context.Context, cfg *AgentSetConfig, registry AgentRegistr
 
 	// Phase 3 — create general agent with core tools + sub-agent tools. The
 	// definition comes from the registry (so workspace/agents/general.toml can
-	// override it); the tool set is always the full core + sub-agent set.
-	generalTools := make([]tool.BaseTool, 0, len(wrappedTools)+len(wrappedSubAgentTools))
-	generalTools = append(generalTools, wrappedTools...)
+	// override it). The core tool set is always mounted so delegation works;
+	// a declared denylist still subtracts from it.
+	generalCore := filterGeneralTools(wrappedTools, generalDef.ToolDenylist)
+	generalTools := make([]tool.BaseTool, 0, len(generalCore)+len(wrappedSubAgentTools))
+	generalTools = append(generalTools, generalCore...)
 	generalTools = append(generalTools, wrappedSubAgentTools...)
 
 	if generalDef.Name == "" {
@@ -210,16 +211,7 @@ func NewAgentSet(ctx context.Context, cfg *AgentSetConfig, registry AgentRegistr
 		return nil, fmt.Errorf("eino: create general agent: %w", err)
 	}
 
-	// Backward compat: set Orchestrator and Researcher to the first
-	// sub-agents if they exist, so external code referencing these
-	// fields still works.
-	if len(agents.SubAgents) > 0 {
-		agents.Orchestrator = agents.SubAgents[0]
-	}
-	if len(agents.SubAgents) > 1 {
-		agents.Researcher = agents.SubAgents[1]
-	}
-
+	// Backward-compat fields removed: Orchestrator/Researcher were never read.
 	return agents, nil
 }
 
@@ -269,7 +261,6 @@ func newAgent(ctx context.Context, cfg agentCfg, setCfg *AgentSetConfig) (adk.Ag
 		Instruction:         instruction,
 		Model:               chatModel,
 		ToolsConfig:         toolsCfg,
-		Handlers:            setCfg.Handlers,
 		MaxIterations:       maxIter,
 		ModelFailoverConfig: buildFailoverConfig(setCfg.FailoverModels),
 		ModelRetryConfig: &adk.ModelRetryConfig{
@@ -314,21 +305,15 @@ func buildInstruction(pm *prompts.Manager, name prompts.Name) string {
 	return pm.Get(name)
 }
 
-// filterToolsByAllowlist returns tools matching the given allowlist.
-// An empty allowlist returns nil (no tools). A ["*"] allowlist returns
-// all tools (used by general agent and tools_agent).
-func filterToolsByAllowlist(tools []tool.BaseTool, allowlist []string) []tool.BaseTool {
-	if len(tools) == 0 {
+// filterAgentTools returns the tools a sub-agent may use: the allowlist
+// selects them and the denylist then removes any of them. An empty allowlist
+// yields no tools; ["*"] admits every tool; the denylist always wins.
+func filterAgentTools(tools []tool.BaseTool, allowlist, denylist []string) []tool.BaseTool {
+	if len(tools) == 0 || len(allowlist) == 0 {
 		return nil
 	}
-	if len(allowlist) == 0 {
-		return nil
-	}
-	// "*" means all tools
 	if len(allowlist) == 1 && allowlist[0] == "*" {
-		out := make([]tool.BaseTool, len(tools))
-		copy(out, tools)
-		return out
+		return filterOutTools(tools, denylist)
 	}
 	allowed := make(map[string]bool, len(allowlist))
 	for _, name := range allowlist {
@@ -336,12 +321,49 @@ func filterToolsByAllowlist(tools []tool.BaseTool, allowlist []string) []tool.Ba
 	}
 	out := make([]tool.BaseTool, 0, len(allowed))
 	for _, t := range tools {
-		name := toolName(t)
-		if allowed[name] {
-			out = append(out, t)
+		if !allowed[toolName(t)] {
+			continue
 		}
+		if isDenied(toolName(t), denylist) {
+			continue
+		}
+		out = append(out, t)
 	}
 	return out
+}
+
+// filterGeneralTools applies only the general agent's denylist: its tool set is
+// otherwise the full core set, because it needs every tool (and all sub-agents)
+// to orchestrate.
+func filterGeneralTools(tools []tool.BaseTool, denylist []string) []tool.BaseTool {
+	return filterOutTools(tools, denylist)
+}
+
+// filterOutTools returns tools whose names are not in denylist.
+func filterOutTools(tools []tool.BaseTool, denylist []string) []tool.BaseTool {
+	if len(denylist) == 0 {
+		out := make([]tool.BaseTool, len(tools))
+		copy(out, tools)
+		return out
+	}
+	out := make([]tool.BaseTool, 0, len(tools))
+	for _, t := range tools {
+		if isDenied(toolName(t), denylist) {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+// isDenied reports whether name appears in the denylist.
+func isDenied(name string, denylist []string) bool {
+	for _, d := range denylist {
+		if d == name {
+			return true
+		}
+	}
+	return false
 }
 
 // buildFailoverConfig creates a ModelFailoverConfig from a list of backup

@@ -18,6 +18,18 @@ func axInteractTool(_ context.Context, args map[string]interface{}) extsdk.Resul
 	}
 
 	appName, _ := args["appName"].(string)
+	// Refuse to read or drive a denylisted application (password managers,
+	// system settings, terminals) even when the model asks for it explicitly.
+	if denied, match := IsSensitiveApp(appName); denied {
+		return extsdk.Result{Error: fmt.Sprintf("refusing to interact with sensitive app %q (denylist match %q)", appName, match)}
+	}
+	// `list` with no appName enumerates every process, so it must not be a way
+	// to bypass the guard: also refuse when the frontmost app is denylisted.
+	if appName == "" {
+		if err := guardFrontmostApp(); err != nil {
+			return extsdk.Result{Error: err.Error()}
+		}
+	}
 	maxItems := 20
 	if mi, ok := intFromArgs(args, "maxItems"); ok && mi > 0 {
 		maxItems = mi

@@ -111,16 +111,18 @@ export function useChatMessages() {
     // Error.
     unsubs.push(EventsOn('chat:error', (data: any) => {
       if (data.threadId !== threadId) return;
+      const errorText = String(data.error || data.content || 'unknown error');
       // Commit pending tool calls so they show in history.
       const errMsgId = ++msgCounter;
       dispatch(commitToolCalls({ threadId, messageId: errMsgId }));
       const errMsg = {
         id: errMsgId, role: 'assistant',
-        content: `Error: ${data.error || data.content || 'unknown error'}`,
+        content: `Error: ${errorText}`,
         created_at: new Date().toISOString(),
       };
       dispatch(addMessage({ threadId, message: errMsg }));
       dispatch(commitStreaming(threadId));
+      actions.addToast('error', 'Chat turn failed', errorText);
       turnCleanupRef.current?.();
       turnCleanupRef.current = null;
     }));
@@ -135,17 +137,19 @@ export function useChatMessages() {
     try {
       await api.streamChatMessage({ threadId, message: content });
     } catch (e) {
+      const errorText = String(e);
       const errMsg = {
         id: ++msgCounter, role: 'assistant',
-        content: `Error: ${e}`,
+        content: `Error: ${errorText}`,
         created_at: new Date().toISOString(),
       };
       dispatch(addMessage({ threadId, message: errMsg }));
       dispatch(commitStreaming(threadId));
+      actions.addToast('error', 'Chat turn failed', errorText);
       turnCleanupRef.current?.();
       turnCleanupRef.current = null;
     }
-  }, [dispatch, activeThreadId]);
+  }, [dispatch, activeThreadId, actions]);
 
   const messagesByThread = useSelector((s: RootState) => s.chat.messages, shallowEqual);
   const streamingByThread = useSelector((s: RootState) => s.chatRuntime.streaming, shallowEqual);

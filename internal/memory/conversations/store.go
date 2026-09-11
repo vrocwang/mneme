@@ -118,13 +118,15 @@ func (s *Store) CreateThread(id, title, personalityID string) error {
 }
 
 // EnsureThread creates the thread row if it doesn't exist, deriving the title
-// from the first message. Idempotent — safe to call before every message.
-func (s *Store) EnsureThread(id, firstMsg string) {
+// from the first message. Idempotent — safe to call before every message. The
+// INSERT ignores a duplicate id, so any returned error is a real failure
+// (lock, disk, corruption) that the caller should surface.
+func (s *Store) EnsureThread(id, firstMsg string) error {
 	title := SanitizeTitle(firstMsg)
 	if title == "" {
 		title = "New conversation"
 	}
-	_ = s.CreateThread(id, title, "")
+	return s.CreateThread(id, title, "")
 }
 
 func (s *Store) GetThread(id string) (*Thread, error) {
@@ -199,20 +201,6 @@ func (s *Store) DeleteThread(id string) error {
 	return err
 }
 
-func (s *Store) PurgeThreads() (int64, error) {
-	res, err := s.db.Exec("DELETE FROM messages")
-	if err != nil {
-		return 0, err
-	}
-	mCount, _ := res.RowsAffected()
-	res, err = s.db.Exec("DELETE FROM threads")
-	if err != nil {
-		return mCount, err
-	}
-	tCount, _ := res.RowsAffected()
-	return mCount + tCount, nil
-}
-
 // ── Message operations ─────────────────────────────────────────────
 
 func (s *Store) AddMessage(threadID, role, content string) error {
@@ -244,27 +232,6 @@ func (s *Store) AddMessageWithMeta(threadID, role, content string, meta map[stri
 	_, err := s.db.Exec(
 		"INSERT INTO messages (thread_id, role, content, metadata) VALUES (?, ?, ?, ?)",
 		threadID, role, content, metaJSON,
-	)
-	if err != nil {
-		return err
-	}
-	_, err = s.db.Exec("UPDATE threads SET updated_at = datetime('now') WHERE id = ?", threadID)
-	return err
-}
-
-// AddMessageFull persists a message with all fields including tool call context.
-func (s *Store) AddMessageFull(threadID, role, content, toolID, toolCallJSON string, meta map[string]string) error {
-	metaJSON := "{}"
-	if len(meta) > 0 {
-		data, err := json.Marshal(meta)
-		if err != nil {
-			return fmt.Errorf("marshal metadata: %w", err)
-		}
-		metaJSON = string(data)
-	}
-	_, err := s.db.Exec(
-		"INSERT INTO messages (thread_id, role, content, tool_id, tool_call, metadata) VALUES (?, ?, ?, ?, ?, ?)",
-		threadID, role, content, toolID, toolCallJSON, metaJSON,
 	)
 	if err != nil {
 		return err
@@ -396,15 +363,6 @@ func SanitizeTitle(raw string) string {
 		t = t[:80]
 	}
 	return t
-}
-
-// AppendEpisodic inserts a message into the episodic log for cross-session search.
-func (s *Store) AppendEpisodic(threadID string, messageID int64, role, content string, tokens int) error {
-	_, err := s.db.Exec(
-		"INSERT INTO episodic_log (thread_id, message_id, role, content, tokens) VALUES (?, ?, ?, ?, ?)",
-		threadID, messageID, role, content, tokens,
-	)
-	return err
 }
 
 // EpisodicResult is a search result from the episodic log.

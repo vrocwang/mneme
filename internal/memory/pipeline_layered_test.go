@@ -34,7 +34,7 @@ func TestPipeline_ExtractAtoms_Layered(t *testing.T) {
 	}
 
 	// Add two substantive user messages to a thread.
-	convStore.EnsureThread("t1", "hi")
+	_ = convStore.EnsureThread("t1", "hi")
 	if err := convStore.AddMessage("t1", "user", "The user prefers Rust over Python for CLI tools because of its performance."); err != nil {
 		t.Fatal(err)
 	}

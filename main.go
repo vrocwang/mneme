@@ -26,7 +26,8 @@ import (
 	"github.com/simon/mneme/internal/memory"
 	"github.com/simon/mneme/internal/memory/conversations"
 	"github.com/simon/mneme/internal/monitor"
-	"github.com/simon/mneme/internal/registry"
+	"github.com/simon/mneme/internal/notifications"
+	"github.com/simon/mneme/internal/security"
 	"github.com/simon/mneme/internal/soul"
 	"github.com/simon/mneme/internal/webhooks"
 	ws "github.com/simon/mneme/internal/workspace"
@@ -131,7 +132,7 @@ func main() {
 	})
 
 	// Register Wails RPCs contributed by core optional features (connectivity,
-	// devices, http host, workflow install) BEFORE the Bind list is assembled.
+	// devices, http host) BEFORE the Bind list is assembled.
 	// Wails evaluates Bind once, before OnStartup, so registration performed
 	// during AppCore.Init would never be bound.
 	boot.RegisterWailsRPCs(cfg, log)
@@ -185,7 +186,8 @@ func main() {
 				return nil
 			}),
 			soul.NewRPC(workspace),
-			func() *registry.RPC { rpc := registry.NewRPC(nil, nil, nil); app.SetRegistryRPC(rpc); return rpc }(),
+			notifications.NewRPC(app.GetNotifBus),
+			security.NewAuditRPC(app.GetAuditLogger),
 			cost.NewCostRPC(app.GetCostTracker),
 		}, capability.CollectWailsRPCBindings()...),
 	})

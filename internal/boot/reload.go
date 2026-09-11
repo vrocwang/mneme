@@ -37,7 +37,7 @@ func ReloadConfig(
 	log.Info("config reload: provider updated", "name", newProvider.Name())
 
 	if learn != nil {
-		learn.SetProvider(newProvider, cfg.ModelForRoute("reasoning"))
+		learn.SetProvider(newProvider, cfg.ModelForRoute(config.RouteReasoning))
 	}
 }
 

@@ -2,6 +2,14 @@ package channels
 
 import "context"
 
+// Names of the always-available in-process channels. They identify a channel in
+// Channel.Name, on Message.Channel, and in the channel list returned to the UI,
+// so the literal must not drift between those places.
+const (
+	ChannelWeb = "web"
+	ChannelCLI = "cli"
+)
+
 // Message represents an inbound/outbound channel message.
 type Message struct {
 	ID      string

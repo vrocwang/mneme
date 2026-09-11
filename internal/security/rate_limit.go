@@ -27,7 +27,6 @@ func NewActionTracker(window time.Duration, maxActions int) *ActionTracker {
 	}
 }
 
-
 // RecordAction records an action for the given key. Returns true if the action
 // is within limits, false if the rate limit has been exceeded.
 func (t *ActionTracker) RecordAction(key string) bool {
@@ -62,40 +61,11 @@ func (t *ActionTracker) RecordAction(key string) bool {
 	return true
 }
 
-// Remaining returns how many actions are left in the window for the key.
-func (t *ActionTracker) Remaining(key string) int {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	now := time.Now()
-	cutoff := now.Add(-t.window)
-
-	count := 0
-	for _, ts := range t.actions[key] {
-		if ts.After(cutoff) {
-			count++
-		}
-	}
-
-	remaining := t.maxActions - count
-	if remaining < 0 {
-		remaining = 0
-	}
-	return remaining
-}
-
 // Reset clears all tracked actions. Useful for testing or policy changes.
 func (t *ActionTracker) Reset() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.actions = make(map[string][]time.Time)
-}
-
-// ResetKey clears actions for a specific key.
-func (t *ActionTracker) ResetKey(key string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	delete(t.actions, key)
 }
 
 // gcLocked removes keys whose entries have all expired. Called periodically

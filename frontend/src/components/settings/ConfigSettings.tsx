@@ -75,7 +75,7 @@ const DEFAULT_SECURITY: SecurityCommandsConfig = { block_high_risk: true, requir
 const DEFAULT_SHELL: ShellConfig = { max_output_bytes: 1048576, safe_env_vars: [] };
 const DEFAULT_BREAKER: CircuitBreakerConfig = { max_repeat_failures: 3, max_no_progress_fails: 6, max_hard_rejects: 2 };
 const DEFAULT_PIPELINE: MemoryPipelineConfig = { worker_count: 2, tree_bucket_size: 10, archive_msg_limit: 200, freshness_half_life: 168 };
-// Must match internal/config.defaultRetrievalWeights() so the pre-load fallback
+// Must match config.DefaultRetrievalWeights() so the pre-load fallback
 // cannot silently re-rank memory before the backend values arrive.
 const DEFAULT_WEIGHTS: RetrievalWeightsConfig = { fts5: 0.30, vector: 0.25, keyword: 0.08, tree: 0.00, graph: 0.22, episodic: 0.15 };
 const DEFAULT_COST: CostConfig = { budget_cents: 10000 };

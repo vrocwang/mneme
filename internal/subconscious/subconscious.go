@@ -67,14 +67,6 @@ type Action struct {
 	Payload map[string]interface{} `json:"payload,omitempty"`
 }
 
-// Nudge generates a proactive nudge message for the user.
-func (a *Action) Nudge() string {
-	if a == nil {
-		return ""
-	}
-	return a.Message
-}
-
 // ── Constructor ────────────────────────────────────────────────────
 // NewPersistent creates a subconscious engine with SQLite-backed persistence.
 // Falls back to in-memory storage if the SQLite store cannot be opened.
@@ -135,12 +127,6 @@ func (e *Engine) Close() error {
 		}
 	}
 	return e.sqlite.Close()
-}
-
-// WithMemoryPipeline sets the memory pipeline for evaluator use.
-func (e *Engine) WithMemoryPipeline(p MemoryPipeline) *Engine {
-	e.memPipeline = p
-	return e
 }
 
 // ── Evaluator management ───────────────────────────────────────────
@@ -250,26 +236,8 @@ func (e *Engine) HandleActions(actions []Action, handler ActionHandler) {
 	}
 }
 
-// ShouldNudge returns true if the engine has any pending nudge-worthy actions.
-// Unlike Think(), this is a read-only check that does not advance engine state.
-// The caller should call Think() periodically (via heartbeat) to populate actions.
-func (e *Engine) ShouldNudge() bool {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.hasPendingNudge()
-}
-
 // hasPendingNudge checks if any reflection in the store is a nudge/suggestion/escalation
 // that hasn't been acted on yet. Must be called with mu held.
-func (e *Engine) hasPendingNudge() bool {
-	reflections := e.refStore.List(10)
-	for _, r := range reflections {
-		if r.ActedOnAt == nil && (r.Kind == "nudge" || r.Kind == "suggestion" || r.Kind == "escalation") {
-			return true
-		}
-	}
-	return false
-}
 
 // ── Task management ────────────────────────────────────────────────
 

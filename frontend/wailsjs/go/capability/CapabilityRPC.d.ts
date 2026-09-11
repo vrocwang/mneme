@@ -39,11 +39,7 @@ export function RefreshSkillCatalog():Promise<Array<capability.SkillCatalogEntry
 
 export function RemoveMCPServer(arg1:string):Promise<void>;
 
-export function SetLegacyExtensionsDir(arg1:string):Promise<void>;
-
 export function SetRegistry(arg1:capability.CapabilityRegistry):Promise<void>;
-
-export function SetSkillsDir(arg1:string):Promise<void>;
 
 export function UninstallExtension(arg1:string,arg2:string):Promise<void>;
 

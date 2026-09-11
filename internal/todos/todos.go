@@ -65,13 +65,6 @@ func (s *Store) pathFor(threadID string) string {
 
 // ── CRUD ───────────────────────────────────────────────────────────
 
-// GetBoard loads the board for a thread, returning an empty board if absent.
-func (s *Store) GetBoard(threadID string) (*Board, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.readBoard(threadID)
-}
-
 // readBoard loads the board without locking (caller must hold the lock).
 func (s *Store) readBoard(threadID string) (*Board, error) {
 	b := &Board{ThreadID: threadID, Cards: make([]Card, 0)}

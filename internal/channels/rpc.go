@@ -82,5 +82,5 @@ func (r *ChannelRPC) availableChannelTypes() []string {
 			return names
 		}
 	}
-	return []string{"web", "cli"}
+	return []string{ChannelWeb, ChannelCLI}
 }

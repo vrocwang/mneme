@@ -68,7 +68,7 @@ func DispatchToChatService(svc ChatMessageSender) DispatchFunc {
 		threadID := ChannelThreadID(msg.Channel, msg.From)
 		// Inject channel metadata so the agent knows the message origin.
 		enriched := msg.Content
-		if msg.Channel != "" && msg.Channel != "web" {
+		if msg.Channel != "" && msg.Channel != ChannelWeb {
 			if msg.From != "" {
 				enriched = fmt.Sprintf("[From: @%s via %s]\n%s", msg.From, msg.Channel, msg.Content)
 			} else {

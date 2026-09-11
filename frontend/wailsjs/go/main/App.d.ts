@@ -13,7 +13,6 @@ import {memory} from '../models';
 import {health} from '../models';
 import {monitor} from '../models';
 import {inference} from '../models';
-import {registry} from '../models';
 import {conversations} from '../models';
 import {webhooks} from '../models';
 import {main} from '../models';
@@ -59,8 +58,6 @@ export function GetPreferences():Promise<Array<Record<string, any>>>;
 
 export function GetProvider():Promise<inference.Provider>;
 
-export function GetRegistryRPC():Promise<registry.RPC>;
-
 export function GetSessionDB():Promise<agent.SessionDB>;
 
 export function GetThreadStore():Promise<conversations.Store>;
@@ -82,7 +79,5 @@ export function SetAgentRPC(arg1:agent.AgentRPC):Promise<void>;
 export function SetAppStateRPC(arg1:app_state.AppStateRPC):Promise<void>;
 
 export function SetCapRPC(arg1:capability.CapabilityRPC):Promise<void>;
-
-export function SetRegistryRPC(arg1:registry.RPC):Promise<void>;
 
 export function StreamChatMessage(arg1:main.ChatRequest):Promise<void>;

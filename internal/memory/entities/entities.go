@@ -18,7 +18,6 @@ const (
 	KindPerson       Kind = "person"
 	KindOrganization Kind = "organization"
 	KindTopic        Kind = "topic"
-	KindProject      Kind = "project"
 	KindURL          Kind = "url"
 )
 
@@ -43,11 +42,9 @@ type Relation struct {
 // Extraction confidence scores (matching Rust's parse_document scoring).
 const (
 	ConfEmailEntity      = 0.95
-	ConfEmailRelation    = 0.82
 	ConfGraphFact        = 0.87
 	ConfActionItem       = 0.83
 	ConfOwnerRelation    = 0.94
-	ConfReviewRelation   = 0.80
 	ConfPreference       = 0.90
 	ConfCapitalizedTopic = 0.45
 	ConfHashtag          = 0.50

@@ -296,7 +296,7 @@ func RegisterTools(reg *capability.CapabilityRegistry, runner *Runner, store *St
 	if reg == nil {
 		return
 	}
-	capability.RegisterSetTools(reg, "dag", "DAG",
+	capability.RegisterSetTools(reg, capability.SetDAG, "DAG",
 		&listGraphsTool{store: store},
 		&describeGraphTool{store: store},
 		&saveGraphTool{store: store},

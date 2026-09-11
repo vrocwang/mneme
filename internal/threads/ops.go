@@ -120,11 +120,6 @@ func (o *Ops) UpdateTitle(threadID, title string) error {
 	return o.store.UpdateThreadTitle(threadID, title)
 }
 
-// UpdateLabels replaces labels for a thread.
-func (o *Ops) UpdateLabels(threadID string, labels []string) error {
-	return o.store.UpdateThreadLabels(threadID, labels)
-}
-
 // Delete removes a thread and all its messages.
 func (o *Ops) Delete(threadID string) error {
 	t, err := o.store.GetThread(threadID)
@@ -135,11 +130,6 @@ func (o *Ops) Delete(threadID string) error {
 		return fmt.Errorf("thread %s not found", threadID)
 	}
 	return o.store.DeleteThread(threadID)
-}
-
-// Purge removes all threads and messages.
-func (o *Ops) Purge() (int64, error) {
-	return o.store.PurgeThreads()
 }
 
 // ── Message operations ─────────────────────────────────────────────

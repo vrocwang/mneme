@@ -18,11 +18,8 @@ import (
 type Kind string
 
 const (
-	KindInboundMessage Kind = "inbound_message"
-	KindMention        Kind = "mention"
 	KindReminder       Kind = "reminder"
 	KindSystemAlert    Kind = "system_alert"
-	KindCronResult     Kind = "cron_result"
 	KindApprovalNeeded Kind = "approval_needed"
 )
 

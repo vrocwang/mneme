@@ -54,25 +54,10 @@ type AuditEntry struct {
 	DecidedAt time.Time `json:"decided_at"`
 }
 
-// GateOutcome captures what happened when the gate was consulted for a tool call.
-type GateOutcome struct {
-	Allowed    bool   `json:"allowed"`
-	Prompted   bool   `json:"prompted"`
-	Reason     string `json:"reason,omitempty"`
-	ApprovalID string `json:"approval_id,omitempty"`
-}
-
 // AllowlistEntry records a permanently allowed tool (DecisionApproveAlways).
 type AllowlistEntry struct {
 	ToolName  string    `json:"tool_name"`
 	CreatedAt time.Time `json:"created_at"`
-}
-
-// ApprovalChatContext carries the thread and client ID for routing an
-// approval reply back to the correct conversation.
-type ApprovalChatContext struct {
-	ThreadID string `json:"thread_id"`
-	ClientID string `json:"client_id"`
 }
 
 // ToolResolver looks up a tool's permission level and external-effect status from the
@@ -80,22 +65,6 @@ type ApprovalChatContext struct {
 // ("", false) to trigger the conservative fallback heuristic.
 type ToolResolver func(toolName string) (permissionLevel string, hasExternalEffect bool)
 
-// ApprovalGateBootState describes the gate's configuration at startup.
-type ApprovalGateBootState string
+const ()
 
-const (
-	BootInstalled       ApprovalGateBootState = "installed"
-	BootDisabledByEnv   ApprovalGateBootState = "disabled_by_env"
-	BootOverrideIgnored ApprovalGateBootState = "override_ignored"
-	BootHost            ApprovalGateBootState = "host"
-)
-
-// ExecutionOutcome records the terminal status of a tool execution
-// after the approval gate allowed it through.
-type ExecutionOutcome string
-
-const (
-	OutcomeSuccess ExecutionOutcome = "success"
-	OutcomeFailure ExecutionOutcome = "failure"
-	OutcomeAborted ExecutionOutcome = "aborted"
-)
+const ()

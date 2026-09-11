@@ -81,10 +81,12 @@ type protoCallToolResult struct {
 	Error   string `json:"error,omitempty"`
 }
 
+// protoConfigureParams is the parameter payload for extension.configure.
 type protoConfigureParams struct {
 	Config map[string]interface{} `json:"config"`
 }
 
+// protoConfigureResult is the extension's answer to extension.configure.
 type protoConfigureResult struct {
 	Accepted bool   `json:"accepted"`
 	Error    string `json:"error,omitempty"`
@@ -558,32 +560,6 @@ type ProtoToolPolicy struct {
 	MaxToolRounds      int      `json:"maxToolRounds,omitempty"`
 }
 
-// IsToolDenied checks if a tool is explicitly denied.
-func (p *ProtoToolPolicy) IsToolDenied(toolName string) bool {
-	if p == nil {
-		return false
-	}
-	for _, d := range p.DenyTools {
-		if d == toolName {
-			return true
-		}
-	}
-	return false
-}
-
-// NeedsToolApproval checks if a tool requires user approval.
-func (p *ProtoToolPolicy) NeedsToolApproval(toolName string) bool {
-	if p == nil {
-		return false
-	}
-	for _, a := range p.RequireApprovalFor {
-		if a == toolName {
-			return true
-		}
-	}
-	return false
-}
-
 type protoListAgentsResult struct {
 	Agents []AgentDef `json:"agents"`
 }
@@ -606,8 +582,11 @@ func (pp *ProtoProcess) ListAgents(ctx context.Context) ([]AgentDef, error) {
 	return result.Agents, nil
 }
 
-// Configure sends configuration to the extension. Extensions may accept or reject
-// the config based on their ConfigSchema.
+// Configure sends configuration to the extension. Extensions may accept or
+// reject the config based on their ConfigSchema. This is the host half of the
+// extension.configure protocol whose extension half is implemented by
+// pkg/extsdk's SetConfigHandler; both halves must exist for the documented
+// extension-config path to work.
 func (pp *ProtoProcess) Configure(ctx context.Context, config map[string]interface{}) error {
 	params := protoConfigureParams{Config: config}
 	resp, err := pp.call(ctx, "extension.configure", params)
@@ -677,13 +656,6 @@ func (pp *ProtoProcess) IsCrashed() bool {
 func (pp *ProtoProcess) Ping(ctx context.Context) error {
 	_, err := pp.call(ctx, "extension.describe", nil)
 	return err
-}
-
-// StderrTail returns the last ~1KB of stderr output for diagnostics.
-func (pp *ProtoProcess) StderrTail() string {
-	pp.mu.Lock()
-	defer pp.mu.Unlock()
-	return pp.stderrTail
 }
 
 // Restart stops the current extension process (if running) and launches a new

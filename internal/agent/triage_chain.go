@@ -266,7 +266,7 @@ Routing guidelines:
 - "escalate": needs human attention (error, security issue, unknown format)`
 
 // defaultTriageTargetAgents is the fallback roster when no registry is wired.
-var defaultTriageTargetAgents = []string{"general"}
+var defaultTriageTargetAgents = []string{GeneralAgentID}
 
 // triageSystemPromptFor returns the classifier prompt with the routable agent
 // roster appended.

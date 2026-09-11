@@ -35,7 +35,7 @@ var WorkspaceInternalDirs = []string{
 // WorkspaceInternalFiles lists files directly under workspace_dir that hold
 // secrets or persona config and must never be writable by agent tools.
 var WorkspaceInternalFiles = []string{
-	"core.token",
+	workspace.FileCoreToken,
 	"dev-keychain.json",
 	".env",
 	workspace.FileSoul,

@@ -14,9 +14,7 @@
   --color-surface-muted: 45 58 79;
   --color-text: 255 255 255;
 
-  --shadow-elevated: 0 4px 24px rgba(0, 0, 0, 0.4), 0 1px 4px rgba(0, 0, 0, 0.2);
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shimmer-gradient: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.03) 50%, transparent 100%);
 }
 
 /* ── Light theme ────────────────────────────────────────────────────── */
@@ -28,9 +26,7 @@ html.light {
   --color-surface-muted: 203 213 225;
   --color-text: 15 23 42;
 
-  --shadow-elevated: 0 4px 24px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.06);
-  --shimmer-gradient: linear-gradient(90deg, transparent 0%, rgba(0,0,0,0.03) 50%, transparent 100%);
 }
 
 /* ── Base ───────────────────────────────────────────────────────────── */
@@ -74,10 +70,6 @@ html.light {
   .glass-surface {
     @apply bg-surface-elevated/80 backdrop-blur-xl border border-surface-border/50;
   }
-  .glass-elevated {
-    @apply bg-surface-overlay/90 backdrop-blur-2xl border border-surface-border/50;
-    box-shadow: var(--shadow-elevated);
-  }
   .btn-primary {
     @apply bg-ocean-500 hover:bg-ocean-600 active:bg-ocean-700 text-white font-medium px-4 py-2.5 rounded-lg transition-all duration-200 shadow-inner-glow disabled:opacity-50 disabled:cursor-not-allowed;
   }
@@ -99,27 +91,5 @@ html.light {
   }
   .badge {
     @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
-  }
-}
-
-/* ── Utilities ──────────────────────────────────────────────────────── */
-@layer utilities {
-  .text-gradient-ocean {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-ocean-300 to-ocean-500;
-  }
-  .shimmer-bg {
-    background: var(--shimmer-gradient);
-    background-size: 200% 100%;
-    animation: shimmer 2s linear infinite;
-  }
-  /* Safe text overflow for Chinese/CJK content — wraps anywhere when needed. */
-  .text-wrap-safe {
-    overflow-wrap: anywhere;
-    word-break: keep-all;
-  }
-  .text-truncate-safe {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 }

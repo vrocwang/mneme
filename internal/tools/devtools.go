@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/simon/mneme/internal/security"
+	"github.com/simon/mneme/internal/workspace"
 )
 
 // ── detect_tools ──────────────────────────────────────────────────────
@@ -478,11 +479,11 @@ func (t *workspaceStateTool) Execute(ctx context.Context, args map[string]interf
 
 // Memory files that are safe for the agent to edit.
 var allowedMemoryFiles = map[string]bool{
-	"MEMORY.md":    true,
-	"SKILL.md":     true,
-	"CLAUDE.md":    true,
-	"CODEBUDDY.md": true,
-	"AGENTS.md":    true,
+	"MEMORY.md":         true,
+	workspace.FileSkill: true,
+	"CLAUDE.md":         true,
+	"CODEBUDDY.md":      true,
+	"AGENTS.md":         true,
 }
 
 func NewUpdateMemoryMD(workspaceRoot string) Tool {

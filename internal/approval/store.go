@@ -233,13 +233,6 @@ func (s *Store) AddToAllowlist(toolName string) error {
 	return err
 }
 
-func (s *Store) RemoveFromAllowlist(toolName string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	_, err := s.db.Exec(`DELETE FROM approval_allowlist WHERE tool_name = ?`, toolName)
-	return err
-}
-
 func (s *Store) IsAllowlisted(toolName string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

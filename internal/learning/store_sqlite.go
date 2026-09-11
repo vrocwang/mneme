@@ -208,16 +208,6 @@ func (s *sqliteStore) Save(ctx context.Context, exp agent.Experience) error {
 	return nil
 }
 
-// Dismiss marks an experience as dismissed so it won't appear in searches.
-func (s *sqliteStore) Dismiss(ctx context.Context, id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE learning_experiences SET dismissed = 1, updated_at = ? WHERE id = ?`,
-		time.Now().UTC().Format(time.RFC3339), id)
-	return err
-}
-
 // Stats returns aggregate statistics about stored experiences.
 func (s *sqliteStore) Stats(ctx context.Context) (map[string]interface{}, error) {
 	s.mu.RLock()
@@ -249,41 +239,6 @@ func (s *sqliteStore) Stats(ctx context.Context) (map[string]interface{}, error)
 	}
 
 	return stats, nil
-}
-
-// RecentSuccesses returns recent successful experiences.
-func (s *sqliteStore) RecentSuccesses(ctx context.Context, limit int) ([]agent.Experience, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if limit <= 0 {
-		limit = 5
-	}
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, agent_id, task, outcome, lesson, hints, confidence
-		 FROM learning_experiences WHERE dismissed = 0 AND outcome = 'success'
-		 ORDER BY created_at DESC LIMIT ?`, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var exps []agent.Experience
-	for rows.Next() {
-		var exp agent.Experience
-		var task, outcome, lesson, hints string
-		var conf float64
-		if err := rows.Scan(&exp.ID, &exp.ThreadID, &task, &outcome, &lesson, &hints, &conf); err != nil {
-			slog.Warn("learning: failed to scan recent experience row", "error", err)
-			continue
-		}
-		exp.Message = task
-		exp.Learning = lesson
-		exp.Context = hints
-		exp.Score = conf
-		exps = append(exps, exp)
-	}
-	return exps, nil
 }
 
 // ── helper functions ──────────────────────────────────────────────────────

@@ -80,43 +80,9 @@ func (s *TaskStore) Enqueue(task *DispatchTask) error {
 	return nil
 }
 
-// Claim atomically acquires a pending task by setting it to running with the given claim token.
-// Returns true if the claim succeeded (task was pending and is now claimed).
-func (s *TaskStore) Claim(taskID, claimToken string) (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	now := formatTime(time.Now().UTC())
-	result, err := s.db.Exec(
-		`UPDATE dispatch_tasks SET status='running', claim_token=?, claimed_at=?, started_at=? WHERE id=? AND status='pending'`,
-		claimToken, now, now, taskID,
-	)
-	if err != nil {
-		return false, fmt.Errorf("task_store: claim: %w", err)
-	}
-	n, _ := result.RowsAffected()
-	return n > 0, nil
-}
-
 // Complete marks a task as completed with its result.
 func (s *TaskStore) Complete(taskID, result string) error {
 	return s.updateStatus(taskID, "completed", result, "")
-}
-
-// Fail marks a task as failed. If retry is true, the task is reset to pending
-// and its retry_count is incremented.
-func (s *TaskStore) Fail(taskID, errMsg string, retry bool) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if retry {
-		_, err := s.db.Exec(
-			`UPDATE dispatch_tasks SET status='pending', error=?, retry_count=retry_count+1, claim_token='', completed_at=? WHERE id=?`,
-			errMsg, formatTime(time.Now().UTC()), taskID,
-		)
-		return err
-	}
-	return s.updateStatus(taskID, "failed", "", errMsg)
 }
 
 // Cancel marks a task as cancelled.

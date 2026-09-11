@@ -10,28 +10,23 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/simon/mneme/internal/workspace"
 )
 
 // ── Layout constants ───────────────────────────────────────────────────
-
+//
+// Aliases of the workspace layout SSOT so the on-disk names are defined once.
 const (
-	ExtensionsDirName     = "extensions"
-	ExtensionManifestFile = "manifest.json"
+	ExtensionsDirName     = workspace.DirExtensions
+	ExtensionManifestFile = workspace.FileExtensionManifest
 )
 
 // ── Category ────────────────────────────────────────────────────────────
 
-// ExtensionCategory groups extensions by function.
+// ExtensionCategory groups extensions by function. The concrete category
+// values come from each manifest, so no enum of them is declared here.
 type ExtensionCategory string
-
-const (
-	ExtCategoryChannel     ExtensionCategory = "channels"
-	ExtCategoryIntegration ExtensionCategory = "integrations"
-	ExtCategoryComposio    ExtensionCategory = "composio"
-	ExtCategoryMemorySync  ExtensionCategory = "memory-sync"
-	ExtCategoryDesktop     ExtensionCategory = "desktop"
-	ExtCategoryAgent       ExtensionCategory = "agents"
-)
 
 // ── Manifest ────────────────────────────────────────────────────────────
 

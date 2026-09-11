@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/simon/mneme/internal/agent"
+	"github.com/simon/mneme/internal/security"
 )
 
 // ApprovalEventPublisher is an interface for publishing approval lifecycle
@@ -34,6 +35,21 @@ type Gate struct {
 	pending      map[string]*PendingApproval // in-memory map keyed by approval ID
 	originPolicy OriginPolicyConfig          // per-origin approval rules
 	resolveTool  ToolResolver                // registry-backed (nil = heuristic fallback)
+
+	// audit records real user prompts and their outcomes in the security audit
+	// trail. Optional (nil disables recording). Only the parking path prompts a
+	// human, so auto-approved tools produce no audit rows.
+	audit *security.AuditLogger
+}
+
+// SetAuditLogger attaches a security audit logger. Approval prompts and
+// decisions recorded here are the ones that actually reached a human; the
+// per-tool-call middleware cannot distinguish those from auto-approvals.
+func (g *Gate) SetAuditLogger(al *security.AuditLogger) {
+	if g == nil {
+		return
+	}
+	g.audit = al
 }
 
 // OriginPolicyConfig specifies per-origin approval behaviour.
@@ -247,6 +263,14 @@ func (g *Gate) RequestApproval(ctx context.Context, toolName string, argsJSON st
 
 	g.log.Info("approval requested", "id", id, "tool", toolName)
 
+	if g.audit != nil {
+		g.audit.Record(security.AuditApprovalPrompt, security.AuditEvent{
+			ToolName: toolName,
+			Args:     redactedArgs,
+			Reason:   reason,
+		})
+	}
+
 	// Publish domain event so subscribers (notifications, audit, bus) can react.
 	// Use REDACTED args for the event payload.
 	if g.events != nil {
@@ -314,6 +338,15 @@ func (g *Gate) RequestApproval(ctx context.Context, toolName string, argsJSON st
 		if err := g.store.RecordAudit(*entry); err != nil {
 			g.log.Warn("failed to record audit entry", "id", id, "error", err)
 		}
+	}
+
+	if g.audit != nil {
+		g.audit.Record(security.AuditApprovalDecide, security.AuditEvent{
+			ToolName: toolName,
+			Args:     redactedArgs,
+			Decision: decision.String(),
+			Reason:   reason,
+		})
 	}
 
 	// Publish decision event for subscribers (notifications, audit, bus).
@@ -428,14 +461,6 @@ func (g *Gate) ListAllowlist() ([]AllowlistEntry, error) {
 		return nil, fmt.Errorf("no audit store configured")
 	}
 	return g.store.ListAllowlist()
-}
-
-// RemoveAllowlistEntry removes a tool from the permanent allowlist.
-func (g *Gate) RemoveAllowlistEntry(toolName string) error {
-	if g.store == nil {
-		return fmt.Errorf("no audit store configured")
-	}
-	return g.store.RemoveFromAllowlist(toolName)
 }
 
 // ── Internal ─────────────────────────────────────────────────────────────

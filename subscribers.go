@@ -1,6 +1,8 @@
 package main
 
 import (
+	"time"
+
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"github.com/simon/mneme/internal/agent"
@@ -35,6 +37,26 @@ func (a *App) registerSubscribers() *subscriberSet {
 			}
 		}, events.DomainSystem)
 		set.subs = append(set.subs, sub)
+
+		// ── Notification delivery to the UI ────────────────────────────────
+		// The bus persists notifications; without this subscriber nothing ever
+		// delivered them, so every notification was write-only. Each new
+		// notification is forwarded to the frontend, which renders it as a
+		// toast and can fetch history through NotificationsRPC.
+		a.NotifBus.Subscribe(func(n notifications.Notification) {
+			if a.ctx == nil {
+				return
+			}
+			runtime.EventsEmit(a.ctx, "notification:new", map[string]interface{}{
+				"id":         n.ID,
+				"kind":       string(n.Kind),
+				"title":      n.Title,
+				"body":       n.Body,
+				"thread_id":  n.ThreadID,
+				"channel":    n.Channel,
+				"created_at": n.CreatedAt.Format(time.RFC3339),
+			})
+		})
 	}
 
 	// ── Approval event subscriber — forwards to Wails frontend ─────────────
@@ -46,6 +68,13 @@ func (a *App) registerSubscribers() *subscriberSet {
 			"args":   stringField(data, "args"),
 			"reason": stringField(data, "reason"),
 		})
+		// Surface pending approvals through the notification bus too, so the
+		// toast layer shows them even when the approvals view is not open.
+		if e.Kind == events.KindApprovalRequested && a.NotifBus != nil {
+			a.NotifBus.Notify(notifications.KindApprovalNeeded,
+				"Approval required",
+				"Tool "+stringField(data, "tool")+" is waiting for your decision.", "", "")
+		}
 	}, events.DomainApproval)
 	set.subs = append(set.subs, sub)
 

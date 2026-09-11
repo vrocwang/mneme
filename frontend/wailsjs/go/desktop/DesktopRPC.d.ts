@@ -6,8 +6,6 @@ export function ActivateCompanion():Promise<string>;
 
 export function GetVoiceEngines():Promise<Record<string, string>>;
 
-export function RegisterActivateCallback():Promise<void>;
-
 export function StartCompanionLoop():Promise<string>;
 
 export function StartScreenIntel():Promise<string>;
@@ -18,4 +16,3 @@ export function StopCompanionLoop():Promise<void>;
 
 export function StopScreenIntel():Promise<string>;
 
-export function WithScreenIntel(arg1:desktop.ScreenIntelLoop):Promise<desktop.DesktopRPC>;

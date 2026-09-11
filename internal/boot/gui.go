@@ -7,6 +7,7 @@ import (
 
 	"github.com/simon/mneme/internal/agent"
 	"github.com/simon/mneme/internal/bundle"
+	"github.com/simon/mneme/internal/config"
 	"github.com/simon/mneme/internal/desktop"
 	"github.com/simon/mneme/internal/jsonrpc"
 	"github.com/simon/mneme/internal/voice"
@@ -17,10 +18,8 @@ import (
 // GUIComponents holds GUI-only components created during startup.
 // These are created by BootstrapGUI and cleaned up by ShutdownGUI.
 type GUIComponents struct {
-	Companion           *desktop.Companion
 	ScreenCap           *desktop.ScreenCapture
 	CompanionLoop       *desktop.CompanionLoop
-	Automator           *desktop.Automator
 	ScreenIntel         *desktop.ScreenIntelLoop
 	InferenceHTTPServer *jsonrpc.Server
 	WebhookServer       *webhooks.Server
@@ -40,8 +39,11 @@ func BootstrapGUI(core *AppCore, ctx context.Context, appMethods jsonrpc.AppMeth
 	cfg := core.Cfg
 
 	// ── Desktop components (disableable via [bundles] disabled = ["desktop"]) ──
+	// Mouse/keyboard/accessibility/automation primitives live in the
+	// desktop-auto extension and screen capture in screen-intel; the core keeps
+	// only the companion loop and screen-intel loop, which need the in-process
+	// provider.
 	if bundle.NewRegistry(cfg.Bundles.Disabled).IsEnabled(bundle.BundleDesktop) {
-		gui.Companion = desktop.NewCompanion()
 		gui.ScreenCap = desktop.NewScreenCapture(workspace.ScreenshotsDir(cfg.Workspace))
 		var visionEngine *desktop.VisionEngine
 		if core.Provider != nil {
@@ -66,16 +68,12 @@ func BootstrapGUI(core *AppCore, ctx context.Context, appMethods jsonrpc.AppMeth
 				gui.ScreenIntel.Start(ctx)
 			}
 		}
-		gui.Automator = desktop.NewAutomator()
-		if visionEngine != nil {
-			gui.Automator.WithVision(visionEngine.LocateByDescription)
-		}
 	} else {
 		log.Info("desktop bundle disabled by config")
 	}
 
 	// ── Inference HTTP server ─────────────────────────────────────────
-	gui.InferenceHTTPServer = jsonrpc.Bootstrap(cfg, core.Provider, core.EventBus, log)
+	gui.InferenceHTTPServer = jsonrpc.Bootstrap(cfg, core.Provider, core.EventBus, core.AuditLogger, log)
 	if gui.InferenceHTTPServer != nil {
 		if appMethods != nil {
 			jsonrpc.RegisterAppMethods(gui.InferenceHTTPServer, appMethods)
@@ -93,7 +91,7 @@ func BootstrapGUI(core *AppCore, ctx context.Context, appMethods jsonrpc.AppMeth
 	var triagePipeline *agent.TriagePipeline
 	if core.Provider != nil {
 		p, err := agent.NewGraphTriagePipeline(core.CapReg, core.ChatService,
-			core.Provider, cfg.ModelForRoute("reasoning"))
+			core.Provider, cfg.ModelForRoute(config.RouteReasoning))
 		if err != nil {
 			log.Warn("graph triage pipeline failed, falling back to rules-only", "error", err)
 			triagePipeline = agent.NewDefaultTriagePipeline(core.CapReg, core.ChatService)

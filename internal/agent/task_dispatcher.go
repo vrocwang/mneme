@@ -144,44 +144,6 @@ func (d *TaskDispatcher) Stop() {
 
 // ── Atomic claim ─────────────────────────────────────────────────────────
 
-// ClaimTask atomically claims a task for execution, preventing concurrent dispatch.
-// Sets status to "running", records the claim token, and removes from pending queue.
-// Returns true if the claim succeeds.
-func (d *TaskDispatcher) ClaimTask(taskID, claimToken string) bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	task, ok := d.tasks[taskID]
-	if !ok {
-		return false
-	}
-	if task.Status != "pending" {
-		return false
-	}
-	if task.ClaimToken != "" && task.ClaimToken != claimToken {
-		return false // already claimed by another runner
-	}
-
-	task.ClaimToken = claimToken
-	task.Status = "running"
-	now := time.Now().UTC()
-	task.ClaimedAt = &now
-	task.StartedAt = &now
-	d.removePendingLocked(taskID)
-	return true
-}
-
-// removePendingLocked removes a task ID from the pending queue. Must hold d.mu.
-func (d *TaskDispatcher) removePendingLocked(id string) {
-	filtered := d.pending[:0]
-	for _, tid := range d.pending {
-		if tid != id {
-			filtered = append(filtered, tid)
-		}
-	}
-	d.pending = filtered
-}
-
 // ReleaseClaim releases a task's claim, returning it to the pending queue.
 func (d *TaskDispatcher) ReleaseClaim(taskID, claimToken string) bool {
 	d.mu.Lock()
@@ -218,31 +180,6 @@ func (d *TaskDispatcher) inPendingLocked(id string) bool {
 }
 
 // ── Heartbeat ────────────────────────────────────────────────────────────
-
-// RecordHeartbeat updates the task's last heartbeat time for liveness tracking.
-func (d *TaskDispatcher) RecordHeartbeat(taskID string) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	task, ok := d.tasks[taskID]
-	if !ok {
-		return
-	}
-	now := time.Now().UTC()
-	task.LastHeartbeat = &now
-}
-
-// HeartbeatAge returns how long since the last heartbeat, or a large duration if none.
-func (d *TaskDispatcher) HeartbeatAge(taskID string) time.Duration {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	task, ok := d.tasks[taskID]
-	if !ok || task.LastHeartbeat == nil {
-		return 24 * time.Hour
-	}
-	return time.Since(*task.LastHeartbeat)
-}
 
 // ── Stale run reclaim ────────────────────────────────────────────────────
 
@@ -284,96 +221,7 @@ func (d *TaskDispatcher) ReclaimStale(timeout time.Duration) int {
 	return reclaimed
 }
 
-// ── Session thread ───────────────────────────────────────────────────────
-
-// SetSessionThread records the conversation thread created for this autonomous run.
-func (d *TaskDispatcher) SetSessionThread(taskID, threadID string) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	task, ok := d.tasks[taskID]
-	if !ok {
-		return
-	}
-	task.SessionThreadID = threadID
-}
-
-// GetSessionThread returns the thread ID for a task, or empty string.
-func (d *TaskDispatcher) GetSessionThread(taskID string) string {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	task, ok := d.tasks[taskID]
-	if !ok {
-		return ""
-	}
-	return task.SessionThreadID
-}
-
 // ── Urgency-based poll ────────────────────────────────────────────────────
-
-// PollReady returns the highest-urgency pending task that passes the approval gate.
-// This replaces the simple FIFO dequeue in poll() for multi-board scenarios.
-func (d *TaskDispatcher) PollReady() *DispatchTask {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	if len(d.pending) == 0 {
-		return nil
-	}
-
-	// Find highest priority + earliest creation time among pending tasks.
-	var best *DispatchTask
-	bestIdx := -1
-	for i, tid := range d.pending {
-		task := d.tasks[tid]
-		if task.Status != "pending" {
-			continue
-		}
-		if best == nil || urgencyScore(task) > urgencyScore(best) {
-			best = task
-			bestIdx = i
-		}
-	}
-
-	if best == nil {
-		return nil
-	}
-
-	// Check approval gate BEFORE dequeueing — prevents data loss if blocked.
-	if d.approvalGate != nil {
-		allowed, reason := d.approvalGate(best)
-		if !allowed {
-			d.log.Info("task blocked by approval gate", "id", best.ID, "reason", reason)
-			best.Status = "awaiting_approval"
-			return nil
-		}
-	}
-
-	// Remove from pending queue and mark as claimed.
-	d.pending = append(d.pending[:bestIdx], d.pending[bestIdx+1:]...)
-	best.Status = "running"
-	now := time.Now().UTC()
-	best.StartedAt = &now
-
-	return best
-}
-
-// urgencyScore computes a sort key for task prioritisation.
-// Higher numbers = higher urgency.
-func urgencyScore(task *DispatchTask) int {
-	base := priorityWeight(task.Priority) // 0=critical, 3=low
-	// Invert so higher urgency = higher score.
-	score := 10 - base*2
-
-	// Older tasks get a slight boost (+1 per hour of age).
-	ageHours := int(time.Since(task.CreatedAt).Hours())
-	if ageHours > 0 && ageHours < 100 {
-		score += ageHours
-	}
-
-	return score
-}
 
 func (d *TaskDispatcher) poll(ctx context.Context) {
 	d.mu.Lock()
@@ -475,21 +323,4 @@ func (d *TaskDispatcher) removePending(id string) {
 		}
 	}
 	d.pending = filtered
-}
-
-// priorityWeight maps a triage priority to a dispatch ordering weight;
-// lower weights are dispatched first.
-func priorityWeight(p string) int {
-	switch p {
-	case "critical":
-		return 0
-	case "high":
-		return 1
-	case "normal":
-		return 2
-	case "low":
-		return 3
-	default:
-		return 2
-	}
 }

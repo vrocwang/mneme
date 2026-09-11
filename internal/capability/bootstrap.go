@@ -13,7 +13,7 @@ import (
 // bundle: skills, extensions, and config-driven MCP servers. The builtin
 // agents and core tools are registered by internal/bundle (see
 // bundle.RegisterBuiltin), which the boot layer invokes before this.
-func Bootstrap(reg *CapabilityRegistry, workspace string, mcpServers []ServerEntry, log *slog.Logger) {
+func Bootstrap(reg *CapabilityRegistry, workspace string, mcpServers []ServerEntry, loadCfg ExtensionConfigLoader, log *slog.Logger) {
 	// 1. Installed skills from skills/ directory.
 	skillsDir := ws.SkillsDir(workspace)
 	DiscoverSkills(reg, skillsDir, log)
@@ -21,7 +21,7 @@ func Bootstrap(reg *CapabilityRegistry, workspace string, mcpServers []ServerEnt
 	// 2. Extension modules from extensions/ directory (auto-build + load).
 	//    Each extension has a manifest.json and is loaded via JSON-RPC.
 	extensionDirs := DefaultExtensionDirs(workspace)
-	discoverExtensions(reg, extensionDirs, log)
+	discoverExtensions(reg, extensionDirs, loadCfg, log)
 
 	// 3. MCP servers from config
 	for _, srv := range mcpServers {
@@ -43,7 +43,7 @@ func DiscoverSkills(reg *CapabilityRegistry, skillsDir string, log *slog.Logger)
 			continue
 		}
 		skillPath := filepath.Join(skillsDir, entry.Name())
-		mdPath := filepath.Join(skillPath, "SKILL.md")
+		mdPath := filepath.Join(skillPath, ws.FileSkill)
 		data, err := os.ReadFile(mdPath)
 		if err != nil {
 			continue

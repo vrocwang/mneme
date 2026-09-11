@@ -139,6 +139,13 @@ func (g *Graph) Validate() error {
 		if !isValidKind(n.Kind) {
 			return &ValidationError{Message: "unknown node kind: " + string(n.Kind)}
 		}
+		// Per-kind required config. This came from the unused parallel
+		// validator in the deleted validate.go; folding it into the live
+		// validation path makes a malformed node fail at save/run time with a
+		// clear message instead of at execution.
+		if err := validateNodeConfig(n); err != nil {
+			return err
+		}
 	}
 
 	for _, e := range g.Edges {
@@ -173,4 +180,36 @@ func isValidKind(k NodeKind) bool {
 	default:
 		return false
 	}
+}
+
+// validateNodeConfig enforces the required config fields for each node kind.
+// Ported from the deleted parallel validator so the check runs on the live
+// save/run path (Graph.Validate) rather than never running at all.
+func validateNodeConfig(n Node) error {
+	switch n.Kind {
+	case KindHTTPRequest:
+		if _, ok := n.Config["url"]; !ok {
+			return &ValidationError{Message: "http_request node " + n.ID + " missing required config: url"}
+		}
+	case KindCondition:
+		if _, ok := n.Config["field"]; !ok {
+			return &ValidationError{Message: "condition node " + n.ID + " missing required config: field"}
+		}
+		if _, ok := n.Config["op"]; !ok {
+			return &ValidationError{Message: "condition node " + n.ID + " missing required config: op"}
+		}
+	case KindCode:
+		if source, ok := n.Config["source"]; !ok || source == "" {
+			return &ValidationError{Message: "code node " + n.ID + " missing required config: source"}
+		}
+	case KindAgent:
+		if prompt, ok := n.Config["prompt"]; !ok || prompt == "" {
+			return &ValidationError{Message: "agent node " + n.ID + " missing required config: prompt"}
+		}
+	}
+	// KindTransform is intentionally unchecked: execTransform treats a missing
+	// "set" as a passthrough, so it has no required config. (The dead validator
+	// this was ported from required a "type" key that the executor never reads,
+	// which would have rejected valid transform nodes.)
+	return nil
 }

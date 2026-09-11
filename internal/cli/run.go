@@ -35,6 +35,7 @@ func runServer(args []string) error {
 	if err != nil {
 		return fmt.Errorf("create pairing guard: %w", err)
 	}
+	guard.SetAuditLogger(core.AuditLogger)
 	if envToken, ok := security.LoadTokenFromEnv(); ok {
 		guard.AddToken(envToken)
 	}

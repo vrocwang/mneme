@@ -77,35 +77,6 @@ func (c *SQLiteCache) ListAll() ([]ProfileFacet, error) {
 	return facets, rows.Err()
 }
 
-// ListByClass returns facets matching the given class prefix.
-func (c *SQLiteCache) ListByClass(class string) ([]ProfileFacet, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	rows, err := c.db.Query(`SELECT facet_id, key, value, confidence, stability, state, user_state, class, evidence_refs, cue_families, first_seen_at, last_seen_at FROM user_profile_facets WHERE class = ?`, class)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	facets := make([]ProfileFacet, 0)
-	for rows.Next() {
-		var f ProfileFacet
-		var refsJSON, cuesJSON string
-		if err := rows.Scan(&f.FacetID, &f.Key, &f.Value, &f.Confidence, &f.Stability, &f.State, &f.UserState, &f.Class, &refsJSON, &cuesJSON, &f.FirstSeenAt, &f.LastSeenAt); err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal([]byte(refsJSON), &f.EvidenceRefs); err != nil {
-			f.EvidenceRefs = nil
-		}
-		if err := json.Unmarshal([]byte(cuesJSON), &f.CueFamilies); err != nil {
-			f.CueFamilies = nil
-		}
-		facets = append(facets, f)
-	}
-	return facets, rows.Err()
-}
-
 // Upsert inserts or updates a facet.
 func (c *SQLiteCache) Upsert(f ProfileFacet) error {
 	c.mu.Lock()

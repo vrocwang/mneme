@@ -30,13 +30,6 @@ type DiffResult struct {
 	SourceBreakdown map[string]DiffCount `json:"source_breakdown"` // per-source counts
 }
 
-// CrossSourceDiff compares chunks added between two checkpoints grouped
-// by data source, showing what each integration contributed.
-type CrossSourceDiff struct {
-	BySource   map[string][]store.MemoryChunk `json:"by_source"`
-	TotalAdded int                            `json:"total_added"`
-}
-
 // DiffCount tracks add/remove/change counts per source.
 type DiffCount struct {
 	Added   int `json:"added"`
@@ -114,28 +107,6 @@ func (d *MemoryDiff) Diff(a, b *Checkpoint) (*DiffResult, error) {
 	return result, nil
 }
 
-// DiffWithContent computes the diff and fetches actual chunk content for
-// cross-source breakdown.
-func (d *MemoryDiff) DiffWithContent(a, b *Checkpoint) (*CrossSourceDiff, error) {
-	result := &CrossSourceDiff{
-		BySource: make(map[string][]store.MemoryChunk),
-	}
-
-	for _, id := range b.ChunkIDs {
-		if !containsID(a.ChunkIDs, id) {
-			// This chunk was added since checkpoint A.
-			// Fetch it from the store.
-			chunks, _ := d.store.Search(fmt.Sprintf("id:%d", id), 1)
-			if len(chunks) > 0 {
-				src := chunks[0].Source
-				result.BySource[src] = append(result.BySource[src], chunks[0])
-				result.TotalAdded++
-			}
-		}
-	}
-	return result, nil
-}
-
 // ── Helpers ────────────────────────────────────────────────────────────
 
 func toSet(ids []int64) map[int64]bool {
@@ -144,15 +115,6 @@ func toSet(ids []int64) map[int64]bool {
 		s[id] = true
 	}
 	return s
-}
-
-func containsID(ids []int64, target int64) bool {
-	for _, id := range ids {
-		if id == target {
-			return true
-		}
-	}
-	return false
 }
 
 // FormatDiffReport formats a DiffResult as a human-readable markdown string.

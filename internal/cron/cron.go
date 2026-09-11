@@ -19,9 +19,8 @@ const defaultJobTimeout = 5 * time.Minute
 type JobType string
 
 const (
-	JobTypeAgent   JobType = "agent"
-	JobTypeShell   JobType = "shell"
-	JobTypeBuiltin JobType = "builtin"
+	JobTypeAgent JobType = "agent"
+	JobTypeShell JobType = "shell"
 )
 
 // Job is a scheduled task.
@@ -403,6 +402,7 @@ func cronPartMatches(part string, value, min, max int) bool {
 	}
 	return v == value
 }
+
 // parseInterval handles patterns: "*/5m", "5m", "30s", "2h", "*/30s"
 func parseInterval(s string) (time.Duration, error) {
 	s = strings.TrimPrefix(s, "*/") // strip recurring prefix

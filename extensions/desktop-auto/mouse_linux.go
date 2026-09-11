@@ -23,9 +23,14 @@ func mouseTool(_ context.Context, args map[string]interface{}) extsdk.Result {
 	if !hasXdotool() {
 		return extsdk.Result{Error: "xdotool not found. Install with: sudo apt install xdotool"}
 	}
+	if err := guardFrontmostApp(); err != nil {
+		return extsdk.Result{Error: err.Error()}
+	}
 
-	x, _ := floatFromArgs(args, "x")
-	y, _ := floatFromArgs(args, "y")
+	xf, _ := floatFromArgs(args, "x")
+	yf, _ := floatFromArgs(args, "y")
+	cx, cy := clampCoord(int(xf), int(yf))
+	x, y := float64(cx), float64(cy)
 
 	switch action {
 	case "move":

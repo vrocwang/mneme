@@ -27,7 +27,6 @@ const (
 
 // Automation source well-known values for TurnOrigin.AutomationSource.
 const (
-	AutoSourceCron                = "cron"
 	AutoSourceSubconscious        = "subconscious"
 	AutoSourceSubconsciousTainted = "subconscious_tainted" // external-sync data mixed in
 )
@@ -57,22 +56,6 @@ func (o TurnOrigin) IsSubconsciousTainted() bool {
 	return o.Kind == OriginTrustedAutomation && o.AutomationSource == AutoSourceSubconsciousTainted
 }
 
-// IsUserPresent returns true if a human user is expected to be available to
-// respond to prompts (web chat or CLI).
-func (o TurnOrigin) IsUserPresent() bool {
-	return o.Kind == OriginWebChat || o.Kind == OriginCLI
-}
-
-// IsAutomation returns true if the turn is from a trusted internal system.
-func (o TurnOrigin) IsAutomation() bool {
-	return o.Kind == OriginTrustedAutomation
-}
-
-// IsExternal returns true if the turn came from a third-party messaging platform.
-func (o TurnOrigin) IsExternal() bool {
-	return o.Kind == OriginExternalChannel
-}
-
 type contextKey struct{}
 
 var turnOriginKey contextKey
@@ -89,16 +72,4 @@ func TurnOriginFromCtx(ctx context.Context) TurnOrigin {
 		return v.(TurnOrigin)
 	}
 	return TurnOrigin{Kind: OriginUnknown}
-}
-
-// ── Origin-aware approval defaults ──────────────────────────────────────────
-
-// OriginPolicy maps turn origins to approval behaviour.
-type OriginPolicy struct {
-	// AutoApproveTools lists tool names that skip approval for this origin.
-	AutoApproveTools []string `json:"auto_approve_tools,omitempty"`
-	// RequireApprovalForAll forces every tool call through the gate.
-	RequireApprovalForAll bool `json:"require_approval_for_all,omitempty"`
-	// MaxRiskLevel is the highest PermissionLevel auto-approved without prompt.
-	MaxRiskLevel string `json:"max_risk_level,omitempty"` // "none", "read_only", "write"
 }

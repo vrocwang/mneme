@@ -7,7 +7,6 @@ package boot
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -15,7 +14,6 @@ import (
 	"time"
 
 	agenttoml "github.com/simon/mneme/internal/agent/toml"
-	"github.com/simon/mneme/internal/agent_workflows"
 	"github.com/simon/mneme/internal/bundle"
 	"github.com/simon/mneme/internal/capability"
 	"github.com/simon/mneme/internal/config"
@@ -33,6 +31,7 @@ import (
 	"github.com/simon/mneme/internal/memory/conversations"
 	memtools "github.com/simon/mneme/internal/memory/tools"
 	"github.com/simon/mneme/internal/monitor"
+	"github.com/simon/mneme/internal/security"
 	"github.com/simon/mneme/internal/threads"
 	"github.com/simon/mneme/internal/tools"
 	"github.com/simon/mneme/internal/workflows"
@@ -42,7 +41,7 @@ import (
 // BootstrapAll calls capability.Bootstrap then registers all tools that can be
 // wired statically (no runtime dependencies like DB connections or pipelines).
 // Tools needing runtime deps (threads, memory) are registered in app.go.
-func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, securityTier string, mcpServers []capability.ServerEntry, db *sql.DB, cfg *config.Config, mcpStore *mcpstore.Store, log *slog.Logger) {
+func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, securityTier string, mcpServers []capability.ServerEntry, db *sql.DB, cfg *config.Config, mcpStore *mcpstore.Store, audit *security.AuditLogger, log *slog.Logger) {
 	// Register optional integration RPC bindings (Composio etc.) before
 	// the Wails Bind list is built. Each integration calls
 	// capability.RegisterWailsRPC to add its Wails-bound types.
@@ -56,6 +55,7 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 		Workspace:    workspace,
 		SecurityTier: securityTier,
 		Log:          log,
+		Audit:        audit,
 		BraveAPIKey:  cfg.Search.BraveAPIKey,
 		TavilyAPIKey: cfg.Search.TavilyAPIKey,
 		SearxngURL:   cfg.Search.SearxNGURL,
@@ -67,7 +67,7 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 
 	br := bundle.NewRegistry(cfg.Bundles.Disabled)
 
-	capability.Bootstrap(reg, workspace, mcpServers, log)
+	capability.Bootstrap(reg, workspace, mcpServers, cfg.LoadExtensionConfig, log)
 
 	if br.IsEnabled(bundle.BundleWorkflows) {
 		workflows.RegisterAll(reg, workspace, log)
@@ -75,15 +75,13 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 
 	// Skill installation tool (agent-callable, from chat).
 	if br.IsEnabled(bundle.BundleSkills) {
-		capability.RegisterSetTools(reg, "skills", "Skills",
+		capability.RegisterSetTools(reg, capability.SetSkills, "Skills",
 			capability.NewSkillInstallTool(ws.SkillsDir(workspace), reg),
 		)
 	}
 
-	// Agent-accessible workflow discovery tools.
-	if br.IsEnabled(bundle.BundleWorkflows) {
-		agent_workflows.RegisterTools(reg, ws.WorkflowsDir(workspace), workspace)
-	}
+	// Workflow tools (WORKFLOW.md discovery/authoring + run execution) are
+	// registered together by workflows.RegisterAll above.
 
 	// Config introspection tools (read-only: snapshot, autonomy, data paths).
 	if br.IsEnabled(bundle.BundleConfig) {
@@ -137,6 +135,7 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 		mcptools.RegisterTools(reg, mcptools.Deps{
 			Reg:      reg,
 			Registry: mcpRegistryClient,
+			Store:    mcpStore,
 			Log:      log,
 		})
 	}
@@ -175,9 +174,6 @@ func RegisterWailsRPCs(cfg *config.Config, log *slog.Logger) {
 	connectivity.Register()
 	devices.Register(log)
 	http_host.Register(log)
-	if cfg != nil {
-		workflows.RegisterRPC(ws.SkillsDir(cfg.Workspace))
-	}
 }
 
 // ReconnectPersistedServers connects to all enabled MCP servers stored in the
@@ -202,16 +198,7 @@ func ReconnectPersistedServers(reg *capability.CapabilityRegistry, mcpStore *mcp
 		}
 		setID := capability.MCPSetID(s.QualifiedName)
 		entry := s.ToServerEntry()
-		entryJSON, err := json.Marshal(entry)
-		if err != nil {
-			log.Warn("mcp boot: marshal server entry failed", "name", s.QualifiedName, "error", err)
-			entryJSON = nil
-		}
-		set := &capability.CapabilitySet{
-			ID: setID, Name: s.QualifiedName, Kind: capability.KindMCPServer,
-			Description: fmt.Sprintf("MCP server: %s (%s)", s.QualifiedName, s.Transport),
-			Config:      entryJSON, Enabled: true, Health: capability.HealthUnknown,
-		}
+		set := capability.NewMCPServerSet(entry)
 		if err := reg.AddSet(set); err != nil {
 			log.Warn("mcp boot: add set failed", "name", s.QualifiedName, "error", err)
 			continue
@@ -237,29 +224,29 @@ func RegisterLateTools(reg *capability.CapabilityRegistry, convStore *conversati
 		// MemoryDiffTool: checkpoint-based snapshot/diff for tracking
 		// memory changes between agent turns.
 		if s := pipeline.Store(); s != nil {
-			capability.RegisterSetTools(reg, "memory", "Memory",
+			capability.RegisterSetTools(reg, capability.SetMemory, "Memory",
 				newMemoryDiffTool(memory.NewMemoryDiff(s)),
 			)
 		}
 	}
 	if pipeline != nil && provider != nil && br.IsEnabled(bundle.BundleMemory) {
-		capability.RegisterSetTools(reg, "memory", "Memory",
+		capability.RegisterSetTools(reg, capability.SetMemory, "Memory",
 			memtools.NewSmartWalkTool(pipeline, provider, defaultModel),
 		)
 	}
 }
 
 // RegisterPostBootstrapTools registers tools that depend on objects created
-// late in the startup sequence (cron scheduler, desktop automator, monitor).
-// br gates each domain bundle.
+// late in the startup sequence (cron scheduler, monitor). br gates each domain
+// bundle.
 func RegisterPostBootstrapTools(reg *capability.CapabilityRegistry, sched *cron.Scheduler, mon *monitor.Manager, br *bundle.Registry) {
 	if sched != nil && br.IsEnabled(bundle.BundleCron) {
 		cron.RegisterTools(reg, sched)
 	}
 	// Desktop automation as an agent tool is provided by the desktop-auto
-	// extension; the in-process Automator remains for GUI-driven flows.
+	// extension; the core keeps only the companion and screen-intel loops.
 	if mon != nil && br.IsEnabled(bundle.BundleMonitor) {
-		capability.RegisterSetTools(reg, "monitor", "Monitor",
+		capability.RegisterSetTools(reg, capability.SetMonitor, "Monitor",
 			monitor.NewMonitorStartTool(mon),
 			monitor.NewMonitorListTool(mon),
 			monitor.NewMonitorReadTool(mon),

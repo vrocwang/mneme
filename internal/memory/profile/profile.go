@@ -229,34 +229,6 @@ func (s *Store) GetActiveFacets(limit int) ([]ProfileFacet, error) {
 	return scanFacets(rows)
 }
 
-// GetAllFacets returns all facets.
-func (s *Store) GetAllFacets() ([]ProfileFacet, error) {
-	rows, err := s.db.Query(
-		`SELECT facet_id, facet_type, key, value, confidence, evidence_count,
-		 COALESCE(source_segment_ids,''), first_seen_at, last_seen_at, state, stability,
-		 user_state, COALESCE(evidence_refs_json,'[]'), COALESCE(class,''),
-		 COALESCE(cue_families_json,'{}')
-		 FROM user_profile ORDER BY stability DESC`,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	return scanFacets(rows)
-}
-
-// DeleteBelowThreshold removes dropped facets below the stability threshold.
-func (s *Store) DeleteBelowThreshold(threshold float64) (int64, error) {
-	result, err := s.db.Exec(
-		`DELETE FROM user_profile WHERE state = 'dropped' AND stability < ? AND user_state != 'pinned'`,
-		threshold,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 // SetUserState updates the user-controlled state for a facet.
 func (s *Store) SetUserState(facetType, key string, state UserState) error {
 	_, err := s.db.Exec(

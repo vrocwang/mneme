@@ -244,18 +244,16 @@ func (r *Runner) ListRecent(workflowID string, limit int) []RunRecord {
 	return result
 }
 
-// RunCount returns the total number of runs tracked.
-func (r *Runner) RunCount() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return len(r.runs)
-}
-
-// RegisterAll creates the workflow runner and registers all workflow tools
-// into the capability registry under the "workflows" set. Returns the runner
-// for lifecycle management.
+// RegisterAll creates the workflow runner and registers the complete workflow
+// tool surface — WORKFLOW.md discovery/authoring and run execution — under the
+// "workflows" set. Returns the runner for lifecycle management.
+//
+// All tools share one workspace directory (workspace/workflows). They used to
+// be split across two packages whose discovery paths disagreed: the authoring
+// tools read workspace/workflows while the run tools read workspace/skills, so
+// a workflow could be listed but never run.
 func RegisterAll(capReg *capability.CapabilityRegistry, workspaceRoot string, log *slog.Logger) (*Runner, error) {
-	userSkillsDir := workspace.SkillsDir(workspaceRoot)
+	userWorkflowsDir := workspace.WorkflowsDir(workspaceRoot)
 	wfLogsDir := workspace.WorkflowLogsDir(workspaceRoot)
 
 	runner, err := NewRunner(wfLogsDir)
@@ -264,20 +262,17 @@ func RegisterAll(capReg *capability.CapabilityRegistry, workspaceRoot string, lo
 		return nil, err
 	}
 
-	capability.RegisterSetTools(capReg, "workflows", "Workflows",
-		&ListWorkflowsTool{UserDir: userSkillsDir, ProjectDir: workspaceRoot},
-		&DescribeWorkflowTool{UserDir: userSkillsDir, ProjectDir: workspaceRoot},
-		&RunWorkflowTool{Runner: runner, UserDir: userSkillsDir, ProjectDir: workspaceRoot},
+	workflowTools := catalogTools(userWorkflowsDir, workspaceRoot)
+	workflowTools = append(workflowTools,
+		&DescribeWorkflowTool{UserDir: userWorkflowsDir, ProjectDir: workspaceRoot},
+		&RunWorkflowTool{Runner: runner, UserDir: userWorkflowsDir, ProjectDir: workspaceRoot},
 		&CompleteWorkflowTool{Runner: runner},
 		&AwaitWorkflowTool{Runner: runner},
 		&ListWorkflowRunsTool{Runner: runner},
 		&ReadWorkflowRunLogTool{Runner: runner},
 	)
+	capability.RegisterSetTools(capReg, capability.SetWorkflows, "Workflows", workflowTools...)
 
-	// The workflow install/uninstall Wails RPC is registered by
-	// boot.RegisterWailsRPCs before wails.Run builds its Bind list — it cannot
-	// be registered here because this runs during OnStartup, after Bind.
-
-	log.Info("workflow system initialized")
+	log.Info("workflow system initialized", "dir", userWorkflowsDir)
 	return runner, nil
 }

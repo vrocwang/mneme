@@ -656,12 +656,3 @@ func (r *Runner) Resume(ctx context.Context, threadID, checkPointID string) (*ag
 func (r *Runner) AgentSet() *AgentSet {
 	return r.agentSet
 }
-
-// ResetBreaker resets the circuit breaker. Call this when the conversation
-// context changes significantly or the user acknowledges a detected loop and
-// wants to continue.
-func (r *Runner) ResetBreaker() {
-	if r.breakerMW != nil {
-		r.breakerMW.Reset()
-	}
-}

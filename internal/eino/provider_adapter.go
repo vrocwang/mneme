@@ -106,12 +106,14 @@ func (p *einoProvider) convertMessages(req inference.ChatRequest) []*schema.Mess
 		switch m.Role {
 		case "user":
 			if len(m.ContentBlocks) > 0 {
-				// Multimodal user message.
-				var parts []schema.ChatMessagePart
+				// Multimodal user message. Uses the current eino input API
+				// (UserInputMultiContent) rather than the deprecated
+				// MultiContent/ChatMessagePart pair.
+				var parts []schema.MessageInputPart
 				for _, b := range m.ContentBlocks {
 					switch b.Type {
 					case "text":
-						parts = append(parts, schema.ChatMessagePart{
+						parts = append(parts, schema.MessageInputPart{
 							Type: schema.ChatMessagePartTypeText,
 							Text: b.Text,
 						})
@@ -120,15 +122,15 @@ func (p *einoProvider) convertMessages(req inference.ChatRequest) []*schema.Mess
 						if imageURL == "" && b.ImageData != "" {
 							imageURL = "data:" + b.ImageType + ";base64," + b.ImageData
 						}
-						parts = append(parts, schema.ChatMessagePart{
-							Type:     schema.ChatMessagePartTypeImageURL,
-							ImageURL: &schema.ChatMessageImageURL{URL: imageURL},
+						parts = append(parts, schema.MessageInputPart{
+							Type:  schema.ChatMessagePartTypeImageURL,
+							Image: &schema.MessageInputImage{MessagePartCommon: schema.MessagePartCommon{URL: &imageURL}},
 						})
 					}
 				}
 				sMsg = &schema.Message{
-					Role:         schema.User,
-					MultiContent: parts,
+					Role:                  schema.User,
+					UserInputMultiContent: parts,
 				}
 			} else {
 				sMsg = schema.UserMessage(m.Content)

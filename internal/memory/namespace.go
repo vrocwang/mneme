@@ -71,9 +71,6 @@ func (m *NamespaceManager) Clear(ns string) error {
 	return nil
 }
 
-// GLOBAL_NAMESPACE is the default namespace for unscoped data.
-const GLOBAL_NAMESPACE = "__global__"
-
 // SanitizeNamespace returns a safe, collision-free encoding of a namespace.
 // Uses percent-encoding for special characters to prevent distinct namespaces
 // (e.g. "a.b" and "a_b") from silently colliding.

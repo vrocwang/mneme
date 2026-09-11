@@ -5,7 +5,6 @@ package web
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -45,7 +44,7 @@ func New(log *slog.Logger) *Channel {
 	}
 }
 
-func (c *Channel) Name() string                    { return "web" }
+func (c *Channel) Name() string                    { return channels.ChannelWeb }
 func (c *Channel) Events() <-chan channels.Message { return c.events }
 
 func (c *Channel) Start(ctx context.Context) error {
@@ -83,101 +82,4 @@ func (c *Channel) Send(ctx context.Context, msg channels.Message) error {
 		c.writeMsg(conn, data)
 	}
 	return nil
-}
-
-// HandleWebSocket upgrades an HTTP connection to WebSocket for real-time chat.
-func (c *Channel) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
-	conn, err := c.upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		c.log.Warn("websocket upgrade failed", "error", err)
-		return
-	}
-
-	// Configure read deadline and pong handler for keep-alive detection.
-	conn.SetReadDeadline(time.Now().Add(pongTimeout))
-	conn.SetPongHandler(func(string) error {
-		conn.SetReadDeadline(time.Now().Add(pongTimeout))
-		return nil
-	})
-
-	// Ping ticker for keep-alive.
-	pingTicker := time.NewTicker(pingInterval)
-	defer pingTicker.Stop()
-
-	go func() {
-		for range pingTicker.C {
-			conn.SetWriteDeadline(time.Now().Add(writeTimeout))
-			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				return
-			}
-		}
-	}()
-
-	c.mu.Lock()
-	c.wsConns[conn] = struct{}{}
-	c.mu.Unlock()
-
-	defer func() {
-		pingTicker.Stop()
-		c.mu.Lock()
-		delete(c.wsConns, conn)
-		c.mu.Unlock()
-		conn.Close()
-	}()
-
-	for {
-		_, message, err := conn.ReadMessage()
-		if err != nil {
-			if !websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-				c.log.Warn("websocket read error", "error", err)
-			}
-			return
-		}
-
-		var msg channels.Message
-		if err := json.Unmarshal(message, &msg); err != nil {
-			c.log.Warn("websocket bad message", "error", err)
-			continue
-		}
-
-		msg.Channel = "web"
-		if msg.ID == "" {
-			msg.ID = fmt.Sprintf("web-%d", time.Now().UnixNano())
-		}
-
-		select {
-		case c.events <- msg:
-		default:
-			c.log.Warn("web channel event queue full, dropping message")
-		}
-	}
-}
-
-// HealthCheck reports the web channel as always healthy — it has no
-// external dependencies.
-func (c *Channel) HealthCheck(ctx context.Context) error {
-	return nil
-}
-
-// BroadcastJSON sends a JSON message to all connected WebSocket clients.
-func (c *Channel) BroadcastJSON(v interface{}) error {
-	c.mu.Lock()
-	conns := make([]*websocket.Conn, 0, len(c.wsConns))
-	for conn := range c.wsConns {
-		conns = append(conns, conn)
-	}
-	c.mu.Unlock()
-
-	data, _ := json.Marshal(v)
-	for _, conn := range conns {
-		c.writeMsg(conn, data)
-	}
-	return nil
-}
-
-// ConnectedCount returns the number of active WebSocket connections.
-func (c *Channel) ConnectedCount() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return len(c.wsConns)
 }

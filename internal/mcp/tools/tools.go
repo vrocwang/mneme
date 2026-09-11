@@ -13,6 +13,7 @@ import (
 	"github.com/simon/mneme/internal/capability"
 	"github.com/simon/mneme/internal/mcp/client"
 	"github.com/simon/mneme/internal/mcp/registry"
+	mcpstore "github.com/simon/mneme/internal/mcp/store"
 	pkgtools "github.com/simon/mneme/pkg/tools"
 )
 
@@ -20,7 +21,11 @@ import (
 type Deps struct {
 	Reg      *capability.CapabilityRegistry
 	Registry *registry.Client
-	Log      *slog.Logger
+	// Store persists installed servers so an agent-installed server is
+	// reconnected after a restart, exactly like one installed from the UI.
+	// Optional: when nil, install/uninstall stay in-memory for this session.
+	Store *mcpstore.Store
+	Log   *slog.Logger
 }
 
 // ── mcp_list_servers ────────────────────────────────────────────────────────
@@ -374,25 +379,47 @@ func (t *installTool) Execute(ctx context.Context, args map[string]interface{}) 
 		}
 	}
 
-	entryJSON, err := json.Marshal(entry)
-	if err != nil {
-		return pkgtools.Result{Error: fmt.Sprintf("marshal server entry: %v", err)}
-	}
-	set := &capability.CapabilitySet{
-		ID: setID, Name: name, Kind: capability.KindMCPServer,
-		Description: fmt.Sprintf("MCP server: %s (%s)", name, entry.Transport), Enabled: true, Health: capability.HealthUnknown,
-		Config: entryJSON,
-	}
+	set := capability.NewMCPServerSet(entry)
 	if err := t.deps.Reg.AddSet(set); err != nil {
 		return pkgtools.Result{Error: fmt.Sprintf("install server: %v", err)}
 	}
 
 	if err := t.deps.Reg.ConnectMCPServer(setID, entry); err != nil {
-		t.deps.Reg.UpdateSetHealth(setID, capability.HealthDown)
-		return pkgtools.Result{Error: fmt.Sprintf("installed but connect failed: %v. Use mcp_connect to retry.", err)}
+		// Roll back the set so a retry with corrected config is not blocked by
+		// a stale "already installed" entry. Because the set is gone you cannot
+		// retry with mcp_connect — the config must be fixed via mcp_install.
+		_ = t.deps.Reg.RemoveSet(setID)
+		return pkgtools.Result{Error: fmt.Sprintf("install failed: %v. Fix the config and re-run mcp_install.", err)}
 	}
 	t.deps.Reg.UpdateSetHealth(setID, capability.HealthOK)
+	t.deps.persist(capability.MCPSetID(name), name, entry, true)
 	return pkgtools.Result{Success: true, Output: fmt.Sprintf("MCP server %q installed and connected successfully.", name)}
+}
+
+// persist records an installed server so it reconnects after a restart. It uses
+// the same idempotent upsert as the UI install path (PersistMCPServer deletes
+// any prior row first); a plain INSERT would fail on a UNIQUE violation when a
+// row already exists, leaving stale config in the database. A failure is
+// non-fatal for the current session but is logged, because the server would
+// otherwise silently disappear on the next start.
+func (d Deps) persist(setID, name string, entry capability.ServerEntry, enabled bool) {
+	if d.Store == nil {
+		return
+	}
+	err := d.Store.PersistMCPServer(&capability.PersistedMCPServer{
+		ServerID:      setID,
+		QualifiedName: name,
+		DisplayName:   name,
+		Command:       entry.Command,
+		Args:          entry.Args,
+		Transport:     entry.Transport,
+		DeploymentURL: entry.URL,
+		Enabled:       enabled,
+	})
+	if err != nil && d.Log != nil {
+		d.Log.Warn("mcp: persist server failed; it will not reconnect after restart",
+			"name", name, "error", err)
+	}
 }
 
 // ── mcp_uninstall ───────────────────────────────────────────────────────────
@@ -425,6 +452,11 @@ func (t *uninstallTool) Execute(ctx context.Context, args map[string]interface{}
 	_ = t.deps.Reg.DisconnectMCPServer(setID)
 	if err := t.deps.Reg.RemoveSet(setID); err != nil {
 		return pkgtools.Result{Error: fmt.Sprintf("uninstall: %v", err)}
+	}
+	if t.deps.Store != nil {
+		if _, err := t.deps.Store.DeleteServer(setID); err != nil && t.deps.Log != nil {
+			t.deps.Log.Warn("mcp: remove persisted server failed", "name", name, "error", err)
+		}
 	}
 	return pkgtools.Result{Success: true, Output: fmt.Sprintf("MCP server %q uninstalled.", name)}
 }
@@ -500,7 +532,7 @@ func (t *disconnectTool) Execute(ctx context.Context, args map[string]interface{
 // RegisterTools registers all MCP management tools with the capability registry
 // under the "mcp" set.
 func RegisterTools(reg *capability.CapabilityRegistry, deps Deps) {
-	capability.RegisterSetTools(reg, "mcp", "MCP Management",
+	capability.RegisterSetTools(reg, capability.SetMCP, "MCP Management",
 		&listServersTool{deps: deps},
 		&listToolsTool{deps: deps},
 		&searchTool{deps: deps},
