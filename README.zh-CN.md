@@ -90,6 +90,9 @@ max_search_results = 0         # 0 = 默认
 
 [embedding]
 provider = "ollama"            # ollama | openai | "" 禁用
+model = "nomic-embed-text"     # 留空则用提供商默认值
+base_url = ""                  # 覆盖 API 基地址（本地/代理）
+api_key = ""                   # openai 必填
 
 [learning_cfg]
 enabled = true

@@ -108,7 +108,7 @@ func BootstrapGUI(core *AppCore, ctx context.Context, appMethods jsonrpc.AppMeth
 	}
 
 	// ── Post-bootstrap tools ──────────────────────────────────────────
-	RegisterPostBootstrapTools(core.CapReg, core.Cron, gui.Automator, core.MonitorMgr, bundle.NewRegistry(core.Cfg.Bundles.Disabled))
+	RegisterPostBootstrapTools(core.CapReg, core.Cron, core.MonitorMgr, bundle.NewRegistry(core.Cfg.Bundles.Disabled))
 
 	log.Info("app startup complete")
 	return gui

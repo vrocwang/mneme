@@ -45,7 +45,7 @@ wails dev        # live development with hot reload
 go run cmd/build-extensions/main.go
 ```
 
-Platform-specific code (PTY, keyring, sandbox, cwd jail) uses OS build tags
+Platform-specific code (PTY, keyring, sandbox) uses OS build tags
 internally. Optional features and non-core tools are loaded as runtime
 extensions — no feature build tags are required.
 
@@ -97,6 +97,9 @@ max_search_results = 0         # 0 = default
 
 [embedding]
 provider = "ollama"            # ollama | openai | "" to disable
+model = "nomic-embed-text"     # empty = provider default
+base_url = ""                  # override API base URL (local/proxy)
+api_key = ""                   # required for openai
 
 [learning_cfg]
 enabled = true

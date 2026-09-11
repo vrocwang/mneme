@@ -163,15 +163,15 @@ func builtinAgentsBundle() Bundle {
 // optionalToolFactories maps optional tool names to their constructors. These
 // are non-core conveniences, disableable via [tools] optional_tools or by
 // disabling the productivity-tools bundle.
+// browser_open, whatsapp_data, and image_info lived here historically;
+// the browser-cdp, channel-whatsapp-web, and media-generation extensions
+// cover those domains now.
 var optionalToolFactories = map[string]func(workspace string) tools.Tool{
-	"whatsapp_data":    func(ws string) tools.Tool { return tools.NewWhatsAppData(ws) },
 	"detect_tools":     func(_ string) tools.Tool { return tools.NewDetectTools() },
 	"run_linter":       func(ws string) tools.Tool { return tools.NewRunLinter(ws) },
 	"workspace_state":  func(ws string) tools.Tool { return tools.NewWorkspaceState(ws) },
 	"update_memory_md": func(ws string) tools.Tool { return tools.NewUpdateMemoryMD(ws) },
 	"csv_export":       func(ws string) tools.Tool { return tools.NewCSVExport(ws) },
-	"browser_open":     func(_ string) tools.Tool { return tools.NewBrowserOpen() },
-	"image_info":       func(ws string) tools.Tool { return tools.NewImageInfo(ws) },
 }
 
 // collectOptionalTools returns the optional tools to register based on

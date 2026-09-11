@@ -22,7 +22,6 @@ import (
 	"github.com/simon/mneme/internal/connectivity"
 	"github.com/simon/mneme/internal/cron"
 	"github.com/simon/mneme/internal/dag"
-	"github.com/simon/mneme/internal/desktop"
 	"github.com/simon/mneme/internal/devices"
 	"github.com/simon/mneme/internal/doctor"
 	"github.com/simon/mneme/internal/file_state"
@@ -249,16 +248,12 @@ func RegisterLateTools(reg *capability.CapabilityRegistry, convStore *conversati
 // RegisterPostBootstrapTools registers tools that depend on objects created
 // late in the startup sequence (cron scheduler, desktop automator, monitor).
 // br gates each domain bundle.
-func RegisterPostBootstrapTools(reg *capability.CapabilityRegistry, sched *cron.Scheduler, automator *desktop.Automator, mon *monitor.Manager, br *bundle.Registry) {
+func RegisterPostBootstrapTools(reg *capability.CapabilityRegistry, sched *cron.Scheduler, mon *monitor.Manager, br *bundle.Registry) {
 	if sched != nil && br.IsEnabled(bundle.BundleCron) {
 		cron.RegisterTools(reg, sched)
 	}
-	if automator != nil && br.IsEnabled(bundle.BundleDesktop) {
-		reg.EnsureSet(&capability.CapabilitySet{
-			ID: "desktop", Name: "Desktop Automation", Kind: capability.KindBuiltin, Enabled: true,
-		})
-		reg.RegisterTool("desktop", desktop.NewDesktopAutomateTool(automator))
-	}
+	// Desktop automation as an agent tool is provided by the desktop-auto
+	// extension; the in-process Automator remains for GUI-driven flows.
 	if mon != nil && br.IsEnabled(bundle.BundleMonitor) {
 		capability.RegisterSetTools(reg, "monitor", "Monitor",
 			monitor.NewMonitorStartTool(mon),

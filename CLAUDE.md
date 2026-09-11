@@ -23,11 +23,9 @@ Optional features (channels, integrations, and non-core tools such as audio,
 presentation, LSP, and desktop automation) are loaded as runtime extensions
 via the CapabilityRegistry - no feature build tags required. The core build
 includes only web + CLI channels and the essential tool set. Platform-specific
-code (PTY, keyring, sandbox, cwd jail) still uses OS build tags internally.
+code (PTY, keyring, sandbox) still uses OS build tags internally.
 
 Composio is loaded as an extension (`extensions/composio/`), not a build tag.
-Its in-process memory-sync connector in `internal/memory/sync/composio/` was
-dead code (never wired) and has been removed.
 
 Extensions are loaded at runtime via manifest.json and JSON-RPC: each
 extension subdirectory in `extensions/` or `extensions-dist/` is discovered
@@ -50,7 +48,7 @@ internal/
   agent/            — Agent loop, sub-agents, chat service, streaming, tools
   boot/             — Wiring: NewProvider, NewCapRegistry, NewPipeline
   eino/             — Agent creation (NewAgentSet), runner, tools adapter, provider adapter
-  channels/         — Channel interface + orchestrator + per-platform impls
+  channels/         — Channel interface + orchestrator + web/cli impls
   config/           — TOML config parsing + model routing
   context/          — System prompt builder, enrichers, guard, compaction
   inference/        — LLM provider abstraction (streaming + non-streaming)
@@ -58,7 +56,6 @@ internal/
   memory/           — Ingestion pipeline, retrieval, embeddings, profile store
   security/         — Injection detection, tier gate, approval, audit, sandbox
   capability/       — Tool + agent registry (Go + MCP + extensions)
-  model_council/    — Multi-model deliberation
   webhooks/         — Webhook triage + dispatch
   workflows/        — Workflow runner + tools
   prompts/          — Embedded prompt templates (defaults/*.txt)
@@ -69,8 +66,12 @@ internal/
 12 built-in agents: general, orchestrator, researcher, coder, critic, planner,
 summarizer, archivist, mcp_setup, tool_maker, task_manager, tools_agent.
 
-Each agent's system prompt lives in `internal/prompts/defaults/agent_<id>.txt`.
-Sub-agents are created by `eino.NewAgentSet` which builds all 12 agents in three
-phases: (1) create 11 sub-agents with role-filtered tools and specialized prompts,
-(2) wrap each as an `adk.AgentTool` for delegation from the General agent,
-(3) create the General agent with all core tools + sub-agent tools.
+The built-in roster is `internal/bundle/builtin_agents.toml`, loaded through
+the same `agenttoml` path as user agents (`workspace/agents/*.toml`) and agent
+packs — all agent sources share one registration path. Each agent's system
+prompt lives in `internal/prompts/defaults/agent_<id>.txt` and resolves via
+`prompts.NameFromAgentID`. Sub-agents are created by `eino.NewAgentSet` which
+builds them in three phases: (1) create the specialist sub-agents with
+role-filtered tools and specialized prompts, (2) wrap each as an
+`adk.AgentTool` for delegation from the General agent, (3) create the General
+agent with all core tools + sub-agent tools.

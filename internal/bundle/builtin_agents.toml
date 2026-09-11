@@ -116,17 +116,3 @@ tier = "worker"
 max_iterations = 15
 hidden = true
 tool_allowlist = ["read_file", "write_file", "list_dir", "shell", "http_get", "http_post"]
-
-[[agent]]
-id = "help"
-name = "Help"
-description = "Answers product and usage questions"
-tier = "worker"
-max_iterations = 10
-
-[[agent]]
-id = "trigger_reactor"
-name = "Trigger Reactor"
-description = "Handles automated event triggers"
-tier = "worker"
-max_iterations = 10
