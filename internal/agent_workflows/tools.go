@@ -344,15 +344,11 @@ func sanitizeDirName(name string) string {
 // under the "workflows" set.
 func RegisterTools(reg *capability.CapabilityRegistry, userWorkflowsDir, projectRoot string) {
 	listTool := NewListWorkflowsTool(userWorkflowsDir, projectRoot)
-	reg.EnsureSet(&capability.CapabilitySet{
-		ID:      "workflows",
-		Name:    "Workflows",
-		Kind:    capability.KindBuiltin,
-		Enabled: true,
-	})
-	reg.RegisterTool("workflows", listTool)
-	reg.RegisterTool("workflows", NewReadWorkflowTool(listTool))
-	reg.RegisterTool("workflows", NewPhaseGuidanceTool(listTool))
-	reg.RegisterTool("workflows", NewCreateWorkflowTool(userWorkflowsDir))
-	reg.RegisterTool("workflows", NewBestMatchTool(listTool))
+	capability.RegisterSetTools(reg, "workflows", "Workflows",
+		listTool,
+		NewReadWorkflowTool(listTool),
+		NewPhaseGuidanceTool(listTool),
+		NewCreateWorkflowTool(userWorkflowsDir),
+		NewBestMatchTool(listTool),
+	)
 }

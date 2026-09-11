@@ -263,20 +263,15 @@ func RegisterAll(capReg *capability.CapabilityRegistry, workspaceRoot string, lo
 		return nil, err
 	}
 
-	capReg.EnsureSet(&capability.CapabilitySet{
-		ID:      "workflows",
-		Name:    "Workflows",
-		Kind:    capability.KindBuiltin,
-		Enabled: true,
-	})
-
-	capReg.RegisterTool("workflows", &ListWorkflowsTool{UserDir: userSkillsDir, ProjectDir: workspaceRoot})
-	capReg.RegisterTool("workflows", &DescribeWorkflowTool{UserDir: userSkillsDir, ProjectDir: workspaceRoot})
-	capReg.RegisterTool("workflows", &RunWorkflowTool{Runner: runner, UserDir: userSkillsDir, ProjectDir: workspaceRoot})
-	capReg.RegisterTool("workflows", &CompleteWorkflowTool{Runner: runner})
-	capReg.RegisterTool("workflows", &AwaitWorkflowTool{Runner: runner})
-	capReg.RegisterTool("workflows", &ListWorkflowRunsTool{Runner: runner})
-	capReg.RegisterTool("workflows", &ReadWorkflowRunLogTool{Runner: runner})
+	capability.RegisterSetTools(capReg, "workflows", "Workflows",
+		&ListWorkflowsTool{UserDir: userSkillsDir, ProjectDir: workspaceRoot},
+		&DescribeWorkflowTool{UserDir: userSkillsDir, ProjectDir: workspaceRoot},
+		&RunWorkflowTool{Runner: runner, UserDir: userSkillsDir, ProjectDir: workspaceRoot},
+		&CompleteWorkflowTool{Runner: runner},
+		&AwaitWorkflowTool{Runner: runner},
+		&ListWorkflowRunsTool{Runner: runner},
+		&ReadWorkflowRunLogTool{Runner: runner},
+	)
 
 	// Register Wails RPC for frontend workflow install/uninstall.
 	// Uses capability.RegisterWailsRPC to avoid import cycles.
