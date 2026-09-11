@@ -500,18 +500,14 @@ func (t *disconnectTool) Execute(ctx context.Context, args map[string]interface{
 // RegisterTools registers all MCP management tools with the capability registry
 // under the "mcp" set.
 func RegisterTools(reg *capability.CapabilityRegistry, deps Deps) {
-	reg.EnsureSet(&capability.CapabilitySet{
-		ID:      "mcp",
-		Name:    "MCP Management",
-		Kind:    capability.KindBuiltin,
-		Enabled: true,
-	})
-	reg.RegisterTool("mcp", &listServersTool{deps: deps})
-	reg.RegisterTool("mcp", &listToolsTool{deps: deps})
-	reg.RegisterTool("mcp", &searchTool{deps: deps})
-	reg.RegisterTool("mcp", &testConnTool{deps: deps})
-	reg.RegisterTool("mcp", &installTool{deps: deps})
-	reg.RegisterTool("mcp", &uninstallTool{deps: deps})
-	reg.RegisterTool("mcp", &connectTool{deps: deps})
-	reg.RegisterTool("mcp", &disconnectTool{deps: deps})
+	capability.RegisterSetTools(reg, "mcp", "MCP Management",
+		&listServersTool{deps: deps},
+		&listToolsTool{deps: deps},
+		&searchTool{deps: deps},
+		&testConnTool{deps: deps},
+		&installTool{deps: deps},
+		&uninstallTool{deps: deps},
+		&connectTool{deps: deps},
+		&disconnectTool{deps: deps},
+	)
 }

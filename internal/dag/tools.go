@@ -296,15 +296,11 @@ func RegisterTools(reg *capability.CapabilityRegistry, runner *Runner, store *St
 	if reg == nil {
 		return
 	}
-	reg.EnsureSet(&capability.CapabilitySet{
-		ID:      "dag",
-		Name:    "DAG",
-		Kind:    capability.KindBuiltin,
-		Enabled: true,
-	})
-	reg.RegisterTool("dag", &listGraphsTool{store: store})
-	reg.RegisterTool("dag", &describeGraphTool{store: store})
-	reg.RegisterTool("dag", &saveGraphTool{store: store})
-	reg.RegisterTool("dag", &runGraphTool{runner: runner, store: store})
-	reg.RegisterTool("dag", &runStatusTool{store: store})
+	capability.RegisterSetTools(reg, "dag", "DAG",
+		&listGraphsTool{store: store},
+		&describeGraphTool{store: store},
+		&saveGraphTool{store: store},
+		&runGraphTool{runner: runner, store: store},
+		&runStatusTool{store: store},
+	)
 }

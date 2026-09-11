@@ -90,12 +90,8 @@ func (t *diffTool) Execute(ctx context.Context, args map[string]interface{}) too
 // the "file-state" set.
 func RegisterTools(reg *capability.CapabilityRegistry) {
 	tracker := NewTracker()
-	reg.EnsureSet(&capability.CapabilitySet{
-		ID:      "file-state",
-		Name:    "File State",
-		Kind:    capability.KindBuiltin,
-		Enabled: true,
-	})
-	reg.RegisterTool("file-state", &snapshotTool{tracker: tracker})
-	reg.RegisterTool("file-state", &diffTool{tracker: tracker})
+	capability.RegisterSetTools(reg, "file-state", "File State",
+		&snapshotTool{tracker: tracker},
+		&diffTool{tracker: tracker},
+	)
 }

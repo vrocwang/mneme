@@ -15,16 +15,12 @@ func RegisterTools(reg *capability.CapabilityRegistry, store *Store) {
 	if reg == nil || store == nil {
 		return
 	}
-	reg.EnsureSet(&capability.CapabilitySet{
-		ID:      "goals",
-		Name:    "Goals",
-		Kind:    capability.KindBuiltin,
-		Enabled: true,
-	})
-	reg.RegisterTool("goals", &listTool{store: store})
-	reg.RegisterTool("goals", &addTool{store: store})
-	reg.RegisterTool("goals", &editTool{store: store})
-	reg.RegisterTool("goals", &deleteTool{store: store})
+	capability.RegisterSetTools(reg, "goals", "Goals",
+		&listTool{store: store},
+		&addTool{store: store},
+		&editTool{store: store},
+		&deleteTool{store: store},
+	)
 }
 
 // ── goals_list ───────────────────────────────────────────────────────────

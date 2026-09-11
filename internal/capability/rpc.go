@@ -1,7 +1,6 @@
 package capability
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -603,46 +602,9 @@ func loadExtension(reg *CapabilityRegistry, ext *tools.DiscoveredExtension, work
 	}
 	log.Info("loading installed extension", "name", ext.Manifest.Name, "binary", binaryPath)
 
-	// Start the extension process.
-	proc, err := tools.StartProtoFromCommand(context.Background(), binaryPath, log)
-	if err != nil {
-		return fmt.Errorf("start extension %q: %w", ext.Manifest.Name, err)
-	}
-
-	setID := ExtensionSetID(ext.Manifest.Name)
-
-	// Collect tools and agents up front so the whole extension can be
-	// registered as a single effect (RegisterExtension reserves the set ID
-	// first and returns a dispose func for clean unwinding).
-	var extTools []tools.Tool
-	if ts, err := proc.ListTools(context.Background()); err == nil {
-		extTools = ts
-	} else {
-		log.Warn("extension list tools failed", "name", ext.Manifest.Name, "error", err)
-	}
-	var extAgents []*tools.AgentDef
-	if as, err := proc.ListAgents(context.Background()); err == nil {
-		for _, a := range as {
-			aCopy := a
-			extAgents = append(extAgents, &aCopy)
-		}
-	} else {
-		log.Warn("extension list agents failed", "name", ext.Manifest.Name, "error", err)
-	}
-
-	set := &CapabilitySet{
-		ID:          setID,
-		Name:        ext.Manifest.Name,
-		Kind:        KindExtension,
-		Description: ext.Manifest.Description,
-		Health:      HealthOK,
-		Enabled:     true,
-	}
+	// Load and register through the single shared loading path.
 	// RegisterExtension fails closed: on a duplicate set ID it returns before
 	// mutating any state, and it tracks the process for Shutdown/dispose.
-	if _, err := reg.RegisterExtension(setID, set, proc, extTools, extAgents); err != nil {
-		proc.Stop()
-		return err
-	}
-	return nil
+	_, err = launchExtensionProc(reg, binaryPath, &ext.Manifest, log)
+	return err
 }

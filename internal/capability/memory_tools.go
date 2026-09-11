@@ -9,13 +9,5 @@ import (
 // and memory_forget tools under the "memory" set. Must be called after the
 // memory pipeline is created.
 func RegisterMemoryTools(reg *CapabilityRegistry, pipeline *memory.Pipeline) {
-	reg.EnsureSet(&CapabilitySet{
-		ID:      "memory",
-		Name:    "Memory",
-		Kind:    KindBuiltin,
-		Enabled: true,
-	})
-	for _, t := range tools.MemoryToolsList(pipeline) {
-		reg.RegisterTool("memory", t)
-	}
+	RegisterSetTools(reg, "memory", "Memory", tools.MemoryToolsList(pipeline)...)
 }

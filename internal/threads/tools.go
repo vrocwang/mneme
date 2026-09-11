@@ -12,18 +12,14 @@ import (
 // RegisterTools registers all thread-management tools into the given capability registry
 // under the "threads" set.
 func RegisterTools(capReg *capability.CapabilityRegistry, ops *Ops) {
-	capReg.EnsureSet(&capability.CapabilitySet{
-		ID:      "threads",
-		Name:    "Threads",
-		Kind:    capability.KindBuiltin,
-		Enabled: true,
-	})
-	capReg.RegisterTool("threads", &threadListTool{ops})
-	capReg.RegisterTool("threads", &threadReadTool{ops})
-	capReg.RegisterTool("threads", &threadCreateTool{ops})
-	capReg.RegisterTool("threads", &threadMessageAppendTool{ops})
-	capReg.RegisterTool("threads", &threadUpdateTitleTool{ops})
-	capReg.RegisterTool("threads", &threadDeleteTool{ops})
+	capability.RegisterSetTools(capReg, "threads", "Threads",
+		&threadListTool{ops},
+		&threadReadTool{ops},
+		&threadCreateTool{ops},
+		&threadMessageAppendTool{ops},
+		&threadUpdateTitleTool{ops},
+		&threadDeleteTool{ops},
+	)
 }
 
 // ── thread_list ───────────────────────────────────────────────────────

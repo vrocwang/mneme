@@ -2,14 +2,23 @@ package bundle
 
 import (
 	"context"
+	"embed"
 	"log/slog"
 
+	agenttoml "github.com/simon/mneme/internal/agent/toml"
 	"github.com/simon/mneme/internal/capability"
 	"github.com/simon/mneme/internal/config"
 	"github.com/simon/mneme/internal/security"
 	"github.com/simon/mneme/internal/tools"
 	"github.com/simon/mneme/pkg/dispose"
 )
+
+// builtinAgentsTOML is the builtin agent roster in the same format as
+// user-defined agents (workspace/agents/*.toml), so builtin, user, pack,
+// and extension agents all flow through one registration path.
+//
+//go:embed builtin_agents.toml
+var builtinAgentsTOML embed.FS
 
 // BuiltinBundles returns the first-layer bundles in registration order: the
 // built-in agent set, then the core/network/productivity tool groups. This is
@@ -131,10 +140,20 @@ func productivityToolsBundle() Bundle {
 	})
 }
 
-// builtinAgentsBundle registers the 12 built-in specialist agents.
+// builtinAgentsBundle registers the built-in specialist agents from the
+// embedded roster. User agents (workspace/agents/*.toml) override these by
+// ID at boot.
 func builtinAgentsBundle() Bundle {
 	return Func("builtin-agents", func(ctx context.Context, d *Deps) (dispose.Func, error) {
-		for _, def := range builtinAgentDefs {
+		data, err := builtinAgentsTOML.ReadFile("builtin_agents.toml")
+		if err != nil {
+			return nil, err
+		}
+		defs, err := agenttoml.LoadAgentsFromEmbedded(string(data))
+		if err != nil {
+			return nil, err
+		}
+		for _, def := range defs {
 			d.Reg.RegisterAgent(BuiltinSetID, def)
 		}
 		return nil, nil
@@ -186,68 +205,3 @@ func collectOptionalTools(workspace string, cfg *config.Config, log *slog.Logger
 	return out
 }
 
-// builtinAgentDefs is the first-layer agent set. User-defined agents
-// (workspace/agents/*.toml) override these by ID at boot.
-var builtinAgentDefs = []*tools.AgentDef{
-	{
-		ID: "general", Name: "General", Tier: "chat",
-		Description:   "General-purpose assistant for conversation and task help",
-		MaxIterations: 10, ToolAllowlist: []string{"*"},
-	},
-	{
-		ID: "orchestrator", Name: "Orchestrator", Tier: "chat",
-		Description:   "Coordinates sub-agents for complex multi-step tasks",
-		MaxIterations: 20, ToolAllowlist: []string{"*"},
-		SubagentRefs: []tools.SubagentRef{{AgentID: "researcher"}, {AgentID: "coder"}, {AgentID: "planner"}, {AgentID: "critic"}},
-	},
-	{
-		ID: "researcher", Name: "Researcher", Tier: "reasoning",
-		Description: "Deep research and analysis", MaxIterations: 15,
-		ToolAllowlist: []string{"read_file", "web_search", "http_get", "http_post", "browser", "memory_search"},
-		Model:         "reasoning",
-	},
-	{
-		ID: "coder", Name: "Coder", Tier: "worker",
-		Description: "Writes and modifies code", MaxIterations: 15,
-		ToolAllowlist: []string{"read_file", "write_file", "list_dir", "shell", "grep", "glob", "run_tests", "read_diff", "lsp", "apply_patch"},
-		SandboxMode:   "read_write",
-	},
-	{
-		ID: "critic", Name: "Critic", Tier: "reasoning",
-		Description: "Reviews and critiques output for quality assurance", MaxIterations: 5,
-	},
-	{
-		ID: "planner", Name: "Planner", Tier: "reasoning",
-		Description: "Creates step-by-step plans for complex tasks", MaxIterations: 10,
-	},
-	{
-		ID: "summarizer", Name: "Summarizer", Tier: "worker",
-		Description: "Produces compact summaries", MaxIterations: 3, Hidden: true,
-		Model: "summary",
-	},
-	{
-		ID: "archivist", Name: "Archivist", Tier: "worker",
-		Description: "Manages memory archiving and retrieval", MaxIterations: 5, Hidden: true,
-		ToolAllowlist: []string{"memory_search", "memory_save"}, Background: true,
-	},
-	{
-		ID: "mcp_setup", Name: "MCP Setup", Tier: "worker",
-		Description: "Configures MCP servers", MaxIterations: 10,
-		ToolAllowlist: []string{"mcp_list_servers", "mcp_list_tools", "mcp_install", "mcp_uninstall", "mcp_connect", "mcp_disconnect"},
-	},
-	{
-		ID: "tool_maker", Name: "Tool Maker", Tier: "worker",
-		Description: "Creates new tools", MaxIterations: 15,
-		ToolAllowlist: []string{"read_file", "write_file", "shell", "list_dir"},
-	},
-	{
-		ID: "task_manager", Name: "Task Manager", Tier: "reasoning",
-		Description: "Manages and dispatches tasks", MaxIterations: 15,
-	},
-	{
-		ID: "tools_agent", Name: "Tools Agent", Tier: "worker",
-		Description:   "Specializes in tool creation and integration setup",
-		ToolAllowlist: []string{"read_file", "write_file", "list_dir", "shell", "http_get", "http_post"},
-		MaxIterations: 15, Hidden: true,
-	},
-}

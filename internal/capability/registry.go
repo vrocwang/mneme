@@ -32,7 +32,6 @@ type CapabilityRegistry struct {
 	mcpClients        map[string]*mcpclient.Client
 	extensionProcs    map[string]*tools.ProtoProcess
 	extensionMonitors map[string]context.CancelFunc // cancels health monitor goroutine per extension
-	mcpToolServer     map[string]string             // toolName → setID
 	mcpAudit          MCPAuditLogger
 	channels          map[string]*channelEntry // registered channel providers
 	disposes          map[string]dispose.Func  // setID → teardown (effect-style unwind)
@@ -49,7 +48,6 @@ func NewCapabilityRegistry() *CapabilityRegistry {
 		mcpClients:        make(map[string]*mcpclient.Client),
 		extensionProcs:    make(map[string]*tools.ProtoProcess),
 		extensionMonitors: make(map[string]context.CancelFunc),
-		mcpToolServer:     make(map[string]string),
 		channels:          make(map[string]*channelEntry),
 		disposes:          make(map[string]dispose.Func),
 	}
@@ -77,14 +75,6 @@ func (r *CapabilityRegistry) AddSet(set *CapabilitySet) error {
 			if def, ok := r.agents[id]; ok {
 				set.Agents = append(set.Agents, agentDefToDescriptor(def))
 			}
-		}
-	}
-	for name, owner := range r.mcpToolServer {
-		if owner == set.ID {
-			set.Tools = append(set.Tools, ToolDescriptor{
-				Name:        name,
-				Description: "MCP remote tool",
-			})
 		}
 	}
 	// Ensure slices are never nil — Go JSON marshals nil as null.
@@ -229,18 +219,14 @@ func (r *CapabilityRegistry) UnregisterTool(name string) {
 	defer r.mu.Unlock()
 	delete(r.exec, name)
 	delete(r.toolOwner, name)
-	delete(r.mcpToolServer, name)
 }
 
 func (r *CapabilityRegistry) AllTools() []ToolDescriptor {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]ToolDescriptor, 0, len(r.exec)+len(r.mcpToolServer))
+	out := make([]ToolDescriptor, 0, len(r.exec))
 	for name, t := range r.exec {
 		out = append(out, toolToDescriptor(name, t))
-	}
-	for name := range r.mcpToolServer {
-		out = append(out, ToolDescriptor{Name: name, Description: "MCP remote tool"})
 	}
 	return out
 }
@@ -264,11 +250,8 @@ func (r *CapabilityRegistry) ToolsInSet(setID string) []ToolDescriptor {
 func (r *CapabilityRegistry) ToolNames() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	names := make([]string, 0, len(r.exec)+len(r.mcpToolServer))
+	names := make([]string, 0, len(r.exec))
 	for name := range r.exec {
-		names = append(names, name)
-	}
-	for name := range r.mcpToolServer {
 		names = append(names, name)
 	}
 	return names
@@ -278,13 +261,6 @@ func (r *CapabilityRegistry) GetTool(name string) (tools.Tool, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	t, ok := r.exec[name]
-	if !ok {
-		// Check MCP tools when not found in exec.
-		if _, mcpOk := r.mcpToolServer[name]; mcpOk {
-			return nil, true // MCP tool exists but execution is handled externally
-		}
-		return nil, false
-	}
 	return t, ok
 }
 
@@ -295,47 +271,17 @@ func (r *CapabilityRegistry) SetMCPAuditLogger(l MCPAuditLogger) {
 	r.mcpAudit = l
 }
 
-// Execute routes tool execution: local tools run directly,
-// MCP tools proxy through the MCP client.
+// Execute routes tool execution. Local tools and MCP tools share the same
+// path: MCP tools are mcpProxyTool values in the exec map that proxy to
+// their server with audit logging.
 func (r *CapabilityRegistry) Execute(ctx context.Context, name string, args map[string]interface{}) tools.Result {
 	r.mu.RLock()
 	t, ok := r.exec[name]
-	serverID, isMCP := r.mcpToolServer[name]
-	client := r.mcpClients[serverID]
-	serverName := serverID
-	if isMCP {
-		if s, ok := r.sets[serverID]; ok {
-			serverName = s.Name
-		}
-	}
 	r.mu.RUnlock()
-
-	if isMCP && client != nil {
-		start := time.Now()
-		result, err := client.CallTool(ctx, name, args)
-		elapsed := time.Since(start)
-
-		// Audit log
-		if r.mcpAudit != nil {
-			success := err == nil && !result.IsError
-			errMsg := ""
-			if err != nil {
-				errMsg = err.Error()
-			} else if result.IsError {
-				errMsg = fmt.Sprintf("%v", result.Content)
-			}
-			_ = r.mcpAudit.Log(ctx, serverName, name, args, success, errMsg, elapsed)
-		}
-
-		if err != nil {
-			return tools.Result{Error: err.Error()}
-		}
-		return resultToToolsResult(result)
+	if !ok {
+		return tools.Result{Error: fmt.Sprintf("tool not found: %s", name)}
 	}
-	if ok {
-		return tools.ExecuteWithTimeout(ctx, t, args, nil)
-	}
-	return tools.Result{Error: fmt.Sprintf("tool not found: %s", name)}
+	return tools.ExecuteWithTimeout(ctx, t, args, nil)
 }
 
 // ── Agent registration ────────────────────────────────
@@ -435,18 +381,16 @@ func (r *CapabilityRegistry) GetAgent(id string) (*tools.AgentDef, bool) {
 
 // ── MCP ───────────────────────────────────────────────
 
-// RegisterMCP registers a tool provided by an external MCP server.
-// Unlike RegisterTool, the implementation lives in a remote process and
-// is invoked via MCP protocol through the client.
+// RegisterMCP registers a tool provided by an external MCP server as an
+// mcpProxyTool in the main exec map. The proxy resolves the server's client
+// at call time, so tool registration needs only names, and disconnected
+// servers simply fail their tools at execution.
 func (r *CapabilityRegistry) RegisterMCP(setID, toolName string, client *mcpclient.Client) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.mcpToolServer[toolName] = setID
 	r.mcpClients[setID] = client
-	r.addToolToSetLocked(setID, toolName, ToolDescriptor{
-		Name:        toolName,
-		Description: "MCP remote tool",
-	})
+	r.exec[toolName] = &mcpProxyTool{name: toolName, serverID: setID, reg: r}
+	r.addToolToSetLocked(setID, toolName, toolToDescriptor(toolName, r.exec[toolName]))
 }
 
 func (r *CapabilityRegistry) ConnectMCPServer(setID string, entry ServerEntry) error {
@@ -505,11 +449,10 @@ func (r *CapabilityRegistry) DisconnectMCPServer(setID string) error {
 	r.mu.Lock()
 	client := r.mcpClients[setID]
 	delete(r.mcpClients, setID)
-	for name, owner := range r.mcpToolServer {
+	for name, owner := range r.toolOwner {
 		if owner == setID {
-			delete(r.mcpToolServer, name)
-			delete(r.toolOwner, name)
 			delete(r.exec, name)
+			delete(r.toolOwner, name)
 		}
 	}
 	if s, ok := r.sets[setID]; ok {
@@ -656,7 +599,6 @@ func (r *CapabilityRegistry) removeSetInternal(id string) error {
 		if owner == id {
 			delete(r.exec, name)
 			delete(r.toolOwner, name)
-			delete(r.mcpToolServer, name)
 		}
 	}
 	for agentID, owner := range r.agentOwner {

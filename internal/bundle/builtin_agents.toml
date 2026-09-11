@@ -1,0 +1,132 @@
+# Built-in agent roster. Loaded through the same agenttoml path as
+# user-defined agents (workspace/agents/*.toml) and agent packs, so builtin,
+# user, pack, and extension agents all share one registration flow.
+# User agents override these by ID at boot.
+
+[[agent]]
+id = "general"
+name = "General"
+description = "General-purpose assistant for conversation and task help"
+tier = "chat"
+max_iterations = 10
+tool_allowlist = ["*"]
+
+[[agent]]
+id = "orchestrator"
+name = "Orchestrator"
+description = "Coordinates sub-agents for complex multi-step tasks"
+tier = "chat"
+max_iterations = 20
+tool_allowlist = ["*"]
+subagents = [
+  {agent_id = "researcher"},
+  {agent_id = "coder"},
+  {agent_id = "planner"},
+  {agent_id = "critic"},
+]
+
+[[agent]]
+id = "researcher"
+name = "Researcher"
+description = "Deep research and analysis"
+tier = "reasoning"
+max_iterations = 15
+model = "reasoning"
+tool_allowlist = [
+  "read_file", "web_search", "http_get", "http_post",
+  "browser", "memory_search",
+]
+
+[[agent]]
+id = "coder"
+name = "Coder"
+description = "Writes and modifies code"
+tier = "worker"
+max_iterations = 15
+sandbox_mode = "read_write"
+tool_allowlist = [
+  "read_file", "write_file", "list_dir", "shell", "grep", "glob",
+  "run_tests", "read_diff", "lsp", "apply_patch",
+]
+
+[[agent]]
+id = "critic"
+name = "Critic"
+description = "Reviews and critiques output for quality assurance"
+tier = "reasoning"
+max_iterations = 5
+
+[[agent]]
+id = "planner"
+name = "Planner"
+description = "Creates step-by-step plans for complex tasks"
+tier = "reasoning"
+max_iterations = 10
+
+[[agent]]
+id = "summarizer"
+name = "Summarizer"
+description = "Produces compact summaries"
+tier = "worker"
+max_iterations = 3
+hidden = true
+model = "summary"
+
+[[agent]]
+id = "archivist"
+name = "Archivist"
+description = "Manages memory archiving and retrieval"
+tier = "worker"
+max_iterations = 5
+hidden = true
+background = true
+tool_allowlist = ["memory_search", "memory_save"]
+
+[[agent]]
+id = "mcp_setup"
+name = "MCP Setup"
+description = "Configures MCP servers"
+tier = "worker"
+max_iterations = 10
+tool_allowlist = [
+  "mcp_list_servers", "mcp_list_tools", "mcp_install",
+  "mcp_uninstall", "mcp_connect", "mcp_disconnect",
+]
+
+[[agent]]
+id = "tool_maker"
+name = "Tool Maker"
+description = "Creates new tools"
+tier = "worker"
+max_iterations = 15
+tool_allowlist = ["read_file", "write_file", "shell", "list_dir"]
+
+[[agent]]
+id = "task_manager"
+name = "Task Manager"
+description = "Manages and dispatches tasks"
+tier = "reasoning"
+max_iterations = 15
+
+[[agent]]
+id = "tools_agent"
+name = "Tools Agent"
+description = "Specializes in tool creation and integration setup"
+tier = "worker"
+max_iterations = 15
+hidden = true
+tool_allowlist = ["read_file", "write_file", "list_dir", "shell", "http_get", "http_post"]
+
+[[agent]]
+id = "help"
+name = "Help"
+description = "Answers product and usage questions"
+tier = "worker"
+max_iterations = 10
+
+[[agent]]
+id = "trigger_reactor"
+name = "Trigger Reactor"
+description = "Handles automated event triggers"
+tier = "worker"
+max_iterations = 10

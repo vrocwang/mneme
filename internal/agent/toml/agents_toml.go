@@ -180,3 +180,23 @@ func DeleteAgentFile(agentsDir, agentID string) error {
 	}
 	return nil
 }
+
+// LoadAgentsFromEmbedded parses agent definitions from embedded TOML data
+// (the builtin roster). It shares the decoding and defaults with
+// LoadAgentsFromDir so embedded, user, and pack agents behave identically.
+func LoadAgentsFromEmbedded(data string) ([]*tools.AgentDef, error) {
+	var doc struct {
+		Agent []AgentTOML `toml:"agent"`
+	}
+	if _, err := btoml.Decode(data, &doc); err != nil {
+		return nil, fmt.Errorf("parse embedded agents: %w", err)
+	}
+	defs := make([]*tools.AgentDef, 0, len(doc.Agent))
+	for _, a := range doc.Agent {
+		if a.ID == "" || a.Name == "" {
+			return nil, fmt.Errorf("embedded agent missing id or name")
+		}
+		defs = append(defs, agentTOMLToDef(a))
+	}
+	return defs, nil
+}

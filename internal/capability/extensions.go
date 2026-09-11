@@ -98,11 +98,10 @@ func discoverExtensions(reg *CapabilityRegistry, dirs []string, log *slog.Logger
 				continue
 			}
 
-			// Launch the extension via the JSON-RPC protocol (JSON-RPC over stdio).
-			// Use StartProtoFromCommand which handles native binaries, scripts,
-			// with shebangs, and interpreter invocations.
-			proc, err := tools.StartProtoFromCommand(context.Background(), binaryPath, log)
-			if err != nil {
+			// Launch and register through the single shared loading path.
+			// StartProtoFromCommand handles native binaries, scripts with
+			// shebangs, and interpreter invocations.
+			if _, err := launchExtensionProc(reg, binaryPath, &mf, log); err != nil {
 				errStr := err.Error()
 				// Windows UAC elevation requests and missing interpreters are
 				// expected for some extensions — log at info level.
@@ -115,48 +114,67 @@ func discoverExtensions(reg *CapabilityRegistry, dirs []string, log *slog.Logger
 				}
 				continue
 			}
-
-			setID := ExtensionSetID(mf.Name)
-			set := &CapabilitySet{
-				ID:          setID,
-				Name:        mf.Name,
-				Kind:        KindExtension,
-				Description: mf.Description,
-				Health:      HealthOK,
-				Enabled:     true,
-			}
-
-			// Register tools.
-			extTools, err := proc.ListTools(context.Background())
-			if err != nil {
-				log.Warn("extension list tools failed", "name", mf.Name, "error", err)
-			}
-
-			// Register agents.
-			extAgents, err := proc.ListAgents(context.Background())
-			if err != nil {
-				log.Warn("extension list agents failed", "name", mf.Name, "error", err)
-			}
-			agentDefs := make([]*tools.AgentDef, 0, len(extAgents))
-			for _, a := range extAgents {
-				aCopy := a
-				agentDefs = append(agentDefs, &aCopy)
-			}
-
-			// Register the extension as a single effect. The returned dispose is
-			// stored in the registry and unwound on shutdown/uninstall.
-			if _, err := reg.RegisterExtension(setID, set, proc, extTools, agentDefs); err != nil {
-				// Set already registered - same extension found in a different
-				// directory. Stop the duplicate process and skip silently.
-				proc.Stop()
-				continue
-			}
 			loaded++
-			log.Info("extension loaded", "name", mf.Name, "tools", len(extTools), "agents", len(extAgents))
 		}
 	}
 
 	return loaded, nil
+}
+
+// launchExtensionProc starts one extension binary via the JSON-RPC protocol,
+// collects its tools and agents, and registers it as a single effect. It is
+// the single loading path shared by manifest discovery, legacy script
+// discovery, and on-demand (install-time) loading. mf is the pre-parsed
+// manifest when the caller discovered one on disk; nil means the manifest
+// comes from the process handshake.
+func launchExtensionProc(reg *CapabilityRegistry, binaryPath string, mf *tools.ExtensionManifest, log *slog.Logger) (*tools.ProtoProcess, error) {
+	proc, err := tools.StartProtoFromCommand(context.Background(), binaryPath, log)
+	if err != nil {
+		return nil, err
+	}
+	if mf == nil {
+		// No on-disk manifest (legacy script discovery): the process
+		// handshake reports its own identity.
+		mf = &tools.ExtensionManifest{
+			Name:        proc.Manifest.Name,
+			Version:     proc.Manifest.Version,
+			Description: proc.Manifest.Description,
+		}
+	}
+
+	// Collect tools and agents up front so the whole extension can be
+	// registered as a single effect (RegisterExtension reserves the set ID
+	// first and returns a dispose func for clean unwinding).
+	var extTools []tools.Tool
+	if ts, err := proc.ListTools(context.Background()); err == nil {
+		extTools = ts
+	} else {
+		log.Warn("extension list tools failed", "name", mf.Name, "error", err)
+	}
+	var extAgents []*tools.AgentDef
+	if as, err := proc.ListAgents(context.Background()); err == nil {
+		for _, a := range as {
+			aCopy := a
+			extAgents = append(extAgents, &aCopy)
+		}
+	} else {
+		log.Warn("extension list agents failed", "name", mf.Name, "error", err)
+	}
+
+	set := &CapabilitySet{
+		ID:          ExtensionSetID(mf.Name),
+		Name:        mf.Name,
+		Kind:        KindExtension,
+		Description: mf.Description,
+		Health:      HealthOK,
+		Enabled:     true,
+	}
+	if _, err := reg.RegisterExtension(set.ID, set, proc, extTools, extAgents); err != nil {
+		proc.Stop()
+		return nil, err
+	}
+	log.Info("extension loaded", "name", mf.Name, "tools", len(extTools), "agents", len(extAgents))
+	return proc, nil
 }
 
 // resolveExtensionBinary resolves the binary path from the manifest's binary field.

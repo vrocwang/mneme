@@ -12,18 +12,14 @@ import (
 // RegisterTools registers all todo/task-board tools into the given capability registry
 // under the "todos" set.
 func RegisterTools(capReg *capability.CapabilityRegistry, store *Store) {
-	capReg.EnsureSet(&capability.CapabilitySet{
-		ID:      "todos",
-		Name:    "Todos",
-		Kind:    capability.KindBuiltin,
-		Enabled: true,
-	})
-	capReg.RegisterTool("todos", &todoListTool{store})
-	capReg.RegisterTool("todos", &todoAddTool{store})
-	capReg.RegisterTool("todos", &todoEditTool{store})
-	capReg.RegisterTool("todos", &todoUpdateStatusTool{store})
-	capReg.RegisterTool("todos", &todoRemoveTool{store})
-	capReg.RegisterTool("todos", &todoClearTool{store})
+	capability.RegisterSetTools(capReg, "todos", "Todos",
+		&todoListTool{store},
+		&todoAddTool{store},
+		&todoEditTool{store},
+		&todoUpdateStatusTool{store},
+		&todoRemoveTool{store},
+		&todoClearTool{store},
+	)
 }
 
 // ── todo_list ──────────────────────────────────────────────────────────

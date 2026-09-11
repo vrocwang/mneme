@@ -77,10 +77,9 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 
 	// Skill installation tool (agent-callable, from chat).
 	if br.IsEnabled(bundle.BundleSkills) {
-		reg.EnsureSet(&capability.CapabilitySet{
-			ID: "skills", Name: "Skills", Kind: capability.KindBuiltin, Enabled: true,
-		})
-		reg.RegisterTool("skills", capability.NewSkillInstallTool(filepath.Join(workspace, "skills"), reg))
+		capability.RegisterSetTools(reg, "skills", "Skills",
+			capability.NewSkillInstallTool(filepath.Join(workspace, "skills"), reg),
+		)
 	}
 
 	// Agent-accessible workflow discovery tools.
@@ -235,17 +234,15 @@ func RegisterLateTools(reg *capability.CapabilityRegistry, convStore *conversati
 		// MemoryDiffTool: checkpoint-based snapshot/diff for tracking
 		// memory changes between agent turns.
 		if s := pipeline.Store(); s != nil {
-			reg.EnsureSet(&capability.CapabilitySet{
-				ID: "memory", Name: "Memory", Kind: capability.KindBuiltin, Enabled: true,
-			})
-			reg.RegisterTool("memory", newMemoryDiffTool(memory.NewMemoryDiff(s)))
+			capability.RegisterSetTools(reg, "memory", "Memory",
+				newMemoryDiffTool(memory.NewMemoryDiff(s)),
+			)
 		}
 	}
 	if pipeline != nil && provider != nil && br.IsEnabled(bundle.BundleMemory) {
-		reg.EnsureSet(&capability.CapabilitySet{
-			ID: "memory", Name: "Memory", Kind: capability.KindBuiltin, Enabled: true,
-		})
-		reg.RegisterTool("memory", memtools.NewSmartWalkTool(pipeline, provider, defaultModel))
+		capability.RegisterSetTools(reg, "memory", "Memory",
+			memtools.NewSmartWalkTool(pipeline, provider, defaultModel),
+		)
 	}
 }
 
@@ -263,13 +260,12 @@ func RegisterPostBootstrapTools(reg *capability.CapabilityRegistry, sched *cron.
 		reg.RegisterTool("desktop", desktop.NewDesktopAutomateTool(automator))
 	}
 	if mon != nil && br.IsEnabled(bundle.BundleMonitor) {
-		reg.EnsureSet(&capability.CapabilitySet{
-			ID: "monitor", Name: "Monitor", Kind: capability.KindBuiltin, Enabled: true,
-		})
-		reg.RegisterTool("monitor", monitor.NewMonitorStartTool(mon))
-		reg.RegisterTool("monitor", monitor.NewMonitorListTool(mon))
-		reg.RegisterTool("monitor", monitor.NewMonitorReadTool(mon))
-		reg.RegisterTool("monitor", monitor.NewMonitorStopTool(mon))
+		capability.RegisterSetTools(reg, "monitor", "Monitor",
+			monitor.NewMonitorStartTool(mon),
+			monitor.NewMonitorListTool(mon),
+			monitor.NewMonitorReadTool(mon),
+			monitor.NewMonitorStopTool(mon),
+		)
 	}
 }
 
