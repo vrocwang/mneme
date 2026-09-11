@@ -12,6 +12,7 @@ const zhCN: EnTranslations = {
     notifications: '通知',
     monitor: '监控',
     settings: '设置',
+    tools: '工具'
   },
 
   sidebar: {
@@ -24,6 +25,7 @@ const zhCN: EnTranslations = {
     closeSidebar: '关闭侧边栏',
     deleteThread: '删除对话',
     count: '{count} 个对话',
+    openSidebar: '打开侧边栏'
   },
 
   chat: {
@@ -32,9 +34,9 @@ const zhCN: EnTranslations = {
     startConversation: '开始对话',
     startHint: '发送消息开始',
     placeholder: '输入消息...（Enter 发送，Shift+Enter 换行）',
-    thinking: '思考中...',
-    send: '发送',
-    error: '错误',
+    
+    
+    
     you: '你',
     assistant: 'Mneme',
     toolResult: '工具结果',
@@ -44,8 +46,7 @@ const zhCN: EnTranslations = {
     thinkingShow: 'Show thinking',
     thinkingHide: 'Hide thinking',
     delete: '删除',
-    messages: '{count} 条消息',
-    emptyState: '暂无消息，开始对话吧！',
+    messages: '{count} 条消息'
   },
 
   approval: {
@@ -54,18 +55,18 @@ const zhCN: EnTranslations = {
     approveOnce: '允许一次',
     alwaysAllow: '始终允许',
     deny: '拒绝',
-    recorded: '已记录决策',
-    approvedOnce: '已允许一次',
-    permanentlyAllowed: '工具已永久允许',
-    denied: '已拒绝',
-    pending: '待处理',
+    
+    
+    
+    
+    pending: '待处理'
   },
 
   settings: {
     title: '设置',
     general: '通用',
     providers: 'AI 提供商',
-    credentials: '凭据',
+    
     approvals: '授权',
     theme: '主题',
     config: '配置',
@@ -73,12 +74,12 @@ const zhCN: EnTranslations = {
     about: '关于',
     systemHealth: '系统状态',
     cronJobs: '定时任务',
-    enabled: '已启用',
-    disabled: '已禁用',
-    noCredentials: '没有存储的凭据。',
-    noCredentialsHint: 'Add a provider to store its API key as a credential.',
+    
+    
+    
+    
     noAllowlist: '没有永久允许的工具。工具在监督模式下通过授权门批准。',
-    providerHint: '通过环境变量配置 AI 提供商：',
+    
     version: '版本',
     toolsRegistered: '已注册工具',
     agentsAvailable: '可用 Agent',
@@ -89,11 +90,11 @@ const zhCN: EnTranslations = {
     soul: 'SOUL 与身份',
     channels: '频道',
     extensions: '扩展',
-    composio: 'Composio',
-    webhooks: 'Webhook',
+    
+    
     companion: '桌面精灵',
-    data: 'Data Directory',
-    voice: 'Voice & Speech',
+    
+    
     test: '测试连接',
     testConnectionOk: '连接成功',
     testConnectionFailed: '连接失败',
@@ -151,8 +152,8 @@ const zhCN: EnTranslations = {
     modelRoutingSummary: '总结',
     modelRoutingVision: '视觉',
     useDefault: '默认',
-    defaultModel: '默认模型',
-    defaultModelDesc: '未设置工作负载专用模型时使用',
+    
+    
     noProviders: '没有配置提供商。',
     noProvidersHint: '添加一个以开始使用，或通过环境变量设置 API 密钥。',
     edit: '编辑',
@@ -200,8 +201,8 @@ const zhCN: EnTranslations = {
       archivist_memory: '档案员 — 记忆提取',
       council_chair: '模型议会 — 主席综合',
       nudge_memory_gaps: '提醒 — 记忆盲区',
-      nudge_idle: '提醒 — 空闲提示',
-    },
+      nudge_idle: '提醒 — 空闲提示'
+    }
   },
 
   dashboard: {
@@ -210,17 +211,17 @@ const zhCN: EnTranslations = {
     tools: '工具',
     agents: 'Agent',
     pending: '待处理',
-    costHistory: '费用历史',
-    systemOverview: '系统概览',
-    modelTokenUsage: '模型令牌用量',
-    costOverview: '费用概览',
-    loading: '加载中...',
+    
+    
+    
+    
+    
     failedToLoad: '加载仪表板数据失败',
     retry: '重试',
     refresh: '刷新',
-    noCostData: '暂无费用数据',
+    
     reflections: '潜意识反思',
-    preferences: '偏好',
+    preferences: '偏好'
   },
 
   monitor: {
@@ -235,7 +236,7 @@ const zhCN: EnTranslations = {
     output: '输出',
     hide: '隐藏',
     exitCode: '退出码: {code}',
-    emptyHint: '暂无监控运行。Agent 启动的命令会显示在这里。',
+    emptyHint: '暂无监控运行。Agent 启动的命令会显示在这里。'
   },
 
   memory: {
@@ -257,12 +258,13 @@ const zhCN: EnTranslations = {
     noResults: '未找到结果',
     config: '记忆配置',
     weights: '检索权重',
+    profile: '检索配置'
   },
 
   todo: {
     title: '任务面板',
     addPlaceholder: '添加任务...',
-    add: '添加',
+    add: '添加'
   },
 
   capabilities: {
@@ -287,19 +289,15 @@ const zhCN: EnTranslations = {
     concurrent: '并发',
     hidden: '隐藏',
     background: '后台',
-    maxIter: '最多 {count} 轮',
+    maxIter: '最多 {count} 轮'
   },
 
   errors: {
     somethingWrong: '出现错误',
-    testConnectionOk: '连接成功',
-    testConnectionFailed: '连接失败',
-    test: '测试',
-    tryAgain: '重试',
-    loadThreadsFailed: '加载对话失败',
-    createThreadFailed: '创建对话失败',
-    deleteThreadFailed: '删除对话失败',
-    streamFailed: '流式传输失败',
+    
+    
+    
+    tryAgain: '重试'
   },
 
   companion: {
@@ -307,8 +305,8 @@ const zhCN: EnTranslations = {
     description: '桌面精灵会截取你的屏幕，听取你的语音（STT），将上下文发送给 AI 提供商，并语音回复（TTS）。',
     activate: '激活精灵',
     activating: '激活中...',
-    activated: '精灵已激活',
-    deactivate: '停用',
+    
+    
     startLoop: '启动循环',
     stopLoop: '停止循环',
     stopped: '精灵已停止',
@@ -324,14 +322,14 @@ const zhCN: EnTranslations = {
     reqMic: '麦克风权限用于语音输入',
     reqMacCliclick: 'macOS: cliclick（brew install cliclick）用于鼠标控制',
     reqMacPerm: 'macOS: 辅助功能权限中允许 System Events',
-    reqLinux: 'Linux: xdotool (X11) 或 ydotool (Wayland)',
+    reqLinux: 'Linux: xdotool (X11) 或 ydotool (Wayland)'
   },
 
   voice: {
     title: '语音与朗读',
-    sttEngine: '语音转文字引擎',
-    ttsEngine: '文字转语音引擎',
-    enginesNote: '引擎在桌面助手(Companion)中配置。默认使用系统引擎；安装 Whisper(STT) 或 Piper(TTS) 模型后可切换。',
+    
+    
+    
     sttSection: '语音转文字',
     ttsSection: '文字转语音',
     engine: '引擎',
@@ -346,7 +344,7 @@ const zhCN: EnTranslations = {
     apiKeyHint: '独立于 AI 提供商的密钥。保存在 config.toml [voice] 段。',
     ttsSystem: '系统 (操作系统原生)',
     ttsPiper: 'Piper (本地)',
-    ttsOpenAI: 'OpenAI (云端 API)',
+    ttsOpenAI: 'OpenAI (云端 API)'
   },
 
   keyring: {
@@ -360,17 +358,13 @@ const zhCN: EnTranslations = {
     consentBody: '系统密钥环不可用。是否在本地存储密钥？',
     consentAllow: '允许本地存储',
     consentDecline: '拒绝',
-    retryProbe: '重试',
-    modeOsKeyring: '系统密钥环',
-    modeLocalEncrypted: '本地加密存储',
-    modeConsentPending: '等待授权',
-    modeDeclined: '已拒绝',
+    retryProbe: '重试'
   },
 
   home: {
     welcome: '欢迎使用 Mneme',
     tagline: '您的 AI 助手，用于管理对话、工具和记忆。',
-    quickActions: '快捷操作',
+    
     newChat: '新对话',
     newChatDesc: '与 AI 代理开始新对话',
     searchMemory: '搜索记忆',
@@ -381,16 +375,14 @@ const zhCN: EnTranslations = {
     providerConnected: '服务商',
     connected: '已连接',
     notConnected: '未连接',
-    toolsCount: '工具',
-    agentsCount: '代理',
-    dbStatus: '数据库',
-    healthy: '健康',
-    unhealthy: '异常',
+    
+    
+    dbStatus: '数据库'
   },
 
   webhooks: {
     title: 'Webhooks',
-    tunnels: '隧道',
+    
     addTunnel: '添加隧道',
     newTunnel: '新建隧道',
     target: '目标',
@@ -403,10 +395,10 @@ const zhCN: EnTranslations = {
     helpText: '隧道将外部 webhook 请求路由到 Agent。每个隧道有唯一 UUID。外部服务通过 X-Tunnel-UUID 头 POST 到 /webhook。',
     copy: '复制',
     copied: '已复制！',
-    deleted: '隧道已删除。',
+    deleted: '隧道已删除。'
   },
   soul: {
-    title: 'SOUL & Identity',
+    
     soulTitle: 'SOUL.md',
     soulDesc: '定义 Agent 的核心身份、运行原则和行为准则。每次对话都会注入。',
     identityTitle: 'IDENTITY.md',
@@ -414,15 +406,15 @@ const zhCN: EnTranslations = {
     save: '保存', saving: '保存中…', saved: '已保存', error: '错误',
     tip: '提示',
     tipText: 'SOUL.md 定义 Agent 是谁。IDENTITY.md 定义 Agent 了解你什么。',
-    tipChanges: '修改在下次对话时生效，无需重启。',
+    tipChanges: '修改在下次对话时生效，无需重启。'
   },
 
   channels: {
-    title: '频道', configured: '已配置频道', available: '可用频道类型',
+     configured: '已配置频道', available: '可用频道类型',
     noChannels: '未配置频道。请在配置文件中添加频道凭据。',
     configHint: '在', under: '下',
     extensionsNote: '扩展可通过 Provider 接口注册额外的频道类型。',
-    enabled: '已启用', disabled: '已禁用',
+    enabled: '已启用', disabled: '已禁用'
   },
 
   extensions: {
@@ -433,34 +425,25 @@ const zhCN: EnTranslations = {
     installPlaceholder: '扩展目录路径 (包含 manifest.json)',
     installHint: '扩展通过插件协议添加工具、代理、频道和集成。',
     formatHint: '每个扩展包含 manifest.json 和通过 stdin/stdout 使用 JSON-RPC 2.0 的二进制文件。',
-    autoBuildHint: '扩展在启动时从 extensions/ 自动发现。',
+    autoBuildHint: '扩展在启动时从 extensions/ 自动发现。'
   },
 
-  composio: {
-    title: 'Composio',
-    description: '基于 OAuth 的第三方服务集成 (Gmail, Notion, Slack, GitHub 等)。',
-    connected: '已连接服务', noConnections: '无已连接服务。请使用下方 OAuth 流程连接。',
-    connectNew: '连接新服务', app: '应用/工具包',
-    redirectURI: '重定向 URI', connectOAuth: '通过 OAuth 连接',
-    opening: '打开中...', availableToolkits: '可用工具包',
-    noToolkits: '无可用工具包。请确保 composio 扩展已加载并配置。', disconnect: '断开',
-    selectService: '选择服务...',
-  },
+  
 
   autonomy: {
     title: '自主权',
     level: '自主级别',
-    readonly: '只读',
-    supervised: '受监督',
-    full: '完全自主',
-    workspaceOnly: '仅限工作区',
+    
+    
+    
+    workspaceOnly: '仅限工作区'
   },
   diagnostics: {
     title: '诊断',
     totalTools: '工具总数',
     enabledTools: '已启用工具',
     writeSurfaces: '写入接口',
-    recentDenials: '最近拒绝',
+    recentDenials: '最近拒绝'
   },
 
   notifications: {
@@ -470,7 +453,7 @@ const zhCN: EnTranslations = {
     empty: '暂无通知',
     noUnread: '没有未读通知',
     markAllRead: '全部标为已读',
-    approvalRequest: '审批请求',
+    approvalRequest: '审批请求'
   },
 
   onboarding: {
@@ -478,9 +461,9 @@ const zhCN: EnTranslations = {
     welcomeDesc: '您的 AI 助手，可以管理对话、执行工具、搜索记忆并自动完成任务 — 一切都在桌面上。',
     providersTitle: '连接 AI 提供商',
     providersDesc: 'Mneme 支持 OpenAI、Anthropic 以及通过 Ollama 连接的本地模型。您可以现在配置，或稍后在设置中配置。',
-    providerHint: '设置环境变量 OPENAI_API_KEY 或 ANTHROPIC_API_KEY，或在 设置 → 提供商 中添加。',
+    
     providersConfigured: '已配置 {count} 个提供商',
-    configureLater: '稍后在设置中配置',
+    
     workspaceTitle: '工作区',
     workspaceDesc: 'Agent 在您的工作区目录中运行。文件、对话和记忆都存储在这里。',
     workspacePath: '工作区目录',
@@ -524,7 +507,7 @@ const zhCN: EnTranslations = {
     skip: '跳过',
     back: '上一步',
     next: '下一步',
-    getStarted: '开始使用',
+    getStarted: '开始使用'
   },
   walkthrough: {
     step: '第 {current} 步，共 {total} 步',
@@ -535,23 +518,22 @@ const zhCN: EnTranslations = {
     steps: {
       chat: {
         title: '对话',
-        content: '在此与 AI 助手对话。提问、布置任务或浏览历史记录。',
+        content: '在此与 AI 助手对话。提问、布置任务或浏览历史记录。'
       },
       memory: {
         title: '记忆',
-        content: '搜索和探索 AI 的记忆。查看知识图谱、时间线和实体关联。',
+        content: '搜索和探索 AI 的记忆。查看知识图谱、时间线和实体关联。'
       },
       capabilities: {
         title: '能力',
-        content: '在一个地方浏览所有工具、代理、MCP 服务器和插件。安装新的 MCP 服务器或管理扩展。',
+        content: '在一个地方浏览所有工具、代理、MCP 服务器和插件。安装新的 MCP 服务器或管理扩展。'
       },
       settings: {
         title: '设置',
-        content: '配置 AI 提供商、自主级别、外观等。',
-      },
-    },
-  },
-
+        content: '配置 AI 提供商、自主级别、外观等。'
+      }
+    }
+  }
 };
 
 export default zhCN;

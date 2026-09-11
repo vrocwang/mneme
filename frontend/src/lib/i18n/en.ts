@@ -10,6 +10,7 @@ const en = {
     notifications: 'Notifications',
     monitor: 'Monitor',
     settings: 'Settings',
+    tools: 'Tools'
   },
 
   sidebar: {
@@ -22,6 +23,7 @@ const en = {
     deleteThread: 'Delete thread',
     closeSidebar: 'Close sidebar',
     count: '{count} threads',
+    openSidebar: 'Open sidebar'
   },
 
   chat: {
@@ -30,9 +32,9 @@ const en = {
     startConversation: 'Start a conversation',
     startHint: 'Send a message to begin',
     placeholder: 'Send a message... (Enter to send, Shift+Enter for new line)',
-    thinking: 'Thinking...',
-    send: 'Send',
-    error: 'Error',
+    
+    
+    
     you: 'You',
     assistant: 'Mneme',
     toolResult: 'Tool result',
@@ -42,8 +44,7 @@ const en = {
     thinkingShow: 'Show thinking',
     thinkingHide: 'Hide thinking',
     delete: 'Delete',
-    messages: '{count} messages',
-    emptyState: 'No messages yet. Start a conversation!',
+    messages: '{count} messages'
   },
 
   approval: {
@@ -52,18 +53,18 @@ const en = {
     approveOnce: 'Approve once',
     alwaysAllow: 'Always allow',
     deny: 'Deny',
-    recorded: 'Decision recorded',
-    approvedOnce: 'Approved once',
-    permanentlyAllowed: 'Tool permanently allowed',
-    denied: 'Denied',
-    pending: 'pending',
+    
+    
+    
+    
+    pending: 'pending'
   },
 
   settings: {
     title: 'Settings',
     general: 'General',
     providers: 'Providers',
-    credentials: 'Credentials',
+    
     approvals: 'Approvals',
     theme: 'Theme',
     config: 'Config',
@@ -71,25 +72,25 @@ const en = {
     about: 'About',
     systemHealth: 'System Health',
     cronJobs: 'Cron Jobs',
-    enabled: 'Enabled',
-    disabled: 'Disabled',
-    noCredentials: 'No stored credentials.',
-    noCredentialsHint: 'Add a provider to store its API key as a credential.',
+    
+    
+    
+    
     noAllowlist: 'No permanently allowed tools. Tools are approved via the approval gate during supervised mode.',
-    providerHint: 'Configure providers via environment variables:',
+    
     version: 'Version',
     toolsRegistered: 'Tools registered',
     agentsAvailable: 'Agents available',
     checkUpdates: 'Check for updates',
     remove: 'Remove',
-    data: 'Data Directory',
-    voice: 'Voice & Speech',
+    
+    
     appearance: 'Appearance',
     soul: 'SOUL & Identity',
     channels: 'Channels',
     extensions: 'Extensions',
-    composio: 'Composio',
-    webhooks: 'Webhooks',
+    
+    
     companion: 'Companion',
     test: 'Test',
     testConnectionOk: 'Connection OK',
@@ -143,8 +144,8 @@ const en = {
     addProvider: 'Add Provider',
     defaultProvider: 'Default provider',
     defaultProviderDesc: 'Select which provider to use for chat',
-    defaultModel: 'Default model',
-    defaultModelDesc: 'Used when no per-workload override is set',
+    
+    
     modelRouting: 'Model routing',
     modelRoutingCoding: 'Coding',
     modelRoutingReasoning: 'Reasoning',
@@ -198,8 +199,8 @@ const en = {
       archivist_memory: 'Archivist — Memory Curation',
       council_chair: 'Model Council — Chair Synthesis',
       nudge_memory_gaps: 'Nudge — Memory Gaps',
-      nudge_idle: 'Nudge — Idle Reminder',
-    },
+      nudge_idle: 'Nudge — Idle Reminder'
+    }
   },
 
   dashboard: {
@@ -208,17 +209,17 @@ const en = {
     tools: 'Tools',
     agents: 'Agents',
     pending: 'Pending',
-    costHistory: 'Cost History',
-    systemOverview: 'System Overview',
-    modelTokenUsage: 'Model Token Usage',
-    costOverview: 'Cost Overview',
-    loading: 'Loading...',
+    
+    
+    
+    
+    
     failedToLoad: 'Failed to load dashboard data',
     retry: 'Retry',
     refresh: 'Refresh',
-    noCostData: 'No cost data available',
+    
     reflections: 'Subconscious Reflections',
-    preferences: 'Preferences',
+    preferences: 'Preferences'
   },
 
   monitor: {
@@ -233,7 +234,7 @@ const en = {
     output: 'Output',
     hide: 'Hide',
     exitCode: 'exit: {code}',
-    emptyHint: 'No monitor runs. Commands started by agents appear here.',
+    emptyHint: 'No monitor runs. Commands started by agents appear here.'
   },
 
   memory: {
@@ -255,12 +256,13 @@ const en = {
     noResults: 'No results found',
     config: 'Memory Configuration',
     weights: 'Retrieval Weights',
+    profile: 'Profile'
   },
 
   todo: {
     title: 'Task board',
     addPlaceholder: 'Add task...',
-    add: 'Add',
+    add: 'Add'
   },
 
   capabilities: {
@@ -285,19 +287,15 @@ const en = {
     concurrent: 'concurrent',
     hidden: 'hidden',
     background: 'bg',
-    maxIter: 'max {count} iter',
+    maxIter: 'max {count} iter'
   },
 
   errors: {
     somethingWrong: 'Something went wrong',
-    testConnectionOk: 'Connection OK',
-    testConnectionFailed: 'Connection failed',
-    test: 'Test',
-    tryAgain: 'Try again',
-    loadThreadsFailed: 'Failed to load threads',
-    createThreadFailed: 'Failed to create thread',
-    deleteThreadFailed: 'Failed to delete thread',
-    streamFailed: 'Stream failed',
+    
+    
+    
+    tryAgain: 'Try again'
   },
 
   companion: {
@@ -305,8 +303,8 @@ const en = {
     description: 'The desktop companion captures your screen, listens to your voice (STT), sends the context to the AI provider, and speaks the response (TTS).',
     activate: 'Activate Companion',
     activating: 'Activating...',
-    activated: 'Companion activated',
-    deactivate: 'Deactivate',
+    
+    
     startLoop: 'Start Loop',
     stopLoop: 'Stop Loop',
     stopped: 'Companion stopped',
@@ -322,13 +320,13 @@ const en = {
     reqMic: 'Microphone access for voice input',
     reqMacCliclick: 'macOS: cliclick (brew install cliclick) for mouse control',
     reqMacPerm: 'macOS: System Events permission in Accessibility settings',
-    reqLinux: 'Linux: xdotool (X11) or ydotool (Wayland)',
+    reqLinux: 'Linux: xdotool (X11) or ydotool (Wayland)'
   },
   voice: {
     title: 'Voice & Speech',
-    sttEngine: 'Speech-to-Text Engine',
-    ttsEngine: 'Text-to-Speech Engine',
-    enginesNote: 'Engines are configured in the desktop companion. System default engines are used unless Whisper (STT) or Piper (TTS) models are installed.',
+    
+    
+    
     sttSection: 'Speech-to-Text',
     ttsSection: 'Text-to-Speech',
     engine: 'Engine',
@@ -343,7 +341,7 @@ const en = {
     apiKeyHint: 'Independent from AI provider keys. Stored in config.toml [voice] section.',
     ttsSystem: 'System (OS native)',
     ttsPiper: 'Piper (local)',
-    ttsOpenAI: 'OpenAI (cloud API)',
+    ttsOpenAI: 'OpenAI (cloud API)'
   },
 
   keyring: {
@@ -357,17 +355,13 @@ const en = {
     consentBody: 'The OS keyring is not available. Store secrets locally?',
     consentAllow: 'Allow Local Storage',
     consentDecline: 'Decline',
-    retryProbe: 'Retry',
-    modeOsKeyring: 'OS Keyring',
-    modeLocalEncrypted: 'Local Encrypted',
-    modeConsentPending: 'Consent Pending',
-    modeDeclined: 'Declined',
+    retryProbe: 'Retry'
   },
 
   home: {
     welcome: 'Welcome to Mneme',
     tagline: 'Your AI assistant for managing conversations, tools, and memory.',
-    quickActions: 'Quick Actions',
+    
     newChat: 'New Chat',
     newChatDesc: 'Start a new conversation with an AI agent',
     searchMemory: 'Search Memory',
@@ -378,16 +372,14 @@ const en = {
     providerConnected: 'Provider',
     connected: 'Connected',
     notConnected: 'Not Connected',
-    toolsCount: 'Tools',
-    agentsCount: 'Agents',
-    dbStatus: 'Database',
-    healthy: 'Healthy',
-    unhealthy: 'Unhealthy',
+    
+    
+    dbStatus: 'Database'
   },
 
   webhooks: {
     title: 'Webhooks',
-    tunnels: 'Tunnels',
+    
     addTunnel: 'Add Tunnel',
     newTunnel: 'New Tunnel',
     target: 'Target',
@@ -400,20 +392,20 @@ const en = {
     helpText: 'Tunnels route incoming webhook requests to agents. Each tunnel has a unique UUID. External services POST to /webhook with the X-Tunnel-UUID header.',
     copy: 'Copy',
     copied: 'Copied!',
-    deleted: 'Tunnel removed.',
+    deleted: 'Tunnel removed.'
   },
 
   autonomy: {
     title: 'Autonomy',
     level: 'Autonomy Level',
-    readonly: 'Read Only',
-    supervised: 'Supervised',
-    full: 'Full Autonomy',
-    workspaceOnly: 'Workspace Only',
+    
+    
+    
+    workspaceOnly: 'Workspace Only'
   },
 
   soul: {
-    title: 'SOUL & Identity',
+    
     soulTitle: 'SOUL.md',
     soulDesc: 'Defines the agent\'s core identity, operating principles, and behavioral guidelines. This is injected into every agent prompt.',
     identityTitle: 'IDENTITY.md',
@@ -424,7 +416,7 @@ const en = {
     error: 'Error',
     tip: 'Tip',
     tipText: 'SOUL.md defines <em>who</em> the agent is. IDENTITY.md defines <em>what the agent knows about you</em>.',
-    tipChanges: 'Changes take effect on the next conversation turn — no restart needed.',
+    tipChanges: 'Changes take effect on the next conversation turn — no restart needed.'
   },
 
   diagnostics: {
@@ -432,11 +424,11 @@ const en = {
     totalTools: 'Total Tools',
     enabledTools: 'Enabled Tools',
     writeSurfaces: 'Write Surfaces',
-    recentDenials: 'Recent Denials',
+    recentDenials: 'Recent Denials'
   },
 
   channels: {
-    title: 'Channels',
+    
     configured: 'Configured Channels',
     available: 'Available Channel Types',
     noChannels: 'No channels configured. Add channel credentials in config to enable messaging integrations.',
@@ -444,7 +436,7 @@ const en = {
     under: 'under',
     extensionsNote: 'Extensions can register additional channel types via the Provider interface.',
     enabled: 'Enabled',
-    disabled: 'Disabled',
+    disabled: 'Disabled'
   },
 
   extensions: {
@@ -459,24 +451,10 @@ const en = {
     loaded: 'Loaded',
     notLoaded: 'Not loaded',
     formatHint: 'Each extension is a directory with a manifest.json and a binary (or script) that speaks JSON-RPC 2.0 over stdin/stdout.',
-    autoBuildHint: 'Extensions are discovered automatically from extensions/ at startup.',
+    autoBuildHint: 'Extensions are discovered automatically from extensions/ at startup.'
   },
 
-  composio: {
-    title: 'Composio',
-    description: 'OAuth-based integrations with third-party services (Gmail, Notion, Slack, GitHub, etc.).',
-    connected: 'Connected Services',
-    noConnections: 'No connected services. Connect one using the OAuth flow below.',
-    connectNew: 'Connect New Service',
-    app: 'App / Toolkit',
-    redirectURI: 'Redirect URI',
-    connectOAuth: 'Connect with OAuth',
-    opening: 'Opening...',
-    availableToolkits: 'Available Toolkits',
-    noToolkits: 'No toolkits available. Ensure the composio extension is loaded and configured.',
-    disconnect: 'Disconnect',
-    selectService: 'Select a service...',
-  },
+  
 
   notifications: {
     title: 'Notifications',
@@ -485,7 +463,7 @@ const en = {
     empty: 'No notifications yet',
     noUnread: 'No unread notifications',
     markAllRead: 'Mark all read',
-    approvalRequest: 'Approval Request',
+    approvalRequest: 'Approval Request'
   },
 
   onboarding: {
@@ -493,9 +471,9 @@ const en = {
     welcomeDesc: 'Your AI assistant that can manage conversations, execute tools, search memory, and automate tasks — all from your desktop.',
     providersTitle: 'Connect AI Providers',
     providersDesc: 'Mneme works with OpenAI, Anthropic, and local models via Ollama. You can configure providers now or later in Settings.',
-    providerHint: 'Set environment variables OPENAI_API_KEY or ANTHROPIC_API_KEY, or add providers in Settings → Providers.',
+    
     providersConfigured: '{count} provider(s) configured',
-    configureLater: 'Configure Later in Settings',
+    
     workspaceTitle: 'Your Workspace',
     workspaceDesc: 'The agent works within your workspace directory. Files, conversations, and memory are stored here.',
     workspacePath: 'Workspace Directory',
@@ -539,7 +517,7 @@ const en = {
     skip: 'Skip',
     back: 'Back',
     next: 'Next',
-    getStarted: 'Get Started',
+    getStarted: 'Get Started'
   },
 
   walkthrough: {
@@ -551,22 +529,22 @@ const en = {
     steps: {
       chat: {
         title: 'Chat',
-        content: 'Start conversations with AI agents here. Ask questions, give tasks, or browse your threads.',
+        content: 'Start conversations with AI agents here. Ask questions, give tasks, or browse your threads.'
       },
       memory: {
         title: 'Memory',
-        content: 'Search and explore your AI\'s memory. View knowledge graphs, timelines, and entity associations.',
+        content: 'Search and explore your AI\'s memory. View knowledge graphs, timelines, and entity associations.'
       },
       capabilities: {
         title: 'Capabilities',
-        content: 'Browse all tools, agents, MCP servers, and extensions in one place. Install new MCP servers or manage extensions.',
+        content: 'Browse all tools, agents, MCP servers, and extensions in one place. Install new MCP servers or manage extensions.'
       },
       settings: {
         title: 'Settings',
-        content: 'Configure providers, autonomy levels, appearance, and more.',
-      },
-    },
-  },
+        content: 'Configure providers, autonomy levels, appearance, and more.'
+      }
+    }
+  }
 };
 
 export default en;

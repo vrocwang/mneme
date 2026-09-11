@@ -9,7 +9,7 @@ const ko = {
     skills: '스킬',
     dashboard: '대시보드',
     notifications: '알림',
-    settings: '설정',
+    settings: '설정'
   },
 
   sidebar: {
@@ -22,6 +22,7 @@ const ko = {
     closeSidebar: '사이드바 닫기',
     deleteThread: '스레드 삭제',
     count: '{count}개 스레드',
+    openSidebar: '사이드바 열기'
   },
 
   chat: {
@@ -30,9 +31,9 @@ const ko = {
     startConversation: '대화 시작',
     startHint: '메시지를 보내 시작하세요',
     placeholder: '메시지 보내기... (Enter로 전송, Shift+Enter로 줄바꿈)',
-    thinking: '생각 중...',
-    send: '보내기',
-    error: '오류',
+    
+    
+    
     you: '나',
     assistant: 'Mneme',
     toolResult: '도구 결과',
@@ -42,8 +43,7 @@ const ko = {
     thinkingShow: 'Show thinking',
     thinkingHide: 'Hide thinking',
     delete: '삭제',
-    messages: '{count}개 메시지',
-    emptyState: '아직 메시지가 없습니다. 대화를 시작하세요!',
+    messages: '{count}개 메시지'
   },
 
   approval: {
@@ -52,18 +52,18 @@ const ko = {
     approveOnce: '한 번 승인',
     alwaysAllow: '항상 허용',
     deny: '거부',
-    recorded: '결정 기록됨',
-    approvedOnce: '한 번 승인됨',
-    permanentlyAllowed: '도구 영구 허용',
-    denied: '거부됨',
-    pending: '대기 중',
+    
+    
+    
+    
+    pending: '대기 중'
   },
 
   settings: {
     title: '설정',
     general: '일반',
     providers: '제공자',
-    credentials: '자격 증명',
+    
     approvals: '승인',
     theme: '테마',
     config: '구성',
@@ -71,12 +71,12 @@ const ko = {
     about: '정보',
     systemHealth: '시스템 상태',
     cronJobs: 'Cron 작업',
-    enabled: '활성화됨',
-    disabled: '비활성화됨',
-    noCredentials: '저장된 자격 증명이 없습니다.',
-    noCredentialsHint: 'Add a provider to store its API key as a credential.',
+    
+    
+    
+    
     noAllowlist: '영구적으로 허용된 도구가 없습니다.',
-    providerHint: '환경 변수로 제공자 구성:',
+    
     version: '버전',
     toolsRegistered: '등록된 도구',
     agentsAvailable: '사용 가능한 에이전트',
@@ -86,10 +86,10 @@ const ko = {
     soul: 'SOUL & Identity',
     channels: 'Channels',
     extensions: 'Extensions',
-    composio: 'Composio',
-    webhooks: 'Webhooks',
-    data: 'Data Directory',
-    voice: 'Voice & Speech',
+    
+    
+    
+    
     darkLabel: '어두운 테마',
     darkDesc: '어두운 환경에서 눈이 편안합니다',
     lightLabel: '밝은 테마',
@@ -140,8 +140,8 @@ const ko = {
     modelRoutingSummary: '요약',
     modelRoutingVision: '비전',
     useDefault: '기본값',
-    defaultModel: '기본 모델',
-    defaultModelDesc: '워크로드별 재정의가 없을 때 사용됨',
+    
+    
     noProviders: '구성된 제공자가 없습니다.',
     noProvidersHint: '시작하려면 제공자를 추가하거나 환경 변수로 API 키를 설정하세요.',
     edit: '편집',
@@ -187,8 +187,8 @@ const ko = {
       archivist_memory: '기록관 — 메모리 큐레이션',
       council_chair: '모델 협의회 — 의장 종합',
       nudge_memory_gaps: '넛지 — 메모리 공백',
-      nudge_idle: '넛지 — 유휴 알림',
-    },
+      nudge_idle: '넛지 — 유휴 알림'
+    }
   },
 
   dashboard: {
@@ -197,17 +197,17 @@ const ko = {
     tools: '도구',
     agents: '에이전트',
     pending: '대기 중',
-    costHistory: '비용 기록',
-    systemOverview: '시스템 개요',
-    modelTokenUsage: '모델 토큰 사용량',
-    costOverview: '비용 개요',
-    loading: '로딩 중...',
+    
+    
+    
+    
+    
     failedToLoad: '대시보드 데이터 로드 실패',
     retry: '재시도',
     refresh: '새로고침',
-    noCostData: '비용 데이터 없음',
+    
     reflections: '잠재의식 성찰',
-    preferences: 'Preferences',
+    preferences: 'Preferences'
   },
 
   memory: {
@@ -227,12 +227,13 @@ const ko = {
     filterGraphDesc: 'Knowledge graph search',
     resultsFor: 'Results for',
     noResults: 'No results found',
+    profile: '프로필'
   },
 
   todo: {
     title: '작업 보드',
     addPlaceholder: '작업 추가...',
-    add: '추가',
+    add: '추가'
   },
 
   tools: {
@@ -284,32 +285,28 @@ const ko = {
     toolName: 'Tool name',
     offline: 'offline',
     loadFailed: 'Failed to load',
-    installedConnected: 'Installed & connected',
+    installedConnected: 'Installed & connected'
   },
 
   errors: {
     somethingWrong: '문제가 발생했습니다',
-    testConnectionOk: 'Connection OK',
-    testConnectionFailed: 'Connection failed',
-    test: 'Test',
-    tryAgain: '다시 시도',
-    loadThreadsFailed: '스레드 로드 실패',
-    createThreadFailed: '스레드 생성 실패',
-    deleteThreadFailed: '스레드 삭제 실패',
-    streamFailed: '스트림 실패',
+    
+    
+    
+    tryAgain: '다시 시도'
   },
   keyring: {
     title: 'Keyring',
     consentTitle: 'Storage Consent',
     consentBody: 'The OS keyring is not available. Store secrets locally?',
     consentAllow: 'Allow',
-    consentDecline: 'Decline',
+    consentDecline: 'Decline'
   },
 
   home: {
     welcome: 'Welcome to Mneme',
     tagline: 'Your AI assistant for managing conversations, tools, and memory.',
-    quickActions: 'Quick Actions',
+    
     newChat: 'New Chat',
     newChatDesc: 'Start a new conversation with an AI agent',
     searchMemory: 'Search Memory',
@@ -320,11 +317,9 @@ const ko = {
     providerConnected: 'Provider',
     connected: 'Connected',
     notConnected: 'Not Connected',
-    toolsCount: 'Tools',
-    agentsCount: 'Agents',
-    dbStatus: 'Database',
-    healthy: 'Healthy',
-    unhealthy: 'Unhealthy',
+    
+    
+    dbStatus: 'Database'
   },
 
   skills: {
@@ -341,29 +336,25 @@ const ko = {
     error: 'Error',
     enable: 'Enable',
     disable: 'Disable',
-    uninstall: 'Uninstall',
+    uninstall: 'Uninstall'
   },
 
   extensions: {
     title: 'Extensions',
     install: 'Install',
-    uninstall: 'Uninstall',
+    uninstall: 'Uninstall'
   },
 
   webhooks: {
-    title: 'Webhooks',
-    tunnels: 'Tunnels',
+    title: 'Webhooks'
   },
 
   autonomy: {
-    title: 'Autonomy',
-    readonly: 'Read Only',
-    supervised: 'Supervised',
-    full: 'Full',
+    title: 'Autonomy'
   },
 
   soul: {
-    title: 'SOUL & Identity',
+    
     soulTitle: 'SOUL.md',
     soulDesc: 'Defines the agent core identity.',
     identityTitle: 'IDENTITY.md',
@@ -371,11 +362,11 @@ const ko = {
     save: 'Save', saving: 'Saving…', saved: 'Saved', error: 'Error',
     tip: 'Tip',
     tipText: 'SOUL.md defines who the agent is. IDENTITY.md defines what the agent knows about you.',
-    tipChanges: 'Changes take effect on the next conversation turn.',
+    tipChanges: 'Changes take effect on the next conversation turn.'
   },
 
   diagnostics: {
-    title: 'Diagnostics',
+    title: 'Diagnostics'
   },
 
   notifications: {
@@ -383,14 +374,14 @@ const ko = {
     all: 'All',
     unread: 'Unread',
     empty: 'No notifications yet',
-    approvalRequest: 'Approval Request',
+    approvalRequest: 'Approval Request'
   },
   onboarding: {
     welcomeTitle: 'Welcome to Mneme',
     welcomeDesc: 'Your AI assistant that can manage conversations, execute tools, search memory, and automate tasks — all from your desktop.',
     providersTitle: 'Connect AI Providers',
     providersDesc: 'Mneme works with OpenAI, Anthropic, and local models via Ollama.',
-    providerHint: 'Set OPENAI_API_KEY or ANTHROPIC_API_KEY env vars, or add providers in Settings.',
+    
     workspaceTitle: 'Your Workspace',
     workspaceDesc: 'The agent works within your workspace directory.',
     readyTitle: "You're All Set!",
@@ -398,7 +389,7 @@ const ko = {
     skip: 'Skip',
     back: 'Back',
     next: 'Next',
-    getStarted: 'Get Started',
+    getStarted: 'Get Started'
   },
   walkthrough: {
     step: 'Step {current} of {total}',
@@ -409,22 +400,22 @@ const ko = {
     steps: {
       chat: {
         title: 'Chat',
-        content: 'Start conversations with AI agents here. Ask questions, give tasks, or browse your threads.',
+        content: 'Start conversations with AI agents here. Ask questions, give tasks, or browse your threads.'
       },
       memory: {
         title: 'Memory',
-        content: "Search and explore your AI's memory. View knowledge graphs, timelines, and entity associations.",
+        content: "Search and explore your AI's memory. View knowledge graphs, timelines, and entity associations."
       },
       tools: {
         title: 'Tools & Agents',
-        content: 'Manage tools, MCP servers, and agent configurations. Install extensions to add new capabilities.',
+        content: 'Manage tools, MCP servers, and agent configurations. Install extensions to add new capabilities.'
       },
       settings: {
         title: 'Settings',
-        content: 'Configure providers, autonomy levels, appearance, and more.',
-      },
-    },
-  },
+        content: 'Configure providers, autonomy levels, appearance, and more.'
+      }
+    }
+  }
 };
 
 export default ko;

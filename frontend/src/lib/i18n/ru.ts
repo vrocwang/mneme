@@ -9,7 +9,7 @@ const ru = {
     skills: 'Навыки',
     dashboard: 'Панель',
     notifications: 'Уведомления',
-    settings: 'Настройки',
+    settings: 'Настройки'
   },
 
   sidebar: {
@@ -22,6 +22,7 @@ const ru = {
     closeSidebar: 'Закрыть панель',
     deleteThread: 'Удалить тред',
     count: '{count} тредов',
+    openSidebar: 'Открыть боковую панель'
   },
 
   chat: {
@@ -30,9 +31,9 @@ const ru = {
     startConversation: 'Начать разговор',
     startHint: 'Отправьте сообщение, чтобы начать',
     placeholder: 'Отправить сообщение... (Enter — отправить, Shift+Enter — новая строка)',
-    thinking: 'Думаю...',
-    send: 'Отправить',
-    error: 'Ошибка',
+    
+    
+    
     you: 'Вы',
     assistant: 'Mneme',
     toolResult: 'Результат инструмента',
@@ -42,8 +43,7 @@ const ru = {
     thinkingShow: 'Show thinking',
     thinkingHide: 'Hide thinking',
     delete: 'Удалить',
-    messages: '{count} сообщений',
-    emptyState: 'Пока нет сообщений. Начните разговор!',
+    messages: '{count} сообщений'
   },
 
   approval: {
@@ -52,18 +52,18 @@ const ru = {
     approveOnce: 'Одобрить один раз',
     alwaysAllow: 'Всегда разрешать',
     deny: 'Отказать',
-    recorded: 'Решение записано',
-    approvedOnce: 'Одобрено один раз',
-    permanentlyAllowed: 'Инструмент разрешён постоянно',
-    denied: 'Отказано',
-    pending: 'ожидает',
+    
+    
+    
+    
+    pending: 'ожидает'
   },
 
   settings: {
     title: 'Настройки',
     general: 'Общие',
     providers: 'Провайдеры',
-    credentials: 'Учётные данные',
+    
     approvals: 'Одобрения',
     theme: 'Тема',
     config: 'Конфигурация',
@@ -71,12 +71,12 @@ const ru = {
     about: 'О программе',
     systemHealth: 'Состояние системы',
     cronJobs: 'Задачи Cron',
-    enabled: 'Включено',
-    disabled: 'Отключено',
-    noCredentials: 'Нет сохранённых учётных данных.',
-    noCredentialsHint: 'Add a provider to store its API key as a credential.',
+    
+    
+    
+    
     noAllowlist: 'Нет постоянно разрешённых инструментов.',
-    providerHint: 'Настройка провайдеров через переменные окружения:',
+    
     version: 'Версия',
     toolsRegistered: 'Зарегистрировано инструментов',
     agentsAvailable: 'Доступно агентов',
@@ -86,10 +86,10 @@ const ru = {
     soul: 'SOUL & Identity',
     channels: 'Channels',
     extensions: 'Extensions',
-    composio: 'Composio',
-    webhooks: 'Webhooks',
-    data: 'Data Directory',
-    voice: 'Voice & Speech',
+    
+    
+    
+    
     darkLabel: 'Тёмная',
     darkDesc: 'Мягче для глаз при слабом освещении',
     lightLabel: 'Светлая',
@@ -140,8 +140,8 @@ const ru = {
     modelRoutingSummary: 'Сводка',
     modelRoutingVision: 'Видение',
     useDefault: 'по умолчанию',
-    defaultModel: 'Модель по умолчанию',
-    defaultModelDesc: 'Используется, когда не задано переопределение для нагрузки',
+    
+    
     noProviders: 'Нет настроенных провайдеров.',
     noProvidersHint: 'Добавьте провайдера или задайте ключи API через переменные окружения.',
     edit: 'Изменить',
@@ -187,8 +187,8 @@ const ru = {
       archivist_memory: 'Архивариус — Курация памяти',
       council_chair: 'Совет моделей — Синтез председателя',
       nudge_memory_gaps: 'Толчок — Пробелы в памяти',
-      nudge_idle: 'Толчок — Напоминание о бездействии',
-    },
+      nudge_idle: 'Толчок — Напоминание о бездействии'
+    }
   },
 
   dashboard: {
@@ -197,17 +197,17 @@ const ru = {
     tools: 'Инструменты',
     agents: 'Агенты',
     pending: 'Ожидает',
-    costHistory: 'История расходов',
-    systemOverview: 'Обзор системы',
-    modelTokenUsage: 'Использование токенов модели',
-    costOverview: 'Обзор расходов',
-    loading: 'Загрузка...',
+    
+    
+    
+    
+    
     failedToLoad: 'Не удалось загрузить данные панели',
     retry: 'Повторить',
     refresh: 'Обновить',
-    noCostData: 'Нет данных о расходах',
+    
     reflections: 'Подсознательные размышления',
-    preferences: 'Preferences',
+    preferences: 'Preferences'
   },
 
   memory: {
@@ -227,12 +227,13 @@ const ru = {
     filterGraphDesc: 'Knowledge graph search',
     resultsFor: 'Results for',
     noResults: 'No results found',
+    profile: 'Профиль'
   },
 
   todo: {
     title: 'Доска задач',
     addPlaceholder: 'Добавить задачу...',
-    add: 'Добавить',
+    add: 'Добавить'
   },
 
   tools: {
@@ -284,32 +285,28 @@ const ru = {
     toolName: 'Tool name',
     offline: 'offline',
     loadFailed: 'Failed to load',
-    installedConnected: 'Installed & connected',
+    installedConnected: 'Installed & connected'
   },
 
   errors: {
     somethingWrong: 'Что-то пошло не так',
-    testConnectionOk: 'Connection OK',
-    testConnectionFailed: 'Connection failed',
-    test: 'Test',
-    tryAgain: 'Попробовать снова',
-    loadThreadsFailed: 'Не удалось загрузить треды',
-    createThreadFailed: 'Не удалось создать тред',
-    deleteThreadFailed: 'Не удалось удалить тред',
-    streamFailed: 'Сбой потока',
+    
+    
+    
+    tryAgain: 'Попробовать снова'
   },
   keyring: {
     title: 'Keyring',
     consentTitle: 'Storage Consent',
     consentBody: 'The OS keyring is not available. Store secrets locally?',
     consentAllow: 'Allow',
-    consentDecline: 'Decline',
+    consentDecline: 'Decline'
   },
 
   home: {
     welcome: 'Добро пожаловать в Mneme',
     tagline: 'Ваш ИИ-ассистент для управления разговорами, инструментами и памятью.',
-    quickActions: 'Быстрые действия',
+    
     newChat: 'Новый чат',
     newChatDesc: 'Начать новый разговор с ИИ-агентом',
     searchMemory: 'Поиск в памяти',
@@ -320,11 +317,9 @@ const ru = {
     providerConnected: 'Провайдер',
     connected: 'Подключен',
     notConnected: 'Не подключен',
-    toolsCount: 'Инструменты',
-    agentsCount: 'Агенты',
-    dbStatus: 'База данных',
-    healthy: 'Здорова',
-    unhealthy: 'Ошибка',
+    
+    
+    dbStatus: 'База данных'
   },
 
   skills: {
@@ -341,29 +336,25 @@ const ru = {
     error: 'Ошибка',
     enable: 'Включить',
     disable: 'Отключить',
-    uninstall: 'Удалить',
+    uninstall: 'Удалить'
   },
 
   extensions: {
     title: 'Extensions',
     install: 'Install',
-    uninstall: 'Uninstall',
+    uninstall: 'Uninstall'
   },
 
   webhooks: {
-    title: 'Webhooks',
-    tunnels: 'Tunnels',
+    title: 'Webhooks'
   },
 
   autonomy: {
-    title: 'Autonomy',
-    readonly: 'Read Only',
-    supervised: 'Supervised',
-    full: 'Full',
+    title: 'Autonomy'
   },
 
   soul: {
-    title: 'SOUL & Identity',
+    
     soulTitle: 'SOUL.md',
     soulDesc: 'Defines the agent core identity.',
     identityTitle: 'IDENTITY.md',
@@ -371,11 +362,11 @@ const ru = {
     save: 'Save', saving: 'Saving…', saved: 'Saved', error: 'Error',
     tip: 'Tip',
     tipText: 'SOUL.md defines who the agent is. IDENTITY.md defines what the agent knows about you.',
-    tipChanges: 'Changes take effect on the next conversation turn.',
+    tipChanges: 'Changes take effect on the next conversation turn.'
   },
 
   diagnostics: {
-    title: 'Diagnostics',
+    title: 'Diagnostics'
   },
 
   notifications: {
@@ -383,14 +374,14 @@ const ru = {
     all: 'All',
     unread: 'Unread',
     empty: 'No notifications yet',
-    approvalRequest: 'Approval Request',
+    approvalRequest: 'Approval Request'
   },
   onboarding: {
     welcomeTitle: 'Welcome to Mneme',
     welcomeDesc: 'Your AI assistant that can manage conversations, execute tools, search memory, and automate tasks — all from your desktop.',
     providersTitle: 'Connect AI Providers',
     providersDesc: 'Mneme works with OpenAI, Anthropic, and local models via Ollama.',
-    providerHint: 'Set OPENAI_API_KEY or ANTHROPIC_API_KEY env vars, or add providers in Settings.',
+    
     workspaceTitle: 'Your Workspace',
     workspaceDesc: 'The agent works within your workspace directory.',
     readyTitle: "You're All Set!",
@@ -398,7 +389,7 @@ const ru = {
     skip: 'Skip',
     back: 'Back',
     next: 'Next',
-    getStarted: 'Get Started',
+    getStarted: 'Get Started'
   },
   walkthrough: {
     step: 'Step {current} of {total}',
@@ -409,22 +400,22 @@ const ru = {
     steps: {
       chat: {
         title: 'Chat',
-        content: 'Start conversations with AI agents here. Ask questions, give tasks, or browse your threads.',
+        content: 'Start conversations with AI agents here. Ask questions, give tasks, or browse your threads.'
       },
       memory: {
         title: 'Memory',
-        content: "Search and explore your AI's memory. View knowledge graphs, timelines, and entity associations.",
+        content: "Search and explore your AI's memory. View knowledge graphs, timelines, and entity associations."
       },
       tools: {
         title: 'Tools & Agents',
-        content: 'Manage tools, MCP servers, and agent configurations. Install extensions to add new capabilities.',
+        content: 'Manage tools, MCP servers, and agent configurations. Install extensions to add new capabilities.'
       },
       settings: {
         title: 'Settings',
-        content: 'Configure providers, autonomy levels, appearance, and more.',
-      },
-    },
-  },
+        content: 'Configure providers, autonomy levels, appearance, and more.'
+      }
+    }
+  }
 };
 
 export default ru;

@@ -9,7 +9,7 @@ const pt = {
     skills: 'Habilidades',
     dashboard: 'Painel',
     notifications: 'Notificações',
-    settings: 'Configurações',
+    settings: 'Configurações'
   },
 
   sidebar: {
@@ -22,6 +22,7 @@ const pt = {
     closeSidebar: 'Fechar barra',
     deleteThread: 'Excluir tópico',
     count: '{count} tópicos',
+    openSidebar: 'Abrir barra lateral'
   },
 
   chat: {
@@ -30,9 +31,9 @@ const pt = {
     startConversation: 'Iniciar conversa',
     startHint: 'Envie uma mensagem para começar',
     placeholder: 'Enviar mensagem... (Enter para enviar, Shift+Enter para nova linha)',
-    thinking: 'Pensando...',
-    send: 'Enviar',
-    error: 'Erro',
+    
+    
+    
     you: 'Você',
     assistant: 'Mneme',
     toolResult: 'Resultado da ferramenta',
@@ -42,8 +43,7 @@ const pt = {
     thinkingShow: 'Show thinking',
     thinkingHide: 'Hide thinking',
     delete: 'Excluir',
-    messages: '{count} mensagens',
-    emptyState: 'Nenhuma mensagem ainda. Comece uma conversa!',
+    messages: '{count} mensagens'
   },
 
   approval: {
@@ -52,18 +52,18 @@ const pt = {
     approveOnce: 'Aprovar uma vez',
     alwaysAllow: 'Permitir sempre',
     deny: 'Negar',
-    recorded: 'Decisão registrada',
-    approvedOnce: 'Aprovado uma vez',
-    permanentlyAllowed: 'Ferramenta permitida permanentemente',
-    denied: 'Negado',
-    pending: 'pendente',
+    
+    
+    
+    
+    pending: 'pendente'
   },
 
   settings: {
     title: 'Configurações',
     general: 'Geral',
     providers: 'Provedores',
-    credentials: 'Credenciais',
+    
     approvals: 'Aprovações',
     theme: 'Tema',
     config: 'Configuração',
@@ -71,12 +71,12 @@ const pt = {
     about: 'Sobre',
     systemHealth: 'Saúde do sistema',
     cronJobs: 'Tarefas Cron',
-    enabled: 'Ativado',
-    disabled: 'Desativado',
-    noCredentials: 'Nenhuma credencial armazenada.',
-    noCredentialsHint: 'Add a provider to store its API key as a credential.',
+    
+    
+    
+    
     noAllowlist: 'Nenhuma ferramenta permanentemente permitida.',
-    providerHint: 'Configurar provedores via variáveis de ambiente:',
+    
     version: 'Versão',
     toolsRegistered: 'Ferramentas registradas',
     agentsAvailable: 'Agentes disponíveis',
@@ -86,10 +86,10 @@ const pt = {
     soul: 'SOUL & Identity',
     channels: 'Channels',
     extensions: 'Extensions',
-    composio: 'Composio',
-    webhooks: 'Webhooks',
-    data: 'Data Directory',
-    voice: 'Voice & Speech',
+    
+    
+    
+    
     darkLabel: 'Escuro',
     darkDesc: 'Mais suave para os olhos em baixa luminosidade',
     lightLabel: 'Claro',
@@ -140,8 +140,8 @@ const pt = {
     modelRoutingSummary: 'Resumo',
     modelRoutingVision: 'Visão',
     useDefault: 'padrão',
-    defaultModel: 'Modelo padrão',
-    defaultModelDesc: 'Usado quando nenhuma substituição por carga de trabalho está definida',
+    
+    
     noProviders: 'Nenhum provedor configurado.',
     noProvidersHint: 'Adicione um para começar, ou defina chaves API via variáveis de ambiente.',
     edit: 'Editar',
@@ -187,8 +187,8 @@ const pt = {
       archivist_memory: 'Arquivista — Curadoria de memória',
       council_chair: 'Conselho de modelos — Síntese do presidente',
       nudge_memory_gaps: 'Estímulo — Lacunas de memória',
-      nudge_idle: 'Estímulo — Lembrete de inatividade',
-    },
+      nudge_idle: 'Estímulo — Lembrete de inatividade'
+    }
   },
 
   dashboard: {
@@ -197,17 +197,17 @@ const pt = {
     tools: 'Ferramentas',
     agents: 'Agentes',
     pending: 'Pendente',
-    costHistory: 'Histórico de custos',
-    systemOverview: 'Visão geral do sistema',
-    modelTokenUsage: 'Uso de tokens por modelo',
-    costOverview: 'Visão geral de custos',
-    loading: 'Carregando...',
+    
+    
+    
+    
+    
     failedToLoad: 'Falha ao carregar dados do painel',
     retry: 'Tentar novamente',
     refresh: 'Atualizar',
-    noCostData: 'Nenhum dado de custo disponível',
+    
     reflections: 'Reflexões subconscientes',
-    preferences: 'Preferences',
+    preferences: 'Preferences'
   },
 
   memory: {
@@ -227,12 +227,13 @@ const pt = {
     filterGraphDesc: 'Knowledge graph search',
     resultsFor: 'Results for',
     noResults: 'No results found',
+    profile: 'Perfil'
   },
 
   todo: {
     title: 'Quadro de tarefas',
     addPlaceholder: 'Adicionar tarefa...',
-    add: 'Adicionar',
+    add: 'Adicionar'
   },
 
   tools: {
@@ -284,32 +285,28 @@ const pt = {
     toolName: 'Tool name',
     offline: 'offline',
     loadFailed: 'Failed to load',
-    installedConnected: 'Installed & connected',
+    installedConnected: 'Installed & connected'
   },
 
   errors: {
     somethingWrong: 'Algo deu errado',
-    testConnectionOk: 'Connection OK',
-    testConnectionFailed: 'Connection failed',
-    test: 'Test',
-    tryAgain: 'Tentar novamente',
-    loadThreadsFailed: 'Falha ao carregar tópicos',
-    createThreadFailed: 'Falha ao criar tópico',
-    deleteThreadFailed: 'Falha ao excluir tópico',
-    streamFailed: 'Falha no stream',
+    
+    
+    
+    tryAgain: 'Tentar novamente'
   },
   keyring: {
     title: 'Keyring',
     consentTitle: 'Storage Consent',
     consentBody: 'The OS keyring is not available. Store secrets locally?',
     consentAllow: 'Allow',
-    consentDecline: 'Decline',
+    consentDecline: 'Decline'
   },
 
   home: {
     welcome: 'Bem-vindo ao Mneme',
     tagline: 'Seu assistente IA para gerenciar conversas, ferramentas e memória.',
-    quickActions: 'Ações rápidas',
+    
     newChat: 'Novo chat',
     newChatDesc: 'Inicie uma nova conversa com um agente IA',
     searchMemory: 'Buscar na memória',
@@ -320,11 +317,9 @@ const pt = {
     providerConnected: 'Provedor',
     connected: 'Conectado',
     notConnected: 'Não conectado',
-    toolsCount: 'Ferramentas',
-    agentsCount: 'Agentes',
-    dbStatus: 'Banco de dados',
-    healthy: 'Saudável',
-    unhealthy: 'Não saudável',
+    
+    
+    dbStatus: 'Banco de dados'
   },
 
   skills: {
@@ -341,29 +336,25 @@ const pt = {
     error: 'Erro',
     enable: 'Ativar',
     disable: 'Desativar',
-    uninstall: 'Desinstalar',
+    uninstall: 'Desinstalar'
   },
 
   extensions: {
     title: 'Extensions',
     install: 'Install',
-    uninstall: 'Uninstall',
+    uninstall: 'Uninstall'
   },
 
   webhooks: {
-    title: 'Webhooks',
-    tunnels: 'Tunnels',
+    title: 'Webhooks'
   },
 
   autonomy: {
-    title: 'Autonomy',
-    readonly: 'Read Only',
-    supervised: 'Supervised',
-    full: 'Full',
+    title: 'Autonomy'
   },
 
   soul: {
-    title: 'SOUL & Identity',
+    
     soulTitle: 'SOUL.md',
     soulDesc: 'Defines the agent core identity.',
     identityTitle: 'IDENTITY.md',
@@ -371,11 +362,11 @@ const pt = {
     save: 'Save', saving: 'Saving…', saved: 'Saved', error: 'Error',
     tip: 'Tip',
     tipText: 'SOUL.md defines who the agent is. IDENTITY.md defines what the agent knows about you.',
-    tipChanges: 'Changes take effect on the next conversation turn.',
+    tipChanges: 'Changes take effect on the next conversation turn.'
   },
 
   diagnostics: {
-    title: 'Diagnostics',
+    title: 'Diagnostics'
   },
 
   notifications: {
@@ -383,14 +374,14 @@ const pt = {
     all: 'All',
     unread: 'Unread',
     empty: 'No notifications yet',
-    approvalRequest: 'Approval Request',
+    approvalRequest: 'Approval Request'
   },
   onboarding: {
     welcomeTitle: 'Welcome to Mneme',
     welcomeDesc: 'Your AI assistant that can manage conversations, execute tools, search memory, and automate tasks — all from your desktop.',
     providersTitle: 'Connect AI Providers',
     providersDesc: 'Mneme works with OpenAI, Anthropic, and local models via Ollama.',
-    providerHint: 'Set OPENAI_API_KEY or ANTHROPIC_API_KEY env vars, or add providers in Settings.',
+    
     workspaceTitle: 'Your Workspace',
     workspaceDesc: 'The agent works within your workspace directory.',
     readyTitle: "You're All Set!",
@@ -398,7 +389,7 @@ const pt = {
     skip: 'Skip',
     back: 'Back',
     next: 'Next',
-    getStarted: 'Get Started',
+    getStarted: 'Get Started'
   },
   walkthrough: {
     step: 'Step {current} of {total}',
@@ -409,22 +400,22 @@ const pt = {
     steps: {
       chat: {
         title: 'Chat',
-        content: 'Start conversations with AI agents here. Ask questions, give tasks, or browse your threads.',
+        content: 'Start conversations with AI agents here. Ask questions, give tasks, or browse your threads.'
       },
       memory: {
         title: 'Memory',
-        content: "Search and explore your AI's memory. View knowledge graphs, timelines, and entity associations.",
+        content: "Search and explore your AI's memory. View knowledge graphs, timelines, and entity associations."
       },
       tools: {
         title: 'Tools & Agents',
-        content: 'Manage tools, MCP servers, and agent configurations. Install extensions to add new capabilities.',
+        content: 'Manage tools, MCP servers, and agent configurations. Install extensions to add new capabilities.'
       },
       settings: {
         title: 'Settings',
-        content: 'Configure providers, autonomy levels, appearance, and more.',
-      },
-    },
-  },
+        content: 'Configure providers, autonomy levels, appearance, and more.'
+      }
+    }
+  }
 };
 
 export default pt;
