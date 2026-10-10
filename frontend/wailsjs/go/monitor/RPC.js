@@ -21,7 +21,3 @@ export function StartRun(arg1) {
 export function StopRun(arg1) {
   return window['go']['monitor']['RPC']['StopRun'](arg1);
 }
-
-export function WithDB(arg1) {
-  return window['go']['monitor']['RPC']['WithDB'](arg1);
-}

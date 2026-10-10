@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import * as api from '../../services/wails';
 import { useT } from '../../lib/i18n/I18nContext';
 
@@ -8,16 +8,52 @@ export function ChannelSettings() {
   const [available, setAvailable] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // Channel name with a mutation in flight (enable/disable/add).
+  const [busy, setBusy] = useState('');
+
+  const refresh = useCallback(async () => {
+    const r = await api.listChannels();
+    if (r?.ok) {
+      setChannels(r.channels || []);
+      setAvailable(r.available || []);
+    }
+    return r;
+  }, []);
 
   useEffect(() => {
-    api.listChannels().then(r => {
-      if (r?.ok) {
-        setChannels(r.channels || []);
-        setAvailable(r.available || []);
+    refresh().catch(e => setError(String(e))).finally(() => setLoading(false));
+  }, [refresh]);
+
+  // Enable/disable a channel, then always reload: on failure the backend rolls
+  // back, so the reloaded list is the truth either way. Backend errors are
+  // surfaced instead of being swallowed.
+  const mutate = useCallback(async (name: string, enable: boolean) => {
+    setError('');
+    setBusy(name);
+    let failure = '';
+    try {
+      const r = enable ? await api.enableChannel(name) : await api.disableChannel(name);
+      if (r && r.ok === false) {
+        failure = r.error || `${enable ? t('channels.enable') : t('channels.disable')} ${name} failed`;
       }
-    }).catch(e => setError(String(e)))
-      .finally(() => setLoading(false));
-  }, []);
+    } catch (e) {
+      failure = String(e);
+    }
+    try {
+      await refresh();
+    } catch (e) {
+      if (!failure) failure = String(e);
+    }
+    setError(failure);
+    setBusy('');
+  }, [refresh, t]);
+
+  // Available types not configured yet — these can now be added at runtime.
+  const unconfigured = available.filter(name => !channels.some(ch => ch.name === name));
+
+  const statusText = (ch: api.ChannelInfo) => ch.enabled
+    ? `${t('channels.enabled')} · ${ch.running ? t('channels.running') : t('channels.notRunning')}`
+    : t('channels.disabled');
 
   return (
     <div className="max-w-2xl xl:max-w-3xl 2xl:max-w-4xl animate-fade-in space-y-6">
@@ -35,28 +71,22 @@ export function ChannelSettings() {
               <div key={ch.name} className="card bg-surface-elevated border border-surface-border rounded-lg px-4 py-3 flex items-center justify-between">
                 <div>
                   <div className="flex items-center gap-2">
+                    <span className={`w-1.5 h-1.5 rounded-full ${ch.running ? 'bg-sage-400' : 'bg-white/20'}`} />
                     <span className="text-sm font-medium text-white/80">{ch.name}</span>
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/5 text-white/40">{ch.type}</span>
                   </div>
-                  <p className="text-xs text-white/30 mt-0.5">{ch.enabled ? t('channels.enabled') : t('channels.disabled')}</p>
+                  <p className={`text-xs mt-0.5 ${ch.enabled && !ch.running ? 'text-coral-400/80' : 'text-white/30'}`}>
+                    {statusText(ch)}
+                  </p>
                 </div>
                 <button
-                  onClick={async () => {
-                    try {
-                      if (ch.enabled) {
-                        await api.disableChannel(ch.name);
-                      } else {
-                        await api.enableChannel(ch.name);
-                      }
-                      const r = await api.listChannels();
-                      if (r?.ok) { setChannels(r.channels || []); }
-                    } catch (e) { setError(String(e)); }
-                  }}
-                  className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                  onClick={() => mutate(ch.name, !ch.enabled)}
+                  disabled={busy === ch.name}
+                  className={`px-3 py-1 rounded text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                     ch.enabled ? 'bg-coral-500/20 text-coral-400 hover:bg-coral-500/30' : 'bg-sage-500/20 text-sage-400 hover:bg-sage-500/30'
                   }`}
                 >
-                  {ch.enabled ? 'Disable' : 'Enable'}
+                  {ch.enabled ? t('channels.disable') : t('channels.enable')}
                 </button>
               </div>
             ))}
@@ -64,14 +94,24 @@ export function ChannelSettings() {
         )}
       </section>
 
-      {available.length > 0 && (
+      {unconfigured.length > 0 && (
         <section>
           <h3 className="text-sm font-semibold text-white/80 mb-3">{t('channels.available')}</h3>
           <div className="flex flex-wrap gap-2">
-            {available.map(name => (
-              <span key={name} className="text-xs px-2.5 py-1 rounded-full bg-ocean-500/10 text-ocean-300/70 font-mono">{name}</span>
+            {unconfigured.map(name => (
+              <span key={name} className="inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-full bg-ocean-500/10 text-ocean-300/70 font-mono">
+                {name}
+                <button
+                  onClick={() => mutate(name, true)}
+                  disabled={busy === name}
+                  className="text-white/40 hover:text-white/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {busy === name ? '…' : t('channels.add')}
+                </button>
+              </span>
             ))}
           </div>
+          <p className="text-xs text-white/30 mt-2">{t('channels.addHint')}</p>
           <p className="text-xs text-white/30 mt-2">
             {t('channels.configHint')} <code className="text-white/50">config.toml</code> {t('channels.under')} <code className="text-white/50">[channels.&lt;name&gt;]</code>.
             {t('channels.extensionsNote')}
@@ -80,14 +120,14 @@ export function ChannelSettings() {
       )}
 
       <section className="card text-xs text-white/30 space-y-1.5">
-        <p><strong className="text-white/50">Configuration:</strong> Add a <code className="text-white/50">[channels.&lt;name&gt;]</code> block to your config.toml:</p>
+        <p><strong className="text-white/50">Configuration:</strong> Add a <code className="text-white/50">[channels.&lt;name&gt;]</code> block to your config.toml (<code className="text-white/50">disabled</code> is the off switch — there is no <code className="text-white/50">enabled</code> key):</p>
         <pre className="bg-surface border border-surface-border rounded p-2 text-[11px] text-white/50 font-mono overflow-x-auto">
 {`[channels.telegram]
-enabled = true
+disabled = false
 token = "YOUR_BOT_TOKEN"
 
 [channels.discord]
-enabled = true
+disabled = false
 token = "YOUR_BOT_TOKEN"`}
         </pre>
         <p>Channels are loaded at startup and relay messages to the agent via the ChatService.</p>

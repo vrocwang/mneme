@@ -10,16 +10,14 @@ package capability
 // Domain packages import capability already, and internal/bundle aliases these
 // constants, so neither has to repeat the literal.
 const (
-	SetWorkflows = "workflows"
-	SetMCP       = "mcp"
-	SetConfig    = "config"
-	SetTodos     = "todos"
-	SetFileState = "file-state"
-	SetSkills    = "skills"
-	SetThreads   = "threads"
-	SetMemory    = "memory"
-	SetGoals     = "goals"
-	SetDAG       = "dag"
-	SetCron      = "cron"
-	SetMonitor   = "monitor"
+	SetMCP     = "mcp"
+	SetConfig  = "config"
+	SetTodos   = "todos"
+	SetSkills  = "skills"
+	SetThreads = "threads"
+	SetMemory  = "memory"
+	SetGoals   = "goals"
+	SetDAG     = "dag"
+	SetCron    = "cron"
+	SetMonitor = "monitor"
 )

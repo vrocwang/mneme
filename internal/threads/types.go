@@ -17,6 +17,6 @@ type MessageRecord struct {
 	ThreadID  string            `json:"threadId"`
 	Role      string            `json:"role"`
 	Content   string            `json:"content"`
-	Metadata map[string]string `json:"metadata,omitempty"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
 	CreatedAt string            `json:"created_at"`
 }

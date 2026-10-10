@@ -17,12 +17,8 @@ import (
 	"github.com/simon/mneme/internal/bundle"
 	"github.com/simon/mneme/internal/capability"
 	"github.com/simon/mneme/internal/config"
-	"github.com/simon/mneme/internal/connectivity"
 	"github.com/simon/mneme/internal/cron"
 	"github.com/simon/mneme/internal/dag"
-	"github.com/simon/mneme/internal/devices"
-	"github.com/simon/mneme/internal/file_state"
-	"github.com/simon/mneme/internal/http_host"
 	"github.com/simon/mneme/internal/inference"
 	mcpregistry "github.com/simon/mneme/internal/mcp/registry"
 	mcpstore "github.com/simon/mneme/internal/mcp/store"
@@ -34,7 +30,6 @@ import (
 	"github.com/simon/mneme/internal/security"
 	"github.com/simon/mneme/internal/threads"
 	"github.com/simon/mneme/internal/tools"
-	"github.com/simon/mneme/internal/workflows"
 	ws "github.com/simon/mneme/internal/workspace"
 )
 
@@ -42,10 +37,6 @@ import (
 // wired statically (no runtime dependencies like DB connections or pipelines).
 // Tools needing runtime deps (threads, memory) are registered in app.go.
 func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, securityTier string, mcpServers []capability.ServerEntry, db *sql.DB, cfg *config.Config, mcpStore *mcpstore.Store, audit *security.AuditLogger, log *slog.Logger) {
-	// Register optional integration RPC bindings (Composio etc.) before
-	// the Wails Bind list is built. Each integration calls
-	// capability.RegisterWailsRPC to add its Wails-bound types.
-
 	// Register the first-layer bundles (builtin agents + core/network/
 	// productivity tools) before user-agent overrides and other capability
 	// sources. This is the no-privileged-core composition step.
@@ -69,10 +60,6 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 
 	capability.Bootstrap(reg, workspace, mcpServers, cfg.LoadExtensionConfig, log)
 
-	if br.IsEnabled(bundle.BundleWorkflows) {
-		workflows.RegisterAll(reg, workspace, log)
-	}
-
 	// Skill installation tool (agent-callable, from chat).
 	if br.IsEnabled(bundle.BundleSkills) {
 		capability.RegisterSetTools(reg, capability.SetSkills, "Skills",
@@ -80,8 +67,9 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 		)
 	}
 
-	// Workflow tools (WORKFLOW.md discovery/authoring + run execution) are
-	// registered together by workflows.RegisterAll above.
+	// Workflow tools (WORKFLOW.md authoring + run execution) are provided by
+	// the "workflows" extension; the core keeps only the read-only document
+	// layer (internal/workflow_doc) that feeds prompt guidance.
 
 	// Config introspection tools (read-only: snapshot, autonomy, data paths).
 	if br.IsEnabled(bundle.BundleConfig) {
@@ -142,15 +130,7 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 
 	// Doctor: provided by the "doctor" extension (tools/doctor_run).
 
-	// File state: snapshot and diff tools for workspace change tracking.
-	if br.IsEnabled(bundle.BundleFileState) {
-		file_state.RegisterTools(reg)
-	}
-
-	// Connectivity, devices, and http_host Wails RPCs are registered by
-	// RegisterWailsRPCs before wails.Run assembles its Bind list — they must
-	// not be registered here, because BootstrapAll runs during OnStartup, after
-	// the Bind list has already been evaluated.
+	// File-state snapshot/diff tools are provided by the "file-state" extension.
 
 	// DAG: lightweight multi-step automation engine.
 	if db != nil && br.IsEnabled(bundle.BundleDAG) {
@@ -163,17 +143,6 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 			log.Info("dag store initialised")
 		}
 	}
-}
-
-// RegisterWailsRPCs registers the Wails-bound RPC types contributed by core
-// optional features. It MUST be called before wails.Run assembles its Bind
-// list: Wails evaluates Bind once, before OnStartup, so any registrar added
-// during AppCore.Init would never be bound. Keeping the calls here (rather than
-// in main.go) keeps feature-package imports out of the composition root.
-func RegisterWailsRPCs(cfg *config.Config, log *slog.Logger) {
-	connectivity.Register()
-	devices.Register(log)
-	http_host.Register(log)
 }
 
 // ReconnectPersistedServers connects to all enabled MCP servers stored in the

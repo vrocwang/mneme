@@ -21,7 +21,7 @@ func Bootstrap(cfg *config.Config, tm *TunnelManager, triage *agent.TriagePipeli
 
 	port := cfg.Webhook.Port
 	if port <= 0 {
-		port = 9500
+		port = config.DefaultWebhookPort
 	}
 
 	// Fail closed: without a shared secret no webhook can be verified, so the

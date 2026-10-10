@@ -14,11 +14,10 @@ import (
 )
 
 const (
-	swMaxTurns       = 12
-	swHardMaxTurns   = 25
-	swMaxEvidence    = 30
-	swTemp           = 0.2
-	swMaxResultChars = 8000
+	swMaxTurns     = 12
+	swHardMaxTurns = 25
+	swMaxEvidence  = 30
+	swTemp         = 0.2
 )
 
 // SmartWalkTool implements iterative LLM-driven memory retrieval matching

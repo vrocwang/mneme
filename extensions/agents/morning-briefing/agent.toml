@@ -7,13 +7,13 @@ tier = "worker"
 # Run in background mode — no user interaction needed
 background = true
 
-# Trigger memory retrieval before generating briefing
-trigger_memory_agent = "always"
-
-# Restricted to read-only tools
+# Restricted to read-only tools.
+# briefing_generate is provided by the sibling extensions/morning-briefing
+# integration extension, which owns the briefing format this pack drives.
 tool_allowlist = [
+  "briefing_generate",
   "memory_search",
-  "memory_hybrid_search",
+  "memory_recall",
   "read_file",
   "list_dir",
   "todo_list",
@@ -21,9 +21,3 @@ tool_allowlist = [
 
 max_iterations = 8
 timeout_secs = 120
-
-# Subagent policy
-[subagent_policy]
-max_depth = 1
-allow_parallel = false
-require_approval = false

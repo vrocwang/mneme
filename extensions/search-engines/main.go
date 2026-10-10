@@ -1,7 +1,8 @@
 // Search Engines extension for Mneme.
 //
 // Provides additional search backends beyond the core web_search:
-//   - search_searxng: search via a self-hosted SearXNG instance
+// SearXNG is searched through the core web_search tool and through the
+// aggregating search_parallel tool below; it has no standalone tool here.
 //   - search_querit: search via Querit.ai semantic API
 //   - search_seltz: search via Seltz engine
 //   - search_parallel: search across multiple engines concurrently
@@ -31,22 +32,6 @@ func main() {
 		Version:     "0.1.0",
 		Description: "Additional search backends: SearXNG, Querit, Seltz, Parallel",
 	})
-
-	srv.RegisterTool(extsdk.ToolDef{
-		Name:        "search_searxng",
-		Description: "Search via a self-hosted SearXNG instance (privacy-respecting metasearch). Requires SEARXNG_URL env var.",
-		Parameters: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"query":      map[string]interface{}{"type": "string", "description": "Search query"},
-				"categories": map[string]interface{}{"type": "string", "description": "Comma-separated categories: general, news, images, videos, science, etc."},
-				"maxResults": map[string]interface{}{"type": "number", "description": "Max results (default 10)"},
-			},
-			"required": []string{"query"},
-		},
-		Permission: "read_only",
-		HasEffects: false,
-	}, searchSearXNG)
 
 	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "search_querit",

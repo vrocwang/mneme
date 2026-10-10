@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import * as api from '../../services/wails';
 import { useT } from '../../lib/i18n/I18nContext';
+import { FLASH_TIMEOUT_MS } from '../../lib/timing';
 import type {
   AgentLimitsConfig, SecurityCommandsConfig, ShellConfig,
   CircuitBreakerConfig, MemoryPipelineConfig, RetrievalWeightsConfig, CostConfig,
@@ -70,10 +71,16 @@ function FloatInput({ label, value, onChange, step }: {
   );
 }
 
-const DEFAULT_AGENT: AgentLimitsConfig = { max_tool_rounds: 10, default_tool_timeout: 120, max_history_messages: 100 };
+// These knobs were removed from the Go config because nothing implemented
+// them. The API types still declare them, so narrow the local shapes and cast
+// back at the two call sites below.
+type AgentLimits = Omit<AgentLimitsConfig, 'max_history_messages'>;
+type BreakerLimits = Omit<CircuitBreakerConfig, 'max_hard_rejects'>;
+
+const DEFAULT_AGENT: AgentLimits = { max_tool_rounds: 10, default_tool_timeout: 120 };
 const DEFAULT_SECURITY: SecurityCommandsConfig = { block_high_risk: true, require_medium_approval: false, extra_read_only: [], extra_network: [], extra_destructive: [], extra_install: [], extra_executors: [], extra_dangerous_env: [], extra_allowed_commands: [] };
 const DEFAULT_SHELL: ShellConfig = { max_output_bytes: 1048576, safe_env_vars: [] };
-const DEFAULT_BREAKER: CircuitBreakerConfig = { max_repeat_failures: 3, max_no_progress_fails: 6, max_hard_rejects: 2 };
+const DEFAULT_BREAKER: BreakerLimits = { max_repeat_failures: 3, max_no_progress_fails: 6 };
 const DEFAULT_PIPELINE: MemoryPipelineConfig = { worker_count: 2, tree_bucket_size: 10, archive_msg_limit: 200, freshness_half_life: 168 };
 // Must match config.DefaultRetrievalWeights() so the pre-load fallback
 // cannot silently re-rank memory before the backend values arrive.
@@ -83,10 +90,10 @@ const DEFAULT_COST: CostConfig = { budget_cents: 10000 };
 export function ConfigSettings() {
   const { t } = useT();
   const [section, setSection] = useState<Section>('agent');
-  const [agentLimits, setAgentLimits] = useState<AgentLimitsConfig>(DEFAULT_AGENT);
+  const [agentLimits, setAgentLimits] = useState<AgentLimits>(DEFAULT_AGENT);
   const [securityCmds, setSecurityCmds] = useState<SecurityCommandsConfig>(DEFAULT_SECURITY);
   const [shell, setShell] = useState<ShellConfig>(DEFAULT_SHELL);
-  const [breaker, setBreaker] = useState<CircuitBreakerConfig>(DEFAULT_BREAKER);
+  const [breaker, setBreaker] = useState<BreakerLimits>(DEFAULT_BREAKER);
   const [memPipeline, setMemPipeline] = useState<MemoryPipelineConfig>(DEFAULT_PIPELINE);
   const [retrievalWeights, setRetrievalWeights] = useState<RetrievalWeightsConfig>(DEFAULT_WEIGHTS);
   const [cost, setCost] = useState<CostConfig>(DEFAULT_COST);
@@ -94,7 +101,7 @@ export function ConfigSettings() {
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
 
-  const showMsg = (msg: string) => { setSaveMsg(msg); setTimeout(() => setSaveMsg(''), 3000); };
+  const showMsg = (msg: string) => { setSaveMsg(msg); setTimeout(() => setSaveMsg(''), FLASH_TIMEOUT_MS); };
 
   useEffect(() => {
     api.getAgentLimits().then(setAgentLimits).catch(() => {});
@@ -137,10 +144,8 @@ export function ConfigSettings() {
               onChange={v => setAgentLimits({ ...agentLimits, max_tool_rounds: v })} min={2} max={50} />
             <NumberInput label={t('settings.toolTimeout')} value={agentLimits.default_tool_timeout}
               onChange={v => setAgentLimits({ ...agentLimits, default_tool_timeout: v })} min={10} max={600} unit="s" />
-            <NumberInput label={t('settings.maxHistoryMessages')} value={agentLimits.max_history_messages}
-              onChange={v => setAgentLimits({ ...agentLimits, max_history_messages: v })} min={10} max={500} />
             <button className="btn-primary text-xs mt-4" disabled={saving}
-              onClick={() => save(() => api.setAgentLimits(agentLimits))}>{t('settings.save')}</button>
+              onClick={() => save(() => api.setAgentLimits(agentLimits as AgentLimitsConfig))}>{t('settings.save')}</button>
           </div>
         )}
 
@@ -155,11 +160,11 @@ export function ConfigSettings() {
               onChange={v => setSecurityCmds({ ...securityCmds, require_medium_approval: v })}
               desc={t('settings.requireMediumApprovalDesc')} />
             <div className="py-2">
-              <label className="text-xs text-white/50 mb-1 block">额外允许的命令（逗号分隔，supervised等级下生效）</label>
+              <label className="text-xs text-white/50 mb-1 block">{t('settings.extraAllowedCommands')}</label>
               <input className="input-field text-xs" type="text"
                 value={securityCmds.extra_allowed_commands?.join(', ') || ''}
                 onChange={e => setSecurityCmds({ ...securityCmds, extra_allowed_commands: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
-                placeholder="如: python3, docker, make" />
+                placeholder={t('settings.extraAllowedCommandsPlaceholder')} />
             </div>
             <button className="btn-primary text-xs mt-4" disabled={saving}
               onClick={() => save(() => api.setSecurityCommands(securityCmds))}>{t('settings.save')}</button>
@@ -203,7 +208,14 @@ export function ConfigSettings() {
                 {t('settings.sum')}: {WEIGHT_KEYS.reduce((a, k) => a + retrievalWeights[k], 0).toFixed(2)}
               </div>
               <button className="btn-primary text-xs mt-4" disabled={saving}
-                onClick={() => save(() => api.setRetrievalWeights(retrievalWeights))}>{t('settings.save')}</button>
+                onClick={() => save(async () => {
+                  // Re-read before writing: the Memory page can select a profile
+                  // after this panel loaded, and the backend replaces the whole
+                  // struct (a non-empty profile is authoritative, so dropping it
+                  // here would silently wipe the user's preset).
+                  const stored = await api.getRetrievalWeights();
+                  await api.setRetrievalWeights({ ...retrievalWeights, profile: stored.profile ?? '' });
+                })}>{t('settings.save')}</button>
             </div>
           </div>
         )}
@@ -216,10 +228,8 @@ export function ConfigSettings() {
               onChange={v => setBreaker({ ...breaker, max_repeat_failures: v })} min={1} max={10} />
             <NumberInput label={t('settings.noProgressFails')} value={breaker.max_no_progress_fails}
               onChange={v => setBreaker({ ...breaker, max_no_progress_fails: v })} min={2} max={20} />
-            <NumberInput label={t('settings.hardRejects')} value={breaker.max_hard_rejects}
-              onChange={v => setBreaker({ ...breaker, max_hard_rejects: v })} min={1} max={5} />
             <button className="btn-primary text-xs mt-4" disabled={saving}
-              onClick={() => save(() => api.setCircuitBreakerConfig(breaker))}>{t('settings.save')}</button>
+              onClick={() => save(() => api.setCircuitBreakerConfig(breaker as CircuitBreakerConfig))}>{t('settings.save')}</button>
           </div>
         )}
 

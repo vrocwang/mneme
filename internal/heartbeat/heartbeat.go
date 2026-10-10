@@ -7,6 +7,12 @@ import (
 	"time"
 )
 
+// DefaultInterval is the heartbeat cadence used when the caller passes a zero
+// interval. It is the single source of truth for the cadence: the boot layer's
+// configured default (bundle.HeartbeatInterval) is an alias of this value, so
+// a zero-value Heartbeat and a wired one tick at the same rate.
+const DefaultInterval = 30 * time.Second
+
 // Task is evaluated on each heartbeat.
 type Task func(ctx context.Context)
 
@@ -26,7 +32,7 @@ type Heartbeat struct {
 
 func New(log *slog.Logger, interval time.Duration) *Heartbeat {
 	if interval == 0 {
-		interval = 30 * time.Second
+		interval = DefaultInterval
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Heartbeat{log: log, interval: interval, stop: make(chan struct{}), ctx: ctx, cancel: cancel}

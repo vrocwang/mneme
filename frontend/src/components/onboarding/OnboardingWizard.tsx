@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useT } from '../../lib/i18n/I18nContext';
+import { StorageKeys, saveFlag, removeValue } from '../../lib/storage';
+import { providerSpec, PROVIDER_TYPES } from '../../lib/providers';
 import * as api from '../../services/wails';
 
 interface Props {
@@ -27,13 +29,10 @@ export function OnboardingWizard({ onComplete }: Props) {
   const [added, setAdded] = useState(false);
   const [providerError, setProviderError] = useState('');
   const [workspaceMsg, setWorkspaceMsg] = useState('');
+  const [workspaceFailed, setWorkspaceFailed] = useState(false);
   const [applying, setApplying] = useState(false);
 
-  const providerDefaults: Record<string, { baseUrl: string; needKey: boolean; label: string; defaultModels: string }> = {
-    openai:    { baseUrl: 'https://api.openai.com/v1', needKey: true,  label: 'OpenAI-compatible (OpenAI, Groq, DeepSeek, etc.)', defaultModels: 'gpt-4o, gpt-4o-mini, gpt-4.1' },
-    anthropic: { baseUrl: 'https://api.anthropic.com', needKey: true, label: 'Anthropic-compatible (Claude, Amazon Bedrock, etc.)', defaultModels: 'claude-sonnet-4-6, claude-haiku-4-5' },
-    ollama:    { baseUrl: 'http://localhost:11434',    needKey: false, label: 'Ollama (local models — Llama, Mistral, Gemma, etc.)', defaultModels: 'llama3.2, mistral, gemma3' },
-  };
+  const defaults = providerSpec(providerType);
 
   useEffect(() => {
     api.health().then(h => {
@@ -61,27 +60,28 @@ export function OnboardingWizard({ onComplete }: Props) {
   const currentIdx = steps.findIndex(s => s.key === step);
 
   const finish = () => {
-    localStorage.setItem('onboarding_done', 'true');
-    localStorage.removeItem('walkthrough_done');
+    saveFlag(StorageKeys.onboardingDone, true);
+    removeValue(StorageKeys.walkthroughDone);
     onComplete();
   };
 
   const dismiss = () => {
-    localStorage.setItem('onboarding_done', 'true');
-    localStorage.setItem('walkthrough_done', 'true');
+    // Skipping onboarding must not mark the walkthrough as done — the
+    // walkthrough is the natural next step for a user who skipped the wizard.
+    saveFlag(StorageKeys.onboardingDone, true);
+    onComplete();
     setDismissed(true);
   };
 
   const addProvider = async () => {
-    const cfg = providerDefaults[providerType];
-    const resolvedBaseUrl = baseUrl.trim() || cfg.baseUrl;
-    if (!resolvedBaseUrl) { setProviderError('Base URL is required'); return; }
-    if (cfg.needKey && !apiKey.trim()) { setProviderError('API key is required for this provider type'); return; }
+    const resolvedBaseUrl = baseUrl.trim() || defaults.baseUrl;
+    if (!resolvedBaseUrl) { setProviderError(t('onboarding.baseUrlRequired')); return; }
+    if (defaults.needKey && !apiKey.trim()) { setProviderError(t('onboarding.apiKeyRequired')); return; }
     setAdding(true);
     setProviderError('');
     try {
-      const name = providerType === 'openai' ? 'OpenAI' : providerType === 'anthropic' ? 'Anthropic' : 'Ollama';
-      const modelList = (models.trim() || cfg.defaultModels).split(',').map(m => m.trim()).filter(Boolean);
+      const name = defaults.displayName;
+      const modelList = (models.trim() || defaults.defaultModels).split(',').map(m => m.trim()).filter(Boolean);
       await api.addProvider({
         name, type: providerType, api_key: apiKey || '',
         base_url: resolvedBaseUrl, models: modelList,
@@ -160,11 +160,11 @@ export function OnboardingWizard({ onComplete }: Props) {
                       onChange={e => { setProviderType(e.target.value); setBaseUrl(''); setApiKey(''); setModels(''); setAdded(false); setProviderError(''); }}
                       className="w-full bg-black/20 border border-surface-border rounded-lg px-3 py-2 text-sm text-white/80"
                     >
-                      <option value="openai">{t('onboarding.providerTypeOpenAI')}</option>
-                      <option value="anthropic">{t('onboarding.providerTypeAnthropic')}</option>
-                      <option value="ollama">{t('onboarding.providerTypeOllama')}</option>
+                      {PROVIDER_TYPES.map(p => (
+                        <option key={p.id} value={p.id}>{t(p.labelKey)}</option>
+                      ))}
                     </select>
-                    <p className="text-[10px] text-white/20 mt-1">{providerDefaults[providerType].label}</p>
+                    <p className="text-[10px] text-white/20 mt-1">{t(defaults.labelKey)}</p>
                   </div>
                   <div>
                     <label className="text-xs text-white/40 mb-1 block">
@@ -175,14 +175,14 @@ export function OnboardingWizard({ onComplete }: Props) {
                       type="text"
                       value={baseUrl}
                       onChange={e => setBaseUrl(e.target.value)}
-                      placeholder={providerDefaults[providerType].baseUrl}
+                      placeholder={defaults.baseUrl}
                       className="w-full bg-black/20 border border-surface-border rounded-lg px-3 py-2 text-sm text-white/80 placeholder:text-white/20"
                     />
                   </div>
                   <div>
                     <label className="text-xs text-white/40 mb-1 block">
                       {t('onboarding.apiKey')}
-                      {providerDefaults[providerType].needKey
+                      {defaults.needKey
                         ? <span className="text-white/20 ml-1">{t('onboarding.required')}</span>
                         : <span className="text-white/20 ml-1">— {t('onboarding.notNeeded')}</span>
                       }
@@ -191,7 +191,7 @@ export function OnboardingWizard({ onComplete }: Props) {
                       type="password"
                       value={apiKey}
                       onChange={e => setApiKey(e.target.value)}
-                      placeholder="sk-..."
+                      placeholder={t('common.apiKeyPlaceholder')}
                       className="w-full bg-black/20 border border-surface-border rounded-lg px-3 py-2 text-sm text-white/80 placeholder:text-white/20"
                     />
                   </div>
@@ -204,12 +204,12 @@ export function OnboardingWizard({ onComplete }: Props) {
                       type="text"
                       value={models}
                       onChange={e => setModels(e.target.value)}
-                      placeholder={providerDefaults[providerType].defaultModels}
+                      placeholder={defaults.defaultModels}
                       className="w-full bg-black/20 border border-surface-border rounded-lg px-3 py-2 text-sm text-white/80 placeholder:text-white/20"
                     />
                   </div>
                   {providerError && (
-                    <p className="text-xs text-red-400">{providerError}</p>
+                    <p className="text-xs text-coral-400">{providerError}</p>
                   )}
                   <button
                     onClick={addProvider}
@@ -234,14 +234,14 @@ export function OnboardingWizard({ onComplete }: Props) {
                     type="text"
                     value={workspaceInput}
                     onChange={e => { setWorkspaceInput(e.target.value); setWorkspaceChanged(e.target.value !== workspace); }}
-                    placeholder="&lt;exe_dir&gt;/data"
+                    placeholder={t('onboarding.workspacePlaceholder')}
                     className="w-full bg-black/20 border border-surface-border rounded-lg px-3 py-2 text-sm text-white/80 font-mono placeholder:text-white/20"
                   />
                 </div>
                 {workspaceChanged && (
                   <div className="space-y-2">
                     {workspaceMsg && (
-                      <div className={`text-xs ${workspaceMsg.includes('failed') ? 'text-red-400' : 'text-sage-400'}`}>
+                      <div className={`text-xs ${workspaceFailed ? 'text-coral-400' : 'text-sage-400'}`}>
                         {workspaceMsg}
                       </div>
                     )}
@@ -251,6 +251,7 @@ export function OnboardingWizard({ onComplete }: Props) {
                         onClick={async () => {
                           setApplying(true);
                           setWorkspaceMsg('');
+                          setWorkspaceFailed(false);
                           try {
                             await api.setWorkspace(workspaceInput);
                             setWorkspace(workspaceInput);
@@ -258,6 +259,7 @@ export function OnboardingWizard({ onComplete }: Props) {
                             setWorkspaceMsg(t('onboarding.workspaceUpdated'));
                           } catch (e: any) {
                             setWorkspaceChanged(true);
+                            setWorkspaceFailed(true);
                             setWorkspaceMsg(t('onboarding.applyFailed', { error: e?.message || String(e) }));
                           } finally {
                             setApplying(false);

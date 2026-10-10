@@ -8,6 +8,7 @@ import (
 	"github.com/simon/mneme/internal/config"
 	"github.com/simon/mneme/internal/cron"
 	"github.com/simon/mneme/internal/health"
+	"github.com/simon/mneme/internal/heartbeat"
 	"github.com/simon/mneme/internal/learning"
 	memsync "github.com/simon/mneme/internal/memory/sync"
 	"github.com/simon/mneme/internal/notifications"
@@ -228,6 +229,7 @@ func heartbeatBundle() Bundle {
 }
 
 // HeartbeatInterval is the default heartbeat cadence used by the boot layer
-// when constructing the heartbeat engine. Exported so the cadence stays in a
-// single place rather than being hardcoded in boot.
-const HeartbeatInterval = 30 * time.Second
+// when constructing the heartbeat engine. It is an alias of
+// heartbeat.DefaultInterval — the zero-value fallback inside the engine — so
+// the wired default and the fallback cannot diverge.
+const HeartbeatInterval = heartbeat.DefaultInterval

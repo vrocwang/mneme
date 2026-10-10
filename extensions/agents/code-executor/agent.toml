@@ -1,0 +1,23 @@
+# Code Executor agent pack.
+#
+# Loaded by boot.BootstrapAll via agenttoml.LoadAgentPacksFromDir, which reads
+# this file plus the sibling prompt.md (system prompt). Keys map 1:1 onto
+# internal/agent/toml.AgentTOML — no extension process is involved.
+id = "code_executor"
+name = "Code Executor"
+description = "Executes code in sandboxed environments. Can run shell commands, scripts, tests, and build tools. Specialized in safe code execution and output analysis."
+tier = "worker"
+max_iterations = 15
+hidden = false
+
+tool_allowlist = [
+  "read_file",
+  "write_file",
+  "list_dir",
+  "shell",
+  "glob",
+  "grep",
+  "run_tests",
+  "run_linter",
+  "current_time",
+]

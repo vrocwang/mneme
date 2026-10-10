@@ -25,6 +25,7 @@ import (
 	"github.com/simon/mneme/internal/health"
 	"github.com/simon/mneme/internal/heartbeat"
 	"github.com/simon/mneme/internal/inference"
+	"github.com/simon/mneme/internal/keyring"
 	"github.com/simon/mneme/internal/learning"
 	mcpstore "github.com/simon/mneme/internal/mcp/store"
 	"github.com/simon/mneme/internal/memory"
@@ -38,7 +39,6 @@ import (
 	"github.com/simon/mneme/internal/prompts"
 	"github.com/simon/mneme/internal/security"
 	"github.com/simon/mneme/internal/subconscious"
-	"github.com/simon/mneme/internal/todos"
 	"github.com/simon/mneme/internal/tools"
 	"github.com/simon/mneme/internal/workspace"
 	"github.com/simon/mneme/pkg/events"
@@ -80,7 +80,6 @@ type AppCore struct {
 
 	MonitorMgr *monitor.Manager
 	SyncMgr    *memsync.Manager
-	TodoStore  *todos.Store
 
 	SecurityPolicy *security.SecurityPolicy
 	ApprovalGate   *approval.Gate
@@ -206,7 +205,7 @@ func (a *AppCore) Init(headless bool) {
 			a.ProfileStore = profile.NewStore(a.DB)
 		}
 
-		a.Pipeline, a.ConvStore = NewPipeline(a.DB, a.Provider, a.Cfg, nil, a.Log)
+		a.Pipeline, a.ConvStore = NewPipeline(a.DB, a.Provider, a.Cfg, a.Log)
 		if a.ConvStore != nil {
 			a.Log.Info("conversations store initialized")
 		}
@@ -242,14 +241,9 @@ func (a *AppCore) Init(headless bool) {
 		a.Log.Warn("memory goals store init failed", "error", err)
 	}
 
-	// ── Todo / task-board store & tools ───────────────────────────────
-	// AppCore owns the store so the agent tools and the Wails todo RPCs read
-	// and write the same boards.
-	if a.CapReg != nil && bundle.NewRegistry(a.Cfg.Bundles.Disabled).IsEnabled(bundle.BundleTodos) {
-		a.TodoStore = todos.NewStore(a.Cfg.Workspace)
-		todos.RegisterTools(a.CapReg, a.TodoStore)
-		a.Log.Info("todo store initialized", "dir", a.Cfg.Workspace)
-	}
+	// The todo / task-board store and its tools live in the "todos" extension;
+	// the App RPC methods bridge to them through the capability registry (see
+	// todo_bridge.go).
 
 	// ── Prompt manager ───────────────────────────────────────────────
 	a.PromptMgr = prompts.New(a.Cfg.Workspace)
@@ -527,7 +521,6 @@ func (a *AppCore) Init(headless bool) {
 	}
 
 	// ── Background task execution ────────────────────────────
-	// DeepCopy empty []string to avoid issues with time.Now() in sed
 	if a.Runner != nil {
 		a.BackgroundRunner = agent.NewBackgroundRunner(a.Runner, a.Log)
 		a.Log.Info("background runner initialized")
@@ -649,7 +642,9 @@ func (a *AppCore) shutdown() {
 	}
 }
 
-// Health returns a health snapshot.
+// Health returns a health snapshot for the UI's System and Autonomy panels.
+// Every key here has a consumer in SettingsPage; keys the UI reads must be
+// provided (a missing key renders as a blank placeholder and looks like a bug).
 func (a *AppCore) Health() map[string]interface{} {
 	status := map[string]interface{}{"status": "ok"}
 	if len(a.StartupErrors) > 0 {
@@ -658,8 +653,24 @@ func (a *AppCore) Health() map[string]interface{} {
 	}
 	if a.CapReg != nil {
 		status["tools"] = a.CapReg.ToolNames()
+		status["agents"] = len(a.CapReg.AllAgents())
 	}
-	for k, v := range ProviderDiagnostics(a.Cfg, a.Provider, nil) {
+	status["workspace"] = a.Cfg.Workspace
+	status["tier"] = a.Cfg.Security.Tier
+	// Report the live policy rather than the raw config value: the readonly
+	// tier implies workspace-only, so the config field alone can understate it.
+	if a.SecurityPolicy != nil {
+		status["workspace_only"] = a.SecurityPolicy.WorkspaceOnly
+	} else {
+		status["workspace_only"] = a.Cfg.Security.WorkspaceOnly
+	}
+	ks := keyring.CurrentStatus()
+	status["keyring_status"] = map[string]interface{}{
+		"available":   ks.Available,
+		"activeMode":  string(ks.ActiveMode),
+		"backendName": ks.BackendName,
+	}
+	for k, v := range ProviderDiagnostics(a.Cfg, a.Provider) {
 		status[k] = v
 	}
 	return status
@@ -694,6 +705,38 @@ type agentRegistryAdapter struct {
 	capReg *capability.CapabilityRegistry
 }
 
+// unenforcedAgentFields lists the agent-definition fields that are parsed,
+// stored, and shown in the UI but have no effect on execution. Reporting them
+// keeps a declared-but-inert policy from being mistaken for an active one.
+func unenforcedAgentFields(def *tools.AgentDef) []string {
+	var out []string
+	if def.ForkMode {
+		out = append(out, "fork_mode")
+	}
+	if len(def.ExtraTools) > 0 {
+		out = append(out, "extra_tools")
+	}
+	if def.SkillFilter != "" {
+		out = append(out, "skill_filter")
+	}
+	if len(def.SubagentRefs) > 0 {
+		out = append(out, "subagents")
+	}
+	if def.Temperature != 0 {
+		out = append(out, "temperature")
+	}
+	if def.TimeoutSecs != 0 {
+		out = append(out, "timeout_secs")
+	}
+	if def.SandboxMode != "" {
+		out = append(out, "sandbox_mode")
+	}
+	if def.Background {
+		out = append(out, "background")
+	}
+	return out
+}
+
 func (a *agentRegistryAdapter) AgentDefs() []eino.AgentDef {
 	if a.capReg == nil {
 		return nil
@@ -717,6 +760,13 @@ func (a *agentRegistryAdapter) AgentDefs() []eino.AgentDef {
 					slog.Warn("agent toolPolicy.requireApprovalFor is not enforced; use a tool's permission level instead",
 						"agent", d.ID, "tools", p.RequireApprovalFor)
 				}
+			}
+			// Fields an agent author can declare that the runtime cannot honor.
+			// They are kept for display (the descriptor reaches the UI), but
+			// silently dropping them would make a declared policy look active.
+			if unenforced := unenforcedAgentFields(def); len(unenforced) > 0 {
+				slog.Warn("agent definition declares fields the runtime does not enforce",
+					"agent", d.ID, "fields", unenforced)
 			}
 		}
 		defs = append(defs, eino.AgentDef{

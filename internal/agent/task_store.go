@@ -27,14 +27,14 @@ func NewTaskStore(db *sql.DB) (*TaskStore, error) {
 }
 
 func (s *TaskStore) migrate() error {
-	_, err := s.db.Exec(`
+	_, err := s.db.Exec(fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS dispatch_tasks (
 			id TEXT PRIMARY KEY,
 			agent_id TEXT NOT NULL DEFAULT '',
 			prompt TEXT NOT NULL DEFAULT '',
 			priority TEXT NOT NULL DEFAULT 'normal',
 			status TEXT NOT NULL DEFAULT 'pending',
-			max_retries INTEGER NOT NULL DEFAULT 3,
+			max_retries INTEGER NOT NULL DEFAULT %d,
 			retry_count INTEGER NOT NULL DEFAULT 0,
 			scheduled_at TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL DEFAULT '',
@@ -49,7 +49,7 @@ func (s *TaskStore) migrate() error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_dispatch_tasks_status
 			ON dispatch_tasks(status, priority, created_at);
-	`)
+	`, DefaultTaskMaxRetries))
 	return err
 }
 

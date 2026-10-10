@@ -41,18 +41,16 @@ func BuiltinBundles() []Bundle {
 // capability package's domain constants rather than repeated literals: there is
 // exactly one place where a domain's ID is written.
 const (
-	BundleWorkflows = capability.SetWorkflows
-	BundleMCP       = capability.SetMCP
-	BundleConfig    = capability.SetConfig
-	BundleTodos     = capability.SetTodos
-	BundleFileState = capability.SetFileState
-	BundleSkills    = capability.SetSkills
-	BundleThreads   = capability.SetThreads
-	BundleMemory    = capability.SetMemory
-	BundleGoals     = capability.SetGoals
-	BundleDAG       = capability.SetDAG
-	BundleCron      = capability.SetCron
-	BundleMonitor   = capability.SetMonitor
+	BundleMCP     = capability.SetMCP
+	BundleConfig  = capability.SetConfig
+	BundleTodos   = capability.SetTodos
+	BundleSkills  = capability.SetSkills
+	BundleThreads = capability.SetThreads
+	BundleMemory  = capability.SetMemory
+	BundleGoals   = capability.SetGoals
+	BundleDAG     = capability.SetDAG
+	BundleCron    = capability.SetCron
+	BundleMonitor = capability.SetMonitor
 )
 
 // BundleDesktop gates GUI-only desktop components rather than a tool set, so it

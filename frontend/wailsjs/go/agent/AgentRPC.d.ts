@@ -6,6 +6,8 @@ export function ListAgents():Promise<Array<Record<string, any>>>;
 
 export function RemoveAgent(arg1:string):Promise<void>;
 
-export function SetRegistry(arg1:capability.CapabilityRegistry):Promise<void>;
+export function SetAgentRegistry(arg1:capability.CapabilityRegistry):Promise<void>;
 
-export function UpsertAgent(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
+export function SetAgentsDir(arg1:string):Promise<void>;
+
+export function UpsertAgent(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:number,arg8:Array<string>):Promise<void>;

@@ -14,13 +14,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/simon/mneme/pkg/extsdk"
 )
@@ -34,7 +29,7 @@ func main() {
 
 	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "skill_browse",
-		Description: "Browse available skills from configured registries. Lists all skills or filtered by category.",
+		Description: "List skills installed in the workspace, optionally filtered by category. To install another skill, call skill_install with a SKILL.md URL or local path; this extension no longer installs skills itself (one install path, one writer).",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -50,7 +45,7 @@ func main() {
 
 	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "skill_search",
-		Description: "Search for skills by keyword across all configured registries",
+		Description: "Search installed workspace skills by keyword. To install another skill, call skill_install with a SKILL.md URL or local path.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -64,40 +59,8 @@ func main() {
 	}, skillSearch)
 
 	srv.RegisterTool(extsdk.ToolDef{
-		Name:        "skill_registry_install",
-		Description: "Download and install a skill executable from a registry source",
-		Parameters: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"skillName": map[string]interface{}{"type": "string", "description": "Skill name/ID to install"},
-				"source":    map[string]interface{}{"type": "string", "description": "Registry source URL"},
-				"version":   map[string]interface{}{"type": "string", "description": "Specific version to install (default: latest)"},
-			},
-			"required": []string{"skillName"},
-		},
-		Permission: "execute",
-		HasEffects: true,
-	}, skillRegistryInstall)
-
-	srv.RegisterTool(extsdk.ToolDef{
-		Name:        "skill_uninstall",
-		Description: "Remove an installed skill",
-		Parameters: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"skillName": map[string]interface{}{"type": "string", "description": "Skill name to uninstall"},
-			},
-			"required": []string{"skillName"},
-		},
-		Permission: "execute",
-		HasEffects: true,
-	}, func(ctx context.Context, args map[string]interface{}) extsdk.Result {
-		return skillUninstall(args)
-	})
-
-	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "skill_sources",
-		Description: "List configured skill registry sources and their status",
+		Description: "List configured skill registry sources and the workspace skills directory",
 		Parameters:  map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
 		Permission:  "read_only",
 		HasEffects:  false,
@@ -140,7 +103,6 @@ func main() {
 	}
 }
 
-var httpClient = &http.Client{Timeout: 15 * time.Second}
 var skillsDir = extsdk.SkillsDir()
 
 func init() { os.MkdirAll(skillsDir, 0755) }
@@ -245,74 +207,6 @@ func skillSearch(ctx context.Context, args map[string]interface{}) extsdk.Result
 	b, _ := json.MarshalIndent(results, "", "  ")
 	_ = ctx
 	return extsdk.Result{Success: true, Output: string(b)}
-}
-
-func skillRegistryInstall(ctx context.Context, args map[string]interface{}) extsdk.Result {
-	skillName, _ := args["skillName"].(string)
-	if skillName == "" {
-		return extsdk.Result{Error: "skillName is required"}
-	}
-	source, _ := args["source"].(string)
-
-	os.MkdirAll(skillsDir, 0755)
-	destPath := filepath.Join(skillsDir, skillName)
-
-	if source != "" && (strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://")) {
-		url := source + "/" + skillName
-		req, reqErr := http.NewRequestWithContext(ctx, "GET", url, nil)
-		if reqErr != nil {
-			return extsdk.Result{Error: fmt.Sprintf("request: %v", reqErr)}
-		}
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			return extsdk.Result{Error: fmt.Sprintf("download: %v", err)}
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode >= 400 {
-			return extsdk.Result{Error: fmt.Sprintf("download failed: HTTP %d", resp.StatusCode)}
-		}
-		f, err := os.Create(destPath)
-		if err != nil {
-			return extsdk.Result{Error: fmt.Sprintf("create file: %v", err)}
-		}
-		defer f.Close()
-		if _, err := io.Copy(f, resp.Body); err != nil {
-			return extsdk.Result{Error: fmt.Sprintf("download incomplete: %v", err)}
-		}
-		os.Chmod(destPath, 0755)
-	} else {
-		binPath, err := exec.LookPath(skillName)
-		if err != nil {
-			return extsdk.Result{Error: fmt.Sprintf("skill %q not found in PATH. Provide a source URL to download from a registry.", skillName)}
-		}
-		data, err := os.ReadFile(binPath)
-		if err != nil {
-			return extsdk.Result{Error: fmt.Sprintf("read binary: %v", err)}
-		}
-		if err := os.WriteFile(destPath, data, 0755); err != nil {
-			return extsdk.Result{Error: fmt.Sprintf("install: %v", err)}
-		}
-	}
-
-	abs, _ := filepath.Abs(destPath)
-	return extsdk.Result{Success: true, Output: fmt.Sprintf("Installed: %s → %s\nRestart Mneme to discover the new skill.", skillName, abs)}
-}
-
-func skillUninstall(args map[string]interface{}) extsdk.Result {
-	skillName, _ := args["skillName"].(string)
-	if skillName == "" {
-		return extsdk.Result{Error: "skillName is required"}
-	}
-
-	destPath := filepath.Join(skillsDir, skillName)
-	if _, err := os.Stat(destPath); err != nil {
-		return extsdk.Result{Error: fmt.Sprintf("skill %q is not installed", skillName)}
-	}
-
-	if err := os.Remove(destPath); err != nil {
-		return extsdk.Result{Error: fmt.Sprintf("uninstall: %v", err)}
-	}
-	return extsdk.Result{Success: true, Output: fmt.Sprintf("Uninstalled: %s", skillName)}
 }
 
 func skillSources() extsdk.Result {

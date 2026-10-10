@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useT } from '../../lib/i18n/I18nContext';
 import type { ToolCallEntry } from '../../store/chatRuntimeSlice';
 
 export function ToolCallItem({ call }: { call: ToolCallEntry }) {
@@ -29,7 +30,7 @@ export function ToolCallItem({ call }: { call: ToolCallEntry }) {
           <div className="text-white/50 mt-1 line-clamp-3 font-mono text-[10px]">{call.output.slice(0, 300)}</div>
         )}
         {call.error && (
-          <div className="text-red-400/70 mt-1 font-mono text-[10px]">{call.error}</div>
+          <div className="text-coral-400/70 mt-1 font-mono text-[10px]">{call.error}</div>
         )}
       </div>
     </div>
@@ -50,7 +51,7 @@ function StatusIcon({ status }: { status: ToolCallEntry['status'] }) {
       );
     case 'error':
       return (
-        <svg className="w-4 h-4 text-red-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-4 h-4 text-coral-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
         </svg>
       );
@@ -60,15 +61,16 @@ function StatusIcon({ status }: { status: ToolCallEntry['status'] }) {
 }
 
 function StatusBadge({ status }: { status: ToolCallEntry['status'] }) {
+  const { t } = useT();
   const colors: Record<string, string> = {
     pending: 'bg-white/10 text-white/40',
     running: 'bg-ocean-500/20 text-ocean-300',
     done: 'bg-sage-500/20 text-sage-300',
-    error: 'bg-red-500/20 text-red-300',
+    error: 'bg-coral-500/20 text-coral-300',
   };
   return (
     <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${colors[status] || colors.pending}`}>
-      {status}
+      {t(`chat.toolStatus.${status}`)}
     </span>
   );
 }

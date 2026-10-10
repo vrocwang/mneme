@@ -60,10 +60,16 @@ func BootstrapGUI(core *AppCore, ctx context.Context, appMethods jsonrpc.AppMeth
 				TempDir:  workspace.TmpDir(cfg.Workspace),
 			})
 			if cfg.ScreenIntelligence.Enabled && gui.ScreenCap != nil && visionEngine != nil {
+				// Persist, ingest, and publish each observation. Without this
+				// sink the loop computes captures and vision summaries and then
+				// discards them.
+				sink := NewScreenIntelSink(log, workspace.DataDir(cfg.Workspace),
+					screenIntelIngester(core.Pipeline), core.EventBus)
 				gui.ScreenIntel = desktop.NewScreenIntelLoop(log, desktop.ScreenIntelConfig{
 					Screen:   gui.ScreenCap,
 					Vision:   visionEngine,
 					Interval: time.Duration(cfg.ScreenIntelligence.CaptureIntervalSecs) * time.Second,
+					OnResult: sink.Handle,
 				})
 				gui.ScreenIntel.Start(ctx)
 			}

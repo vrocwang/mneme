@@ -1,7 +1,20 @@
 import type { EnTranslations } from './en';
 
 const zhCN: EnTranslations = {
-  app: { title: 'Mneme', tagline: '社区 AI 助手' },
+  app: { title: 'Mneme' },
+
+  common: {
+    loading: '加载中...',
+    unavailable: '不可用',
+    unknownError: '未知错误',
+    apiKeyPlaceholder: 'sk-...',
+    yes: '是',
+    no: '否',
+    internet: '网络',
+    core: '核心',
+    api: 'API',
+    themeTooltip: '主题：{current}（点击切换到{next}）'
+  },
 
   nav: {
     home: '首页',
@@ -43,10 +56,21 @@ const zhCN: EnTranslations = {
     tool: '工具',
     copy: '复制',
     copied: '已复制！',
-    thinkingShow: 'Show thinking',
-    thinkingHide: 'Hide thinking',
+    stop: '停止',
+    runningTools: '正在运行 {count} 个工具...',
+    runningTool: '正在运行 {count} 个工具...',
+    stopping: '停止中...',
+    stopped: '已停止',
+    thinkingShow: '显示思考过程',
+    thinkingHide: '隐藏思考过程',
     delete: '删除',
-    messages: '{count} 条消息'
+    messages: '{count} 条消息',
+    toolStatus: {
+      pending: '待处理',
+      running: '运行中',
+      done: '完成',
+      error: '失败'
+    }
   },
 
   approval: {
@@ -55,6 +79,11 @@ const zhCN: EnTranslations = {
     approveOnce: '允许一次',
     alwaysAllow: '始终允许',
     deny: '拒绝',
+    decisionRecorded: '已记录决定',
+    toolAllowed: '工具已永久允许',
+    approvedOnce: '已允许一次',
+    denied: '已拒绝',
+    decideFailed: '决定失败',
     
     
     
@@ -74,6 +103,16 @@ const zhCN: EnTranslations = {
     about: '关于',
     systemHealth: '系统状态',
     cronJobs: '定时任务',
+    addCronJob: '+ 添加任务',
+    cronNamePlaceholder: '任务名称',
+    cronSchedulePlaceholder: '调度（例如 hourly、daily、0 9 * * *）',
+    cronPromptPlaceholder: 'Agent 提示词（可选）',
+    cronEmpty: '暂无定时任务。可在上方添加，或它们会在启动时自动创建。',
+    enable: '启用',
+    disable: '禁用',
+    runNow: '立即运行',
+    extraAllowedCommands: '额外允许的命令（逗号分隔，supervised 等级下生效）',
+    extraAllowedCommandsPlaceholder: '如: python3, docker, make',
     
     
     
@@ -84,6 +123,11 @@ const zhCN: EnTranslations = {
     toolsRegistered: '已注册工具',
     agentsAvailable: '可用 Agent',
     checkUpdates: '检查更新',
+    checkingUpdates: '检查中...',
+    updateAvailable: '有可用更新',
+    upToDate: '已是最新',
+    updateUnsupported: '不支持',
+    latestVersion: '最新版本',
     remove: '移除',
     // Theme
     appearance: '外观',
@@ -169,6 +213,7 @@ const zhCN: EnTranslations = {
     cancel: '取消',
     editProvider: '编辑 {name}',
     addNewProvider: '添加提供商',
+    modelPlaceholder: '例如 gpt-4o',
     // Prompt settings
     promptTemplates: '提示词模板',
     viewDefault: '查看原始',
@@ -181,6 +226,12 @@ const zhCN: EnTranslations = {
     resetToDefault: '重置为默认',
     chars: '{count} 字符',
     charsDefault: '{count} 字符（默认）',
+    newPrompt: '+ 新建',
+    customBadge: '自定义',
+    promptNamePlaceholder: 'my_prompt',
+    promptBodyPlaceholder: '提示词模板内容...',
+    defaultUnavailable: '不可用——如果持续如此，请重新构建 Go 二进制。',
+    providerNamePlaceholder: '例如 openai',
     // Prompt template labels — shown in the prompt editor sidebar.
     promptLabels: {
       system_identity: '系统 — 身份定义',
@@ -221,7 +272,8 @@ const zhCN: EnTranslations = {
     refresh: '刷新',
     
     reflections: '潜意识反思',
-    preferences: '偏好'
+    preferences: '偏好',
+    reflection: '反思'
   },
 
   monitor: {
@@ -236,7 +288,12 @@ const zhCN: EnTranslations = {
     output: '输出',
     hide: '隐藏',
     exitCode: '退出码: {code}',
-    emptyHint: '暂无监控运行。Agent 启动的命令会显示在这里。'
+    emptyHint: '暂无监控运行。Agent 启动的命令会显示在这里。',
+    statusRunning: '运行中',
+    statusCompleted: '已完成',
+    statusFailed: '失败',
+    statusTimeout: '超时',
+    statusUnknown: '未知'
   },
 
   memory: {
@@ -258,7 +315,11 @@ const zhCN: EnTranslations = {
     noResults: '未找到结果',
     config: '记忆配置',
     weights: '检索权重',
-    profile: '检索配置'
+    profile: '检索配置',
+    profileBalanced: '均衡',
+    profileSemantic: '语义',
+    profileLexical: '词法',
+    profileGraphFirst: '图谱优先'
   },
 
   todo: {
@@ -289,14 +350,74 @@ const zhCN: EnTranslations = {
     concurrent: '并发',
     hidden: '隐藏',
     background: '后台',
-    maxIter: '最多 {count} 轮'
+    maxIter: '最多 {count} 轮',
+    kindBuiltin: '内置',
+    kindExtension: '扩展',
+    kindMcp: 'MCP',
+    kindSkill: '技能',
+    groupExtensions: '扩展',
+    groupMcpServers: 'MCP 服务器',
+    groupSkills: '技能',
+    tools: '工具',
+    agents: 'Agent',
+    toolsCount: '{count} 个工具',
+    agentsCount: '{count} 个 Agent',
+    moreCount: '还有 {count} 个',
+    addAgent: '+ Agent',
+    allTab: '全部 ({count})',
+    summary: '{tools} 个工具 · {agents} 个 Agent · {sources} 个来源',
+    extensionsManaged: '扩展在 设置 → 扩展 中管理。',
+    skillInstallHint: '从 URL（GitHub raw 或任意 HTTP 地址）或本地 SKILL.md 路径安装技能。',
+    skillUrlPlaceholder: 'https://raw.githubusercontent.com/org/repo/main/SKILL.md',
+    skillInstalled: '技能已安装，刷新后会出现在列表中。',
+    createAgent: '创建 Agent',
+    createAgentBtn: '创建',
+    editAgent: '编辑 {name}',
+    editAgentTitle: '编辑 Agent',
+    labelId: 'ID',
+    labelDescription: '描述',
+    labelTier: '层级',
+    labelModelOptional: '模型（可选）',
+    labelMaxIterations: '最大迭代次数',
+    labelToolAllowlist: '工具白名单（逗号分隔，* 表示全部）',
+    labelSystemPrompt: '系统提示词',
+    idPlaceholder: 'my_agent',
+    namePlaceholder: '我的 Agent',
+    descriptionPlaceholder: '这个 Agent 做什么...',
+    modelPlaceholder: 'inherit',
+    toolAllowlistPlaceholder: 'read_file, write_file, shell',
+    systemPromptPlaceholder: '你是一个乐于助人的助手...',
+    deleteAgentConfirm: '删除 Agent "{id}"？',
+    serverNamePlaceholder: 'my-server',
+    commandPlaceholder: 'npx -y @modelcontextprotocol/server-filesystem',
+    argsPlaceholder: '/path/to/allowed',
+    urlPlaceholder: 'http://localhost:8080'
   },
 
   errors: {
     somethingWrong: '出现错误',
-    
-    
-    
+    chatTurnFailed: '对话轮次失败',
+    unexpected: '发生了意外错误。',
+    loadTasks: '加载任务失败',
+    addTask: '添加任务失败',
+    updateTask: '更新任务失败',
+    removeTask: '删除任务失败',
+    loadCapabilities: '加载能力失败',
+    connectFailed: '连接失败',
+    disconnectFailed: '断开连接失败',
+    removeFailed: '移除失败',
+    installFailed: '安装失败',
+    uninstallFailed: '卸载失败',
+    agentSaveFailed: 'Agent 保存失败',
+    agentDeleteFailed: 'Agent 删除失败',
+    loadNotifications: '加载通知失败',
+    markAllReadFailed: '标记全部已读失败',
+    markReadFailed: '标记通知已读失败',
+    createThreadFailed: '创建对话失败',
+    deleteThreadFailed: '删除对话失败',
+    invalidResponse: '服务器返回了无效响应',
+    loadMonitorRuns: '加载监控运行失败',
+    startFailed: '启动失败',
     tryAgain: '重试'
   },
 
@@ -335,6 +456,8 @@ const zhCN: EnTranslations = {
     engine: '引擎',
     model: '模型',
     voice: '语音',
+    sttShort: 'STT',
+    ttsShort: 'TTS',
     endpoint: 'API 端点',
     modelVoice: '模型:语音 (例: tts-1:alloy)',
     sttSystem: '系统 (自动检测)',
@@ -395,7 +518,11 @@ const zhCN: EnTranslations = {
     helpText: '隧道将外部 webhook 请求路由到 Agent。每个隧道有唯一 UUID。外部服务通过 X-Tunnel-UUID 头 POST 到 /webhook。',
     copy: '复制',
     copied: '已复制！',
-    deleted: '隧道已删除。'
+    deleted: '隧道已删除。',
+    refreshActivity: '刷新活动',
+    showActivity: '显示最近活动',
+    clear: '清空',
+    noActivity: '暂无活动。'
   },
   soul: {
     
@@ -414,7 +541,11 @@ const zhCN: EnTranslations = {
     noChannels: '未配置频道。请在配置文件中添加频道凭据。',
     configHint: '在', under: '下',
     extensionsNote: '扩展可通过 Provider 接口注册额外的频道类型。',
-    enabled: '已启用', disabled: '已禁用'
+    enabled: '已启用', disabled: '已禁用',
+    enable: '启用', disable: '禁用',
+    add: '添加',
+    addHint: '添加频道会创建其配置项并在运行时启动。',
+    running: '运行中', notRunning: '未运行'
   },
 
   extensions: {
@@ -425,7 +556,9 @@ const zhCN: EnTranslations = {
     installPlaceholder: '扩展目录路径 (包含 manifest.json)',
     installHint: '扩展通过插件协议添加工具、代理、频道和集成。',
     formatHint: '每个扩展包含 manifest.json 和通过 stdin/stdout 使用 JSON-RPC 2.0 的二进制文件。',
-    autoBuildHint: '扩展在启动时从 extensions/ 自动发现。'
+    autoBuildHint: '扩展在启动时从 extensions/ 自动发现。',
+    homepage: '主页',
+    uninstallConfirm: '卸载 {name}？'
   },
 
   
@@ -433,9 +566,9 @@ const zhCN: EnTranslations = {
   autonomy: {
     title: '自主权',
     level: '自主级别',
-    
-    
-    
+    tierReadonlyDesc: '只读工具；不能写入或执行命令',
+    tierSupervisedDesc: '风险操作需要授权',
+    tierFullDesc: '无限制；跳过授权门',
     workspaceOnly: '仅限工作区'
   },
   diagnostics: {
@@ -443,7 +576,20 @@ const zhCN: EnTranslations = {
     totalTools: '工具总数',
     enabledTools: '已启用工具',
     writeSurfaces: '写入接口',
-    recentDenials: '最近拒绝'
+    recentDenials: '最近拒绝',
+    sideEffectsSub: '有副作用的工具',
+    providerReady: '就绪',
+    providerNotConfigured: '未配置',
+    notAvailable: '不可用',
+    inProcess: '进程内',
+    mcpStdio: 'MCP stdio',
+    mcpHttp: 'MCP http',
+    jsonRpc: 'JSON-RPC',
+    bySource: '按来源：',
+    healthChecks: '健康检查',
+    cost: '费用',
+    totalCost: '总费用',
+    budgetUsed: '预算使用'
   },
 
   notifications: {
@@ -453,7 +599,8 @@ const zhCN: EnTranslations = {
     empty: '暂无通知',
     noUnread: '没有未读通知',
     markAllRead: '全部标为已读',
-    approvalRequest: '审批请求'
+    approvalRequest: '审批请求',
+    untitled: '通知'
   },
 
   onboarding: {
@@ -467,6 +614,7 @@ const zhCN: EnTranslations = {
     workspaceTitle: '工作区',
     workspaceDesc: 'Agent 在您的工作区目录中运行。文件、对话和记忆都存储在这里。',
     workspacePath: '工作区目录',
+    workspacePlaceholder: '<exe_dir>/data',
     readyTitle: '准备就绪！',
     readyDesc: '开始对话，让 Agent 帮您完成任务，或探索设置来自定义您的体验。',
     readyReminder: '提示：您可以随时在 设置 → 提供商 中添加 AI 提供商。',
@@ -488,6 +636,8 @@ const zhCN: EnTranslations = {
     providerTypeOpenAI: 'OpenAI 兼容 (OpenAI, Groq, DeepSeek 等)',
     providerTypeAnthropic: 'Anthropic 兼容 (Claude, Amazon Bedrock 等)',
     providerTypeOllama: 'Ollama (本地模型 — Llama, Mistral, Gemma 等)',
+    baseUrlRequired: '必须填写 Base URL',
+    apiKeyRequired: '该提供商类型必须填写 API 密钥',
     baseUrl: '接口地址',
     required: '必填',
     apiKey: 'API 密钥',

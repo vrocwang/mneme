@@ -111,6 +111,7 @@ func truncateStr(s string, max int) string {
 	}
 	return s[:max] + "..."
 }
+
 // ── Advanced memory tools ──────────────────────────────────────────────
 
 // MemoryRecallTool performs semantic search via embeddings + FTS5 hybrid.

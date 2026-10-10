@@ -6,17 +6,20 @@ import { useThreads } from '../../hooks/useThreads';
 import { useApprovals } from '../../hooks/useApprovals';
 import { ThemeSwitcher } from '../ThemeSwitcher';
 import { ConnectivityIndicator } from '../ConnectivityIndicator';
+import { ROUTES, SIDEBAR_ITEMS, chatPath, isRouteActive } from '../../lib/routes';
+import type { RouteId } from '../../lib/routes';
+import { BRAND_MARK } from '../../lib/brand';
 
-const NAV_ITEMS = [
-  { id: 'home' as const, key: 'nav.home', icon: HomeIcon },
-  { id: 'chat' as const, key: 'nav.chat', icon: ChatIcon },
-  { id: 'memory' as const, key: 'nav.memory', icon: MemoryIcon },
-  { id: 'capabilities' as const, key: 'nav.capabilities', icon: CapabilitiesIcon },
-  { id: 'dashboard' as const, key: 'nav.dashboard', icon: DashboardIcon },
-  { id: 'notifications' as const, key: 'nav.notifications', icon: NotificationsIcon },
-  { id: 'monitor' as const, key: 'nav.monitor', icon: MonitorIcon },
-  { id: 'settings' as const, key: 'nav.settings', icon: SettingsIcon },
-];
+const NAV_ICONS: Record<RouteId, (props: { active: boolean }) => JSX.Element> = {
+  home: HomeIcon,
+  chat: ChatIcon,
+  memory: MemoryIcon,
+  capabilities: CapabilitiesIcon,
+  dashboard: DashboardIcon,
+  notifications: NotificationsIcon,
+  monitor: MonitorIcon,
+  settings: SettingsIcon,
+};
 
 export function Sidebar() {
   const navigate = useNavigate();
@@ -39,7 +42,7 @@ export function Sidebar() {
       <button
         onClick={actions.toggleSidebar}
         className="fixed left-2 top-3 z-50 p-2 rounded-lg bg-surface-elevated border border-surface-border hover:bg-white/5 transition-colors"
-        title={t('sidebar.openSidebar', 'Open sidebar')}
+        title={t('sidebar.openSidebar')}
       >
         <svg className="w-4 h-4 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
@@ -50,7 +53,7 @@ export function Sidebar() {
       {/* Logo */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-surface-border shrink-0">
         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-ocean-400 to-ocean-600 flex items-center justify-center text-white font-bold text-sm">
-          OH
+          {BRAND_MARK}
         </div>
         <span className="font-semibold text-white/90 tracking-tight">{t('app.title')}</span>
         <button className="btn-ghost ml-auto !p-1.5" onClick={actions.toggleSidebar} title={t('sidebar.closeSidebar')}>
@@ -62,21 +65,22 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex flex-col gap-0.5 px-2 py-2 border-b border-surface-border shrink-0">
-        {NAV_ITEMS.map(item => {
-          const isActive = location.pathname === '/' + item.id || (item.id === 'home' && location.pathname === '/');
+        {SIDEBAR_ITEMS.map(item => {
+          const isActive = isRouteActive(item.id, location.pathname);
+          const Icon = NAV_ICONS[item.id];
           return (
             <button
               key={item.id}
               data-nav={item.id}
-              onClick={() => navigate(item.id === 'home' ? '/' : `/${item.id}`)}
+              onClick={() => navigate(ROUTES[item.id])}
               className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all duration-200 ${
                 isActive
                   ? 'bg-ocean-500/15 text-ocean-300 shadow-inner-glow'
                   : 'text-white/50 hover:text-white/80 hover:bg-white/5'
               }`}
             >
-              <item.icon active={isActive} />
-              {t(item.key)}
+              <Icon active={isActive} />
+              {t(item.labelKey)}
               {item.id === 'notifications' && pendingApprovals.length > 0 && (
                 <span className="ml-auto bg-coral-500/20 text-coral-400 text-[10px] font-medium px-1.5 py-0.5 rounded-full leading-none">
                   {pendingApprovals.length}
@@ -92,7 +96,7 @@ export function Sidebar() {
         <div className="flex items-center justify-between px-3 py-2 shrink-0">
           <span className="text-xs font-semibold text-white/40 uppercase tracking-wider">{t('sidebar.threads')}</span>
           <button
-            onClick={async () => { const t = await createNewThread(); if (t) navigate(`/chat/${t.id}`); }}
+            onClick={async () => { const t = await createNewThread(); if (t) navigate(chatPath(t.id)); }}
             className="p-1 hover:bg-white/10 rounded-md transition-colors"
             title={t('sidebar.newThread')}
           >
@@ -122,7 +126,7 @@ export function Sidebar() {
                   ? 'bg-ocean-500/10 border border-ocean-500/20'
                   : 'hover:bg-white/5 border border-transparent'
               }`}
-              onClick={async () => { await selectThread(thread.id); navigate(`/chat/${thread.id}`); }}
+              onClick={async () => { await selectThread(thread.id); navigate(chatPath(thread.id)); }}
             >
               <div className="flex-1 min-w-0">
                 <div className="text-xs text-white/80 truncate" title={thread.title || undefined}>{thread.title || t('chat.newConversation')}</div>

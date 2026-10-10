@@ -10,10 +10,14 @@ export function RemoveAgent(arg1) {
   return window['go']['agent']['AgentRPC']['RemoveAgent'](arg1);
 }
 
-export function SetRegistry(arg1) {
-  return window['go']['agent']['AgentRPC']['SetRegistry'](arg1);
+export function SetAgentRegistry(arg1) {
+  return window['go']['agent']['AgentRPC']['SetAgentRegistry'](arg1);
 }
 
-export function UpsertAgent(arg1, arg2, arg3, arg4) {
-  return window['go']['agent']['AgentRPC']['UpsertAgent'](arg1, arg2, arg3, arg4);
+export function SetAgentsDir(arg1) {
+  return window['go']['agent']['AgentRPC']['SetAgentsDir'](arg1);
+}
+
+export function UpsertAgent(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
+  return window['go']['agent']['AgentRPC']['UpsertAgent'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
 }

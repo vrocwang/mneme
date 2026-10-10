@@ -11,6 +11,8 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	jsonschema "github.com/eino-contrib/jsonschema"
+
+	"github.com/simon/mneme/internal/tools"
 )
 
 // regToolAdapter wraps a single CapabilityRegistry tool as an eino
@@ -55,6 +57,12 @@ func (a *regToolAdapter) Info(_ context.Context) (*schema.ToolInfo, error) {
 // JSON arguments string, routes execution through the CapabilityRegistry
 // (which dispatches local, MCP, or extension tools), and returns the
 // result as eino expects.
+//
+// A failure reported by the tool itself (Result.Error) is returned as a
+// ToolFailure so the agent runtime feeds it back to the model as tool output:
+// the model can retry or choose another route instead of the turn dying on the
+// first failed call. Infrastructure errors (unparsable arguments) stay plain
+// errors and remain fatal.
 func (a *regToolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, _ ...tool.Option) (string, error) {
 	var args map[string]interface{}
 	if argumentsInJSON != "" {
@@ -68,10 +76,10 @@ func (a *regToolAdapter) InvokableRun(ctx context.Context, argumentsInJSON strin
 
 	result := a.reg.Execute(ctx, a.toolName, args)
 	if result.Error != "" {
-		return "", fmt.Errorf("registry tool %q: %s", a.toolName, result.Error)
+		return "", &tools.ToolFailure{Message: fmt.Sprintf("registry tool %q: %s", a.toolName, result.Error)}
 	}
 	if !result.Success && result.Output != "" {
-		return result.Output, fmt.Errorf("registry tool %q: %s", a.toolName, result.Error)
+		return result.Output, &tools.ToolFailure{Message: fmt.Sprintf("registry tool %q failed", a.toolName)}
 	}
 	return result.Output, nil
 }

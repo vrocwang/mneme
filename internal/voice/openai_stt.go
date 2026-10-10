@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/simon/mneme/internal/config"
 )
 
 // OpenAIStt calls an OpenAI-compatible /v1/audio/transcriptions endpoint.
@@ -24,7 +26,7 @@ type OpenAIStt struct {
 // NewOpenAIStt creates an OpenAI-compatible STT engine.
 func NewOpenAIStt(endpoint, apiKey, model string) *OpenAIStt {
 	if endpoint == "" {
-		endpoint = "https://api.openai.com/v1"
+		endpoint = config.DefaultOpenAIBaseURL
 	}
 	if model == "" {
 		model = "whisper-1"

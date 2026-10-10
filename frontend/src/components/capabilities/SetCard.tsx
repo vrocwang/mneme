@@ -2,25 +2,25 @@ import { useState } from 'react';
 import { useT } from '../../lib/i18n/I18nContext';
 import type { CapabilitySet, ToolDescriptor, AgentDescriptor } from '../../services/wails';
 
-const KIND_LABELS: Record<string, string> = {
-  builtin: 'Built-in',
-  extension: 'Extension',
-  mcp_server: 'MCP',
-  skill: 'Skill',
+const KIND_LABEL_KEYS: Record<string, string> = {
+  builtin: 'capabilities.kindBuiltin',
+  extension: 'capabilities.kindExtension',
+  mcp_server: 'capabilities.kindMcp',
+  skill: 'capabilities.kindSkill',
 };
 
 const KIND_BADGES: Record<string, string> = {
   builtin: 'bg-ocean-500/15 text-ocean-300',
   extension: 'bg-sage-500/15 text-sage-300',
   mcp_server: 'bg-coral-500/15 text-coral-300',
-  skill: 'bg-purple-500/15 text-purple-300',
+  skill: 'bg-amber-500/15 text-amber-300',
 };
 
 const HEALTH_COLORS: Record<string, string> = {
-  ok: 'bg-green-500',
+  ok: 'bg-sage-500',
   degraded: 'bg-amber-500',
-  down: 'bg-red-500',
-  unknown: 'bg-gray-500',
+  down: 'bg-coral-500',
+  unknown: 'bg-white/20',
 };
 
 interface Props {
@@ -46,12 +46,14 @@ export function SetCard({ set, onConnect, onDisconnect, onRemove, onAgentEdit }:
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <span className="text-sm font-medium text-white/90 truncate">{set.name}</span>
           <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${KIND_BADGES[set.kind] || 'bg-white/10 text-white/50'}`}>
-            {KIND_LABELS[set.kind] || set.kind}
+            {t(KIND_LABEL_KEYS[set.kind] || set.kind)}
           </span>
         </div>
         <div className="flex items-center gap-3 text-xs text-white/40 shrink-0">
-          <span title="Tools">{set.tool_count ?? (set.tools || []).length} tools</span>
-          {((set.agent_count ?? (set.agents || []).length) > 0) && <span title="Agents">{set.agent_count ?? (set.agents || []).length} agents</span>}
+          <span title={t('capabilities.tools')}>{t('capabilities.toolsCount', { count: set.tool_count ?? (set.tools || []).length })}</span>
+          {((set.agent_count ?? (set.agents || []).length) > 0) && (
+            <span title={t('capabilities.agents')}>{t('capabilities.agentsCount', { count: set.agent_count ?? (set.agents || []).length })}</span>
+          )}
           <span className={`w-2 h-2 rounded-full ${HEALTH_COLORS[set.health] || HEALTH_COLORS.unknown}`} />
         </div>
         <svg className={`w-4 h-4 text-white/30 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -75,7 +77,7 @@ export function SetCard({ set, onConnect, onDisconnect, onRemove, onAgentEdit }:
                 tab === 'tools' ? 'border-ocean-400 text-ocean-300' : 'border-transparent text-white/40 hover:text-white/60'
               }`}
             >
-              Tools ({(set.tools || []).length})
+              {t('capabilities.tools')} ({(set.tools || []).length})
             </button>
             {(set.agents || []).length > 0 && (
               <button
@@ -84,7 +86,7 @@ export function SetCard({ set, onConnect, onDisconnect, onRemove, onAgentEdit }:
                   tab === 'agents' ? 'border-ocean-400 text-ocean-300' : 'border-transparent text-white/40 hover:text-white/60'
                 }`}
               >
-                Agents ({(set.agents || []).length})
+                {t('capabilities.agents')} ({(set.agents || []).length})
               </button>
             )}
           </div>
@@ -168,7 +170,7 @@ function ToolRow({ tool, t }: { tool: ToolDescriptor; t: (path: string, fallback
               <span className="text-[10px] px-1 py-0.5 rounded bg-amber-500/10 text-amber-400">{t('capabilities.sideEffects')}</span>
             )}
             {tool.is_concurrency_safe && (
-              <span className="text-[10px] px-1 py-0.5 rounded bg-green-500/10 text-green-400">{t('capabilities.concurrent')}</span>
+              <span className="text-[10px] px-1 py-0.5 rounded bg-sage-500/10 text-sage-400">{t('capabilities.concurrent')}</span>
             )}
           </div>
         </div>
@@ -201,7 +203,7 @@ function AgentRow({ agent, t, onEdit }: {
         </button>
         {onEdit && (
           <button onClick={() => onEdit(agent)} className="px-2 py-1 text-[10px] text-white/30 hover:text-white/60 transition-colors"
-            title="Edit agent">
+            title={t('capabilities.editAgentTitle')}>
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
             </svg>
@@ -222,7 +224,7 @@ function AgentRow({ agent, t, onEdit }: {
                 <span key={t} className="text-[10px] px-1 py-0.5 rounded bg-ocean-500/10 text-ocean-300/70 font-mono">{t}</span>
               ))}
               {agent.tool_allowlist.length > 8 && (
-                <span className="text-[10px] text-white/30">+{agent.tool_allowlist.length - 8} more</span>
+                <span className="text-[10px] text-white/30">{t('capabilities.moreCount', { count: agent.tool_allowlist.length - 8 })}</span>
               )}
             </div>
           )}

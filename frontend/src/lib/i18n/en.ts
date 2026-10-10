@@ -1,5 +1,18 @@
 const en = {
-  app: { title: 'Mneme', tagline: 'AI assistant for communities' },
+  app: { title: 'Mneme' },
+
+  common: {
+    loading: 'Loading...',
+    unavailable: 'unavailable',
+    unknownError: 'Unknown error',
+    apiKeyPlaceholder: 'sk-...',
+    yes: 'Yes',
+    no: 'No',
+    internet: 'Internet',
+    core: 'Core',
+    api: 'API',
+    themeTooltip: 'Theme: {current} (click for {next})'
+  },
 
   nav: {
     home: 'Home',
@@ -41,10 +54,21 @@ const en = {
     tool: 'Tool',
     copy: 'Copy',
     copied: 'Copied!',
+    stop: 'Stop',
+    runningTools: 'Running {count} tools...',
+    runningTool: 'Running {count} tool...',
+    stopping: 'Stopping...',
+    stopped: 'Stopped',
     thinkingShow: 'Show thinking',
     thinkingHide: 'Hide thinking',
     delete: 'Delete',
-    messages: '{count} messages'
+    messages: '{count} messages',
+    toolStatus: {
+      pending: 'pending',
+      running: 'running',
+      done: 'done',
+      error: 'error'
+    }
   },
 
   approval: {
@@ -53,6 +77,11 @@ const en = {
     approveOnce: 'Approve once',
     alwaysAllow: 'Always allow',
     deny: 'Deny',
+    decisionRecorded: 'Decision recorded',
+    toolAllowed: 'Tool permanently allowed',
+    approvedOnce: 'Approved once',
+    denied: 'Denied',
+    decideFailed: 'Failed to decide',
     
     
     
@@ -72,6 +101,16 @@ const en = {
     about: 'About',
     systemHealth: 'System Health',
     cronJobs: 'Cron Jobs',
+    addCronJob: '+ Add Job',
+    cronNamePlaceholder: 'Job name',
+    cronSchedulePlaceholder: 'Schedule (e.g. hourly, daily, 0 9 * * *)',
+    cronPromptPlaceholder: 'Agent prompt (optional)',
+    cronEmpty: 'No scheduled jobs. Add one above or they are created automatically at startup.',
+    enable: 'Enable',
+    disable: 'Disable',
+    runNow: 'Run Now',
+    extraAllowedCommands: 'Extra allowed commands (comma-separated, active in the supervised tier)',
+    extraAllowedCommandsPlaceholder: 'e.g. python3, docker, make',
     
     
     
@@ -82,6 +121,11 @@ const en = {
     toolsRegistered: 'Tools registered',
     agentsAvailable: 'Agents available',
     checkUpdates: 'Check for updates',
+    checkingUpdates: 'Checking...',
+    updateAvailable: 'Update available',
+    upToDate: 'Up to date',
+    updateUnsupported: 'Not supported',
+    latestVersion: 'Latest',
     remove: 'Remove',
     
     
@@ -167,6 +211,7 @@ const en = {
     cancel: 'Cancel',
     editProvider: 'Edit {name}',
     addNewProvider: 'Add Provider',
+    modelPlaceholder: 'e.g. gpt-4o',
     // Prompt settings
     promptTemplates: 'Prompt Templates',
     selectPrompt: 'Select a prompt template to edit',
@@ -179,6 +224,12 @@ const en = {
     resetToDefault: 'Reset to default',
     chars: '{count} chars',
     charsDefault: '{count} chars (default)',
+    newPrompt: '+ New',
+    customBadge: 'custom',
+    promptNamePlaceholder: 'my_prompt',
+    promptBodyPlaceholder: 'Prompt template text...',
+    defaultUnavailable: 'Not available — rebuild the Go binary if this persists.',
+    providerNamePlaceholder: 'e.g. openai',
     // Prompt template labels — shown in the prompt editor sidebar.
     promptLabels: {
       system_identity: 'System — Identity',
@@ -219,7 +270,8 @@ const en = {
     refresh: 'Refresh',
     
     reflections: 'Subconscious Reflections',
-    preferences: 'Preferences'
+    preferences: 'Preferences',
+    reflection: 'reflection'
   },
 
   monitor: {
@@ -234,7 +286,12 @@ const en = {
     output: 'Output',
     hide: 'Hide',
     exitCode: 'exit: {code}',
-    emptyHint: 'No monitor runs. Commands started by agents appear here.'
+    emptyHint: 'No monitor runs. Commands started by agents appear here.',
+    statusRunning: 'running',
+    statusCompleted: 'completed',
+    statusFailed: 'failed',
+    statusTimeout: 'timeout',
+    statusUnknown: 'unknown'
   },
 
   memory: {
@@ -256,7 +313,11 @@ const en = {
     noResults: 'No results found',
     config: 'Memory Configuration',
     weights: 'Retrieval Weights',
-    profile: 'Profile'
+    profile: 'Profile',
+    profileBalanced: 'Balanced',
+    profileSemantic: 'Semantic',
+    profileLexical: 'Lexical',
+    profileGraphFirst: 'Graph First'
   },
 
   todo: {
@@ -287,14 +348,75 @@ const en = {
     concurrent: 'concurrent',
     hidden: 'hidden',
     background: 'bg',
-    maxIter: 'max {count} iter'
+    maxIter: 'max {count} iter',
+    // Capability kind: singular badge label and plural filter-tab label.
+    kindBuiltin: 'Built-in',
+    kindExtension: 'Extension',
+    kindMcp: 'MCP',
+    kindSkill: 'Skill',
+    groupExtensions: 'Extensions',
+    groupMcpServers: 'MCP Servers',
+    groupSkills: 'Skills',
+    tools: 'Tools',
+    agents: 'Agents',
+    toolsCount: '{count} tools',
+    agentsCount: '{count} agents',
+    moreCount: '+{count} more',
+    addAgent: '+ Agent',
+    allTab: 'All ({count})',
+    summary: '{tools} tools · {agents} agents · {sources} sources',
+    extensionsManaged: 'Extensions are managed in Settings → Extensions.',
+    skillInstallHint: 'Install a skill from a URL (GitHub raw, any HTTP URL) or a local SKILL.md path.',
+    skillUrlPlaceholder: 'https://raw.githubusercontent.com/org/repo/main/SKILL.md',
+    skillInstalled: 'Skill installed. It will appear in the list after the next refresh.',
+    createAgent: 'Create Agent',
+    createAgentBtn: 'Create',
+    editAgent: 'Edit {name}',
+    editAgentTitle: 'Edit agent',
+    labelId: 'ID',
+    labelDescription: 'Description',
+    labelTier: 'Tier',
+    labelModelOptional: 'Model (optional)',
+    labelMaxIterations: 'Max Iterations',
+    labelToolAllowlist: 'Tool Allowlist (comma-separated, or * for all)',
+    labelSystemPrompt: 'System Prompt',
+    idPlaceholder: 'my_agent',
+    namePlaceholder: 'My Agent',
+    descriptionPlaceholder: 'What this agent does...',
+    modelPlaceholder: 'inherit',
+    toolAllowlistPlaceholder: 'read_file, write_file, shell',
+    systemPromptPlaceholder: 'You are a helpful assistant...',
+    deleteAgentConfirm: 'Delete agent "{id}"?',
+    serverNamePlaceholder: 'my-server',
+    commandPlaceholder: 'npx -y @modelcontextprotocol/server-filesystem',
+    argsPlaceholder: '/path/to/allowed',
+    urlPlaceholder: 'http://localhost:8080'
   },
 
   errors: {
     somethingWrong: 'Something went wrong',
-    
-    
-    
+    chatTurnFailed: 'Chat turn failed',
+    unexpected: 'An unexpected error occurred.',
+    loadTasks: 'Failed to load tasks',
+    addTask: 'Failed to add task',
+    updateTask: 'Failed to update task',
+    removeTask: 'Failed to remove task',
+    loadCapabilities: 'Failed to load capabilities',
+    connectFailed: 'Connect failed',
+    disconnectFailed: 'Disconnect failed',
+    removeFailed: 'Remove failed',
+    installFailed: 'Install failed',
+    uninstallFailed: 'Uninstall failed',
+    agentSaveFailed: 'Agent save failed',
+    agentDeleteFailed: 'Agent delete failed',
+    loadNotifications: 'Failed to load notifications',
+    markAllReadFailed: 'Failed to mark all read',
+    markReadFailed: 'Failed to mark notification read',
+    createThreadFailed: 'Failed to create thread',
+    deleteThreadFailed: 'Failed to delete thread',
+    invalidResponse: 'Invalid response from server',
+    loadMonitorRuns: 'Failed to load monitor runs',
+    startFailed: 'Start failed',
     tryAgain: 'Try again'
   },
 
@@ -332,6 +454,8 @@ const en = {
     engine: 'Engine',
     model: 'Model',
     voice: 'Voice',
+    sttShort: 'STT',
+    ttsShort: 'TTS',
     endpoint: 'API Endpoint',
     modelVoice: 'Model:Voice (e.g. tts-1:alloy)',
     sttSystem: 'System (auto-detect)',
@@ -392,15 +516,19 @@ const en = {
     helpText: 'Tunnels route incoming webhook requests to agents. Each tunnel has a unique UUID. External services POST to /webhook with the X-Tunnel-UUID header.',
     copy: 'Copy',
     copied: 'Copied!',
-    deleted: 'Tunnel removed.'
+    deleted: 'Tunnel removed.',
+    refreshActivity: 'Refresh Activity',
+    showActivity: 'Show Recent Activity',
+    clear: 'Clear',
+    noActivity: 'No recent activity.'
   },
 
   autonomy: {
     title: 'Autonomy',
     level: 'Autonomy Level',
-    
-    
-    
+    tierReadonlyDesc: 'Read-only tools; no writes or command execution',
+    tierSupervisedDesc: 'Risky actions require approval',
+    tierFullDesc: 'Unrestricted; approval gate bypassed',
     workspaceOnly: 'Workspace Only'
   },
 
@@ -424,7 +552,20 @@ const en = {
     totalTools: 'Total Tools',
     enabledTools: 'Enabled Tools',
     writeSurfaces: 'Write Surfaces',
-    recentDenials: 'Recent Denials'
+    recentDenials: 'Recent Denials',
+    sideEffectsSub: 'tools with side effects',
+    providerReady: 'Ready',
+    providerNotConfigured: 'Not configured',
+    notAvailable: 'Not available',
+    inProcess: 'In-process',
+    mcpStdio: 'MCP stdio',
+    mcpHttp: 'MCP http',
+    jsonRpc: 'JSON-RPC',
+    bySource: 'By source:',
+    healthChecks: 'Health Checks',
+    cost: 'Cost',
+    totalCost: 'Total cost',
+    budgetUsed: 'Budget used'
   },
 
   channels: {
@@ -436,7 +577,13 @@ const en = {
     under: 'under',
     extensionsNote: 'Extensions can register additional channel types via the Provider interface.',
     enabled: 'Enabled',
-    disabled: 'Disabled'
+    disabled: 'Disabled',
+    enable: 'Enable',
+    disable: 'Disable',
+    add: 'Add',
+    addHint: 'Add a channel to create its config entry and start it at runtime.',
+    running: 'Running',
+    notRunning: 'Not running'
   },
 
   extensions: {
@@ -451,7 +598,9 @@ const en = {
     loaded: 'Loaded',
     notLoaded: 'Not loaded',
     formatHint: 'Each extension is a directory with a manifest.json and a binary (or script) that speaks JSON-RPC 2.0 over stdin/stdout.',
-    autoBuildHint: 'Extensions are discovered automatically from extensions/ at startup.'
+    autoBuildHint: 'Extensions are discovered automatically from extensions/ at startup.',
+    homepage: 'Homepage',
+    uninstallConfirm: 'Uninstall {name}?'
   },
 
   
@@ -463,7 +612,8 @@ const en = {
     empty: 'No notifications yet',
     noUnread: 'No unread notifications',
     markAllRead: 'Mark all read',
-    approvalRequest: 'Approval Request'
+    approvalRequest: 'Approval Request',
+    untitled: 'Notification'
   },
 
   onboarding: {
@@ -477,6 +627,7 @@ const en = {
     workspaceTitle: 'Your Workspace',
     workspaceDesc: 'The agent works within your workspace directory. Files, conversations, and memory are stored here.',
     workspacePath: 'Workspace Directory',
+    workspacePlaceholder: '<exe_dir>/data',
     readyTitle: "You're All Set!",
     readyDesc: 'Start a conversation, ask the agent to help with a task, or explore the Settings to customize your experience.',
     readyReminder: 'Tip: You can add AI providers anytime in Settings → Providers.',
@@ -498,6 +649,8 @@ const en = {
     providerTypeOpenAI: 'OpenAI-compatible (OpenAI, Groq, DeepSeek, etc.)',
     providerTypeAnthropic: 'Anthropic-compatible (Claude, Amazon Bedrock, etc.)',
     providerTypeOllama: 'Ollama (local models — Llama, Mistral, Gemma, etc.)',
+    baseUrlRequired: 'Base URL is required',
+    apiKeyRequired: 'API key is required for this provider type',
     baseUrl: 'Base URL',
     required: 'required',
     apiKey: 'API key',

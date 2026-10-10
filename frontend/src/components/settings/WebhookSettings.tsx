@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import * as api from '../../services/wails';
 import { useT } from '../../lib/i18n/I18nContext';
+import { FLASH_TIMEOUT_MS } from '../../lib/timing';
 import type { TunnelInfo } from '../../services/wails';
 
 export function WebhookSettings() {
@@ -34,7 +35,7 @@ export function WebhookSettings() {
     try { await api.clearTunnelActivity(); setActivities([]); } catch { /* no-op */ }
   };
 
-  const flash = (text: string) => { setMsg(text); setTimeout(() => setMsg(''), 3000); };
+  const flash = (text: string) => { setMsg(text); setTimeout(() => setMsg(''), FLASH_TIMEOUT_MS); };
 
   const handleCreate = async () => {
     try {
@@ -136,17 +137,17 @@ export function WebhookSettings() {
 
       <div className="flex items-center gap-3">
         <button className="btn-ghost text-xs text-ocean-400" onClick={loadActivity}>
-          {showActivity ? 'Refresh Activity' : 'Show Recent Activity'}
+          {showActivity ? t('webhooks.refreshActivity') : t('webhooks.showActivity')}
         </button>
         {activities.length > 0 && (
-          <button className="btn-ghost text-xs text-coral-400" onClick={handleClearActivity}>Clear</button>
+          <button className="btn-ghost text-xs text-coral-400" onClick={handleClearActivity}>{t('webhooks.clear')}</button>
         )}
       </div>
 
       {showActivity && (
         <div className="space-y-1 max-h-48 overflow-y-auto">
           {activities.length === 0 ? (
-            <p className="text-xs text-white/30">No recent activity.</p>
+            <p className="text-xs text-white/30">{t('webhooks.noActivity')}</p>
           ) : (
             activities.map((a: any, i: number) => (
               <div key={i} className="flex items-center gap-2 text-xs text-white/50 bg-surface-muted rounded px-3 py-1.5">

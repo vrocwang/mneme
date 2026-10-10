@@ -22,7 +22,7 @@ export function ChatView() {
 
   const { threads, activeThreadId, createNewThread, deleteSelectedThread, selectThread } = useThreads();
   const { pendingApprovals, decideApproval } = useApprovals();
-  const { messages, streamingContent, isStreaming, sendMessage } = useChatMessages();
+  const { messages, streamingContent, isStreaming, isCancelling, cancelTurn, sendMessage } = useChatMessages();
   const toolCallsByMsg = useSelector((s: RootState) => s.chatRuntime.toolCallsByMsg, shallowEqual);
   const pendingToolCalls = useSelector((s: RootState) => s.chatRuntime.toolCalls[activeThreadId || ''] || [], shallowEqual);
 
@@ -97,14 +97,21 @@ export function ChatView() {
               ) : (
                 <>
                   {messages.map((msg, i) => (
-                    <MessageBubble key={msg.id || i} message={msg} toolCalls={toolCallsByMsg[msg.id]} />
+                    <div key={msg.id || i} className="space-y-1">
+                      <MessageBubble message={msg} toolCalls={toolCallsByMsg[msg.id]} />
+                      {msg.stopped && (
+                        <p className="text-xs text-white/30 pl-1">{t('chat.stopped')}</p>
+                      )}
+                    </div>
                   ))}
                   {/* Pending tool calls: always visible, not just during streaming */}
                   {pendingToolCalls.length > 0 && (
                     <div className="mb-2">
                       <div className="text-xs text-ocean-400/70 mb-1.5 flex items-center gap-1.5">
                         <div className="w-3 h-3 rounded-full border-2 border-ocean-400 border-t-transparent animate-spin" />
-                        Running {pendingToolCalls.length} tool{pendingToolCalls.length > 1 ? 's' : ''}...
+                        {pendingToolCalls.length > 1
+                          ? t('chat.runningTools', { count: pendingToolCalls.length })
+                          : t('chat.runningTool', { count: pendingToolCalls.length })}
                       </div>
                       {pendingToolCalls.map(call => (
                         <ToolCallItem key={call.id} call={call} />
@@ -130,6 +137,21 @@ export function ChatView() {
           </div>
           {/* Composer pinned at bottom */}
           <TodoPanel threadId={activeThreadId} />
+          {/* Stop control: only while a turn is streaming, disabled while the
+              cancel request is in flight. */}
+          {isStreaming && (
+            <div className="flex justify-center px-6 pb-2 shrink-0">
+              <button
+                type="button"
+                onClick={cancelTurn}
+                disabled={isCancelling}
+                className="inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded border border-coral-500/30 text-coral-400 hover:text-coral-300 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <span className="w-2.5 h-2.5 rounded-[2px] bg-current" aria-hidden="true" />
+                {isCancelling ? t('chat.stopping') : t('chat.stop')}
+              </button>
+            </div>
+          )}
           <Composer key={activeThreadId} onSend={sendMessage} disabled={isStreaming} />
         </>
       )}

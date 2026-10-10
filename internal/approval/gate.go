@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -519,47 +520,83 @@ func (g *Gate) resolveToolRisk(toolName string) int {
 	return guessToolRiskHeuristic(toolName)
 }
 
+// ── Fallback tool-risk heuristics ────────────────────────────────────────
+//
+// The registry-backed resolver is the primary source of tool risk and
+// permission data. These lists are the conservative fallback used when no
+// resolver is wired (early boot, tests, tools installed after startup). Every
+// entry is matched with a prefix comparison, so a stem such as "read_" covers
+// every read_* tool.
+//
+// Drift guard: TestApprovalHeuristicsMatchRealToolNames
+// (heuristic_drift_test.go) scans the repository's Go sources for
+// `Name: "..."` tool-name literals and fails when an entry matches neither an
+// exact tool name nor a live prefix. Renaming a tool without updating these
+// lists therefore breaks the build's tests instead of silently downgrading the
+// heuristic.
+
+// safeToolPrefixes are tool-name prefixes considered read-only (risk level 1).
+var safeToolPrefixes = []string{
+	"read_", "list_", "grep", "glob", "memory_search", "web_search",
+	"detect_", "current_time", "workspace_state", "read_diff", "run_linter",
+	"todo_list",
+}
+
+// writeToolPrefixes are tool-name prefixes that modify persisted state
+// (risk level 2).
+var writeToolPrefixes = []string{
+	"write_", "edit_", "update_memory_md", "csv_export", "todo_add",
+	"todo_edit", "todo_update", "todo_remove", "git",
+}
+
+// executeToolNames are tools known to execute code or commands (risk level 3),
+// matched by exact name.
+var executeToolNames = map[string]bool{
+	"shell": true, "run_tests": true, "browser": true,
+	"http_get": true, "http_post": true,
+}
+
+// sideEffectToolPrefixes are prefixes of tools known to modify external state,
+// used by toolHasSideEffects when the registry-backed resolver is unavailable.
+var sideEffectToolPrefixes = []string{
+	"write_file", "edit_file", "shell",
+	"http_post", "git", "run_tests", "run_linter", "todo_add",
+	"todo_edit", "todo_update", "todo_remove", "memory_save",
+	"update_memory_md", "csv_export", "mcp_",
+}
+
 // guessToolRiskHeuristic is the fallback when the registry is unavailable.
 func guessToolRiskHeuristic(toolName string) int {
 	// Known safe tools (read-only or none)
-	safePrefixes := []string{
-		"read_", "list_", "grep", "glob", "memory_search", "web_search",
-		"detect_", "current_time", "workspace_state", "read_diff", "run_linter",
-		"image_info", "browser_open", "todo_list",
-	}
-	for _, p := range safePrefixes {
-		if len(toolName) >= len(p) && toolName[:len(p)] == p {
+	for _, p := range safeToolPrefixes {
+		if hasPrefix(toolName, p) {
 			return 1 // read_only
 		}
 	}
 
 	// Known write tools
-	writePrefixes := []string{
-		"write_", "edit_", "update_memory_md", "csv_export", "todo_add",
-		"todo_edit", "todo_update", "todo_remove", "git",
-	}
-	for _, p := range writePrefixes {
-		if len(toolName) >= len(p) && toolName[:len(p)] == p {
+	for _, p := range writeToolPrefixes {
+		if hasPrefix(toolName, p) {
 			return 2 // write
 		}
 	}
 
 	// Known execute tools
-	execTools := map[string]bool{
-		"shell": true, "shell_cmd": true,
-		"run_tests": true, "browser": true, "http_get": true, "http_post": true,
-	}
-	if execTools[toolName] {
+	if executeToolNames[toolName] {
 		return 3 // execute
 	}
 
 	// MCP proxy tools — unknown risk, treat as dangerous
-	if len(toolName) > 4 && toolName[:4] == "mcp_" {
+	if len(toolName) > len("mcp_") && hasPrefix(toolName, "mcp_") {
 		return 4 // dangerous
 	}
 
 	return 3 // execute (conservative)
 }
+
+// hasPrefix reports whether name begins with prefix, without the
+// slice-bounds subtlety of the previous inline comparison.
+func hasPrefix(name, prefix string) bool { return strings.HasPrefix(name, prefix) }
 
 // toolHasSideEffects returns true when the named tool is known to modify
 // external state. Uses the registry-backed resolver when available.
@@ -574,14 +611,8 @@ func (g *Gate) toolHasSideEffects(toolName string) bool {
 	}
 
 	// Conservative heuristic fallback.
-	externalEffectPrefixes := []string{
-		"write_file", "edit_file", "shell",
-		"http_post", "git", "run_tests", "run_linter", "todo_add",
-		"todo_edit", "todo_update", "todo_remove", "memory_save",
-		"update_memory_md", "csv_export", "mcp_",
-	}
-	for _, p := range externalEffectPrefixes {
-		if len(toolName) >= len(p) && toolName[:len(p)] == p {
+	for _, p := range sideEffectToolPrefixes {
+		if hasPrefix(toolName, p) {
 			return true
 		}
 	}

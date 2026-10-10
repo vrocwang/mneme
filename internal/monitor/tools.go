@@ -53,7 +53,7 @@ func (t *monitorStartTool) Execute(ctx context.Context, args map[string]interfac
 	if command == "" {
 		return tools.Result{Error: "command is required"}
 	}
-	timeout := 300 * time.Second
+	timeout := DefaultRunTimeout
 	if n, ok := args["timeout_secs"].(float64); ok && n > 0 {
 		timeout = time.Duration(n) * time.Second
 	}

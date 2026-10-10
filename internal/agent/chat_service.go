@@ -210,7 +210,7 @@ func (cs *ChatService) StreamMessage(ctx context.Context, threadID, message stri
 				Reason: fmt.Sprintf("score=%.2f reasons=%d (stream)", decision.Score, len(decision.Reasons)),
 			})
 		}
-		onEvent(StreamEvent{ThreadID: threadID, Type: "error", Content: "Message blocked by security policy.", Done: true})
+		onEvent(StreamEvent{ThreadID: threadID, Type: StreamError, Content: "Message blocked by security policy.", Error: "Message blocked by security policy.", Done: true})
 		return
 	}
 
@@ -219,7 +219,7 @@ func (cs *ChatService) StreamMessage(ctx context.Context, threadID, message stri
 	}
 
 	if cs.runner == nil {
-		onEvent(StreamEvent{ThreadID: threadID, Type: "error", Content: "Agent pipeline is not available. The eino runner failed to initialize.", Done: true})
+		onEvent(StreamEvent{ThreadID: threadID, Type: StreamError, Content: "Agent pipeline is not available. The eino runner failed to initialize.", Error: "Agent pipeline is not available.", Done: true})
 		return
 	}
 

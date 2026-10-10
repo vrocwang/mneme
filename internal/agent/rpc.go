@@ -6,7 +6,11 @@ import (
 	agenttoml "github.com/simon/mneme/internal/agent/toml"
 	"github.com/simon/mneme/internal/capability"
 	"github.com/simon/mneme/internal/tools"
+	pkgtools "github.com/simon/mneme/pkg/tools"
 )
+
+// defaultAgentTier is the tier recorded for an agent created without one.
+const defaultAgentTier = "worker"
 
 // AgentRPC exposes agent management methods bound at go.agent.AgentRPC.
 type AgentRPC struct {
@@ -19,9 +23,18 @@ func NewAgentRPC(reg *capability.CapabilityRegistry, agentsDir string) *AgentRPC
 	return &AgentRPC{reg: reg, agentsDir: agentsDir}
 }
 
-// SetRegistry updates the capability registry reference (called after startup).
-func (a *AgentRPC) SetRegistry(reg *capability.CapabilityRegistry) {
+// SetAgentRegistry updates the capability registry reference (called after
+// startup). The name is struct-qualified because Wails binds every exported
+// method and a bare SetRegistry would collide with capability.CapabilityRPC's.
+func (a *AgentRPC) SetAgentRegistry(reg *capability.CapabilityRegistry) {
 	a.reg = reg
+}
+
+// SetAgentsDir sets the directory user-defined agents are persisted to
+// (workspace/agents). Without it, create/update/delete only touch the
+// in-memory registry and are lost on restart.
+func (a *AgentRPC) SetAgentsDir(dir string) {
+	a.agentsDir = dir
 }
 
 // ListAgents returns all registered agents (excluding hidden).
@@ -62,10 +75,10 @@ func (a *AgentRPC) UpsertAgent(id, name, description, systemPrompt, tier, model 
 	}
 
 	if tier == "" {
-		tier = "worker"
+		tier = defaultAgentTier
 	}
 	if maxIterations <= 0 {
-		maxIterations = 10
+		maxIterations = pkgtools.DefaultMaxIterations
 	}
 	if len(toolAllowlist) == 0 {
 		toolAllowlist = []string{"*"}
@@ -84,11 +97,13 @@ func (a *AgentRPC) UpsertAgent(id, name, description, systemPrompt, tier, model 
 		def.Model = model
 	}
 
-	// Persist to TOML so it survives restarts.
-	if a.agentsDir != "" {
-		if err := agenttoml.SaveAgentToFile(a.agentsDir, def); err != nil {
-			return fmt.Errorf("save agent: %w", err)
-		}
+	// Persist to TOML so it survives restarts. An unset directory is a wiring
+	// bug, not a silent "memory-only" mode: the agent would vanish on restart.
+	if a.agentsDir == "" {
+		return fmt.Errorf("agents directory not configured")
+	}
+	if err := agenttoml.SaveAgentToFile(a.agentsDir, def); err != nil {
+		return fmt.Errorf("save agent: %w", err)
 	}
 
 	a.reg.RegisterAgentSet(capability.UserAgentsSetID, capability.KindUserAgent, capability.UserAgentsSetName, def)
@@ -106,12 +121,12 @@ func (a *AgentRPC) RemoveAgent(id string) error {
 	if _, ok := a.reg.GetAgent(id); !ok {
 		return fmt.Errorf("agent %q not found", id)
 	}
-	a.reg.UnregisterAgent(id)
-
-	if a.agentsDir != "" {
-		if err := agenttoml.DeleteAgentFile(a.agentsDir, id); err != nil {
-			return fmt.Errorf("delete agent file: %w", err)
-		}
+	if a.agentsDir == "" {
+		return fmt.Errorf("agents directory not configured")
 	}
+	if err := agenttoml.DeleteAgentFile(a.agentsDir, id); err != nil {
+		return fmt.Errorf("delete agent file: %w", err)
+	}
+	a.reg.UnregisterAgent(id)
 	return nil
 }

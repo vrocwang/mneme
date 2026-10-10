@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useReducer, useCallback, useRef, useEffect, useMemo } from 'react';
-import { load, save } from '../lib/persist';
+import { StorageKeys, loadValue, saveValue } from '../lib/storage';
+import { TOAST_TIMEOUT_MS } from '../lib/timing';
 
 // ── State ─────────────────────────────────────────────────────────────────
 // AppContext retains only transient UI state (sidebar, toasts).
@@ -38,7 +39,7 @@ function reducer(state: AppState, action: Action): AppState {
 }
 
 const initialState: AppState = {
-  sidebarOpen: load('sidebar') !== 'false',
+  sidebarOpen: loadValue(StorageKeys.sidebarOpen) !== 'false',
   toasts: [],
 };
 
@@ -76,11 +77,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addToast = useCallback((kind: Toast['kind'], title: string, body: string) => {
     const id = `toast-${++toastIdRef.current}`;
     dispatch({ type: 'ADD_TOAST', toast: { id, kind, title, body } });
-    setTimeout(() => dispatch({ type: 'REMOVE_TOAST', id }), 5000);
+    setTimeout(() => dispatch({ type: 'REMOVE_TOAST', id }), TOAST_TIMEOUT_MS);
   }, []);
 
   useEffect(() => {
-    save('sidebar', String(state.sidebarOpen));
+    saveValue(StorageKeys.sidebarOpen, String(state.sidebarOpen));
   }, [state.sidebarOpen]);
 
   // Memoize so `actions` keeps a stable identity; consumers list it in their

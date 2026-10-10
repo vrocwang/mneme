@@ -2,10 +2,13 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
+
+	pkgtools "github.com/simon/mneme/pkg/tools"
 
 	"github.com/simon/mneme/internal/security"
 )
@@ -33,6 +36,15 @@ func (w *ToolWrapper) Info(ctx context.Context) (*schema.ToolInfo, error) {
 // InvokableRun implements tool.InvokableTool. It runs the security check,
 // executes the inner tool, scrubs the output, and records the result with the
 // circuit breaker.
+//
+// Tool-level failures — a refusal by the security policy and any error the tool
+// reports about its own work (missing file, blocked command, timeout) — are
+// returned as visible tool output prefixed with tools.ToolFailurePrefix rather
+// than as a Go error. The model then sees what went wrong and can correct
+// course, instead of the whole turn aborting on the first failed call. Genuine
+// infrastructure failures (a tool that cannot be invoked at all, a transport
+// error) still propagate as errors. Both kinds count as failures for the loop
+// breaker, so repeating a failing call is still cut off.
 func (w *ToolWrapper) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (content string, err error) {
 	// ── Pre-execute: approval gate ──
 	if w.sec != nil {
@@ -40,7 +52,7 @@ func (w *ToolWrapper) InvokableRun(ctx context.Context, argumentsInJSON string, 
 			if w.cb != nil {
 				w.cb.RecordFailure(w.toolName(), argumentsInJSON)
 			}
-			return "", err
+			return pkgtools.ToolFailurePrefix + err.Error(), nil
 		}
 		// Mark the context so downstream tools (e.g. the shell tool's tier gate)
 		// know this call passed through the approval pipeline and should not
@@ -75,6 +87,19 @@ func (w *ToolWrapper) InvokableRun(ctx context.Context, argumentsInJSON string, 
 	// ── Post-execute: credential scrubbing ──
 	if w.sec != nil && err == nil {
 		content = w.sec.SanitizeOutput(content)
+	}
+
+	// ── Post-execute: feed tool-level failures back to the model ──
+	var failure *pkgtools.ToolFailure
+	if errors.As(err, &failure) {
+		msg := failure.Message
+		if w.sec != nil {
+			msg = w.sec.SanitizeOutput(msg)
+		}
+		if content != "" {
+			content += "\n"
+		}
+		return content + pkgtools.ToolFailurePrefix + msg, nil
 	}
 
 	return content, err

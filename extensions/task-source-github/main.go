@@ -54,7 +54,7 @@ func main() {
 
 	srv.RegisterTool(extsdk.ToolDef{
 		Name:        "github_list_issues",
-		Description: "List GitHub Issues for a repository (alias for sync_issues).",
+		Description: "List GitHub Issues for a repository (alias for github_sync_issues).",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

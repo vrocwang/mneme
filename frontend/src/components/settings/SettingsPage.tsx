@@ -3,7 +3,8 @@ import * as api from '../../services/wails';
 import type { AllowlistEntry } from '../../services/wails';
 import { useApp } from '../../state/AppContext';
 import { useT } from '../../lib/i18n/I18nContext';
-import { getTheme, setTheme } from '../ThemeSwitcher';
+import { useTheme, setTheme } from '../ThemeSwitcher';
+import type { Theme } from '../ThemeSwitcher';
 import { ConfigSettings } from './ConfigSettings';
 import { PromptSettings } from './PromptSettings';
 import { ProviderSettings } from './ProviderSettings';
@@ -16,7 +17,36 @@ import { ExtensionSettings } from './ExtensionSettings';
 import { CompanionSettings } from './CompanionSettings';
 
 type Tab = 'general' | 'providers' | 'approvals' | 'theme' | 'config' | 'prompts' | 'about' | 'autonomy' | 'keyring' | 'webhooks' | 'diagnostics' | 'voice' | 'soul' | 'channels' | 'extensions'  | 'companion';
-type Theme = 'dark' | 'light' | 'system';
+
+// Health is a loosely-typed snapshot from the backend; these readers accept a
+// missing or malformed key instead of letting it render as a blank cell.
+
+// Security tiers offered by the autonomy panel; ids match the Go config and
+// the labels are shown verbatim (they are identifiers, not copy).
+const TIERS: { id: string; label: string; descKey: string }[] = [
+  { id: 'readonly', label: 'readonly', descKey: 'autonomy.tierReadonlyDesc' },
+  { id: 'supervised', label: 'supervised', descKey: 'autonomy.tierSupervisedDesc' },
+  { id: 'full', label: 'full', descKey: 'autonomy.tierFullDesc' },
+];
+
+interface KeyringHealth {
+  available?: boolean;
+  activeMode?: string;
+  backendName?: string;
+  failureReason?: string;
+}
+
+function readKeyring(value: unknown): KeyringHealth | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  const str = (x: unknown) => (typeof x === 'string' && x !== '' ? x : undefined);
+  return {
+    available: typeof v.available === 'boolean' ? v.available : undefined,
+    activeMode: str(v.activeMode),
+    backendName: str(v.backendName),
+    failureReason: str(v.failureReason),
+  };
+}
 
 function HealthCard({ label, value }: { label: string; value: unknown }) {
   const renderValue = (v: unknown): string => {
@@ -46,10 +76,11 @@ function HealthCard({ label, value }: { label: string; value: unknown }) {
   );
 }
 
-function formatCount(val: unknown): string {
-  if (val == null) return '—';
+function formatCount(val: unknown, unavailable: string): string {
+  if (typeof val === 'number' && Number.isFinite(val)) return String(val);
+  // Older backend versions report `tools` as the list of tool names.
   if (Array.isArray(val)) return String(val.length);
-  return String(val);
+  return unavailable;
 }
 
 export function SettingsPage() {
@@ -58,13 +89,33 @@ export function SettingsPage() {
   const [tab, setTab] = useState<Tab>('general');
   const [health, setHealth] = useState<Record<string, unknown>>({});
   const [allowlist, setAllowlist] = useState<AllowlistEntry[]>([]);
+  const [updateState, setUpdateState] = useState<'idle' | 'checking'>('idle');
+  const [updateResult, setUpdateResult] = useState<Record<string, unknown> | null>(null);
   const [cronJobs, setCronJobs] = useState<unknown[]>([]);
   const [showAddCron, setShowAddCron] = useState(false);
   const [cronName, setCronName] = useState('');
   const [cronSched, setCronSched] = useState('');
   const [cronPrompt, setCronPrompt] = useState('');
   const [version, setVersion] = useState('');
-  const [currentTheme, setCurrentTheme] = useState<Theme>(getTheme());
+  // Single source of truth for the applied theme (shared with ThemeSwitcher).
+  const currentTheme = useTheme();
+  const [selectedTier, setSelectedTier] = useState('');
+  const [tierSaving, setTierSaving] = useState(false);
+  const [tierError, setTierError] = useState('');
+  const [keyringError, setKeyringError] = useState('');
+  const [keyringProbing, setKeyringProbing] = useState(false);
+
+  const handleCheckUpdates = async () => {
+    setUpdateState('checking');
+    try {
+      const result = await api.checkForUpdate();
+      setUpdateResult((result as Record<string, unknown>) ?? null);
+    } catch (e) {
+      setUpdateResult({ error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setUpdateState('idle');
+    }
+  };
 
   useEffect(() => {
     api.health().then(setHealth).catch(() => {});
@@ -74,10 +125,47 @@ export function SettingsPage() {
     // Composio requires the composio extension to be loaded at runtime.
   }, [tab]);
 
-  // Re-sync theme state whenever the theme tab is opened.
-  useEffect(() => {
-    if (tab === 'theme') setCurrentTheme(getTheme());
-  }, [tab]);
+  const healthString = (key: string): string => {
+    const v = health[key];
+    return typeof v === 'string' && v !== '' ? v : '';
+  };
+  const reportedTier = healthString('tier');
+  // A tier written from this panel wins until the page reloads, so a failed
+  // health refresh cannot show the stale value back.
+  const currentTier = selectedTier || reportedTier;
+  const keyring = readKeyring(health['keyring_status']);
+  const workspaceOnly = typeof health['workspace_only'] === 'boolean' ? health['workspace_only'] : null;
+
+  const changeTier = async (next: string) => {
+    setTierError('');
+    setTierSaving(true);
+    try {
+      await api.setSecurityTier(next);
+      setSelectedTier(next);
+      // Re-read the snapshot so the panel shows the backend's tier; a failed
+      // refresh is not a write failure, so it must not overwrite the result.
+      api.health().then(setHealth).catch(() => {});
+    } catch (e) {
+      setTierError(`${t('errors.somethingWrong')}: ${e}`);
+    } finally {
+      setTierSaving(false);
+    }
+  };
+
+  const retryKeyringProbe = async () => {
+    setKeyringError('');
+    setKeyringProbing(true);
+    try {
+      // The probe returns the fresh status — use it directly instead of
+      // re-reading an unrelated health snapshot.
+      const status = await api.keyringRetryProbe();
+      setHealth(prev => ({ ...prev, keyring_status: status }));
+    } catch (e) {
+      setKeyringError(`${t('errors.somethingWrong')}: ${e}`);
+    } finally {
+      setKeyringProbing(false);
+    }
+  };
 
   const tabs: { id: Tab; key: string }[] = [
     { id: 'general', key: 'settings.general' },
@@ -152,24 +240,28 @@ export function SettingsPage() {
               </div>
 
               <h2 className="text-lg font-semibold text-white/80">{t('settings.systemHealth')}</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
-                {Object.entries(health).map(([key, value]) => (
-                  <HealthCard key={key} label={key} value={value} />
-                ))}
-              </div>
+              {Object.keys(health).length === 0 ? (
+                <p className="text-sm text-white/30">{t('common.unavailable')}</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
+                  {Object.entries(health).map(([key, value]) => (
+                    <HealthCard key={key} label={key} value={value} />
+                  ))}
+                </div>
+              )}
               <>
                   <div className="flex items-center justify-between mt-6">
                     <h3 className="text-sm font-semibold text-white/60">{t('settings.cronJobs')}</h3>
                     <button
                       className="text-xs text-ocean-400 hover:text-ocean-300"
                       onClick={() => setShowAddCron(!showAddCron)}
-                    >{showAddCron ? 'Cancel' : '+ Add Job'}</button>
+                    >{showAddCron ? t('settings.cancel') : t('settings.addCronJob')}</button>
                   </div>
                   {showAddCron && (
                     <div className="card space-y-2">
-                      <input className="input-field !text-xs" placeholder="Job name" value={cronName} onChange={e => setCronName(e.target.value)} />
-                      <input className="input-field !text-xs" placeholder="Schedule (e.g. hourly, daily, 0 9 * * *)" value={cronSched} onChange={e => setCronSched(e.target.value)} />
-                      <input className="input-field !text-xs" placeholder="Agent prompt (optional)" value={cronPrompt} onChange={e => setCronPrompt(e.target.value)} />
+                      <input className="input-field !text-xs" placeholder={t('settings.cronNamePlaceholder')} value={cronName} onChange={e => setCronName(e.target.value)} />
+                      <input className="input-field !text-xs" placeholder={t('settings.cronSchedulePlaceholder')} value={cronSched} onChange={e => setCronSched(e.target.value)} />
+                      <input className="input-field !text-xs" placeholder={t('settings.cronPromptPlaceholder')} value={cronPrompt} onChange={e => setCronPrompt(e.target.value)} />
                       <button
                         className="btn-primary text-xs"
                         onClick={async () => {
@@ -181,11 +273,11 @@ export function SettingsPage() {
                           } catch (_) {}
                         }}
                         disabled={!cronName || !cronSched}
-                      >Save</button>
+                      >{t('settings.save')}</button>
                     </div>
                   )}
                   {cronJobs.length === 0 ? (
-                    <p className="text-xs text-white/30 py-2">No scheduled jobs. Add one above or they are created automatically at startup.</p>
+                    <p className="text-xs text-white/30 py-2">{t('settings.cronEmpty')}</p>
                   ) : (
                   <div className="space-y-2">
                     {cronJobs.map((job: any, i: number) => (
@@ -207,7 +299,7 @@ export function SettingsPage() {
                               job.enabled ? 'bg-coral-500/20 text-coral-400 hover:bg-coral-500/30' : 'bg-sage-500/20 text-sage-400 hover:bg-sage-500/30'
                             }`}
                           >
-                            {job.enabled ? 'Disable' : 'Enable'}
+                            {job.enabled ? t('settings.disable') : t('settings.enable')}
                           </button>
                           <button
                             onClick={async () => {
@@ -215,7 +307,7 @@ export function SettingsPage() {
                             }}
                             className="text-xs px-2 py-0.5 rounded bg-ocean-500/15 text-ocean-400 hover:bg-ocean-500/30 transition-colors"
                           >
-                            Run Now
+                            {t('settings.runNow')}
                           </button>
                           <button
                             onClick={async () => {
@@ -226,7 +318,7 @@ export function SettingsPage() {
                               } catch (_) {}
                             }}
                             className="text-xs px-2 py-0.5 rounded text-white/20 hover:text-coral-400 hover:bg-coral-500/10 transition-colors"
-                            title="Remove"
+                            title={t('settings.remove')}
                           >x</button>
                         </div>
                       </div>
@@ -264,7 +356,7 @@ export function SettingsPage() {
                 {themeOptions.map(opt => (
                   <button
                     key={opt.id}
-                    onClick={() => { setTheme(opt.id); setCurrentTheme(opt.id); }}
+                    onClick={() => setTheme(opt.id)}
                     className={`w-full card flex items-center gap-3 text-left transition-all ${
                       currentTheme === opt.id ? 'ring-2 ring-ocean-500' : ''
                     }`}
@@ -295,20 +387,47 @@ export function SettingsPage() {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-white/40">{t('settings.toolsRegistered')}</span>
-                  <span className="text-white/70 font-mono">{formatCount(health?.tools)}</span>
+                  <span className="text-white/70 font-mono">{formatCount(health['tools'], t('common.unavailable'))}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-white/40">{t('settings.agentsAvailable')}</span>
-                  <span className="text-white/70 font-mono">{formatCount(health?.agents)}</span>
+                  <span className="text-white/70 font-mono">{formatCount(health['agents'], t('common.unavailable'))}</span>
                 </div>
                 <div className="flex justify-between text-sm gap-3">
                   <span className="text-white/40 shrink-0">{t('settings.dataDir')}</span>
-                  <span className="text-white/70 font-mono text-xs truncate max-w-[280px]" title={health?.workspace ? String(health.workspace) : undefined}>{health?.workspace ? String(health.workspace) : '—'}</span>
+                  <span className="text-white/70 font-mono text-xs truncate max-w-[280px]" title={healthString('workspace') || undefined}>{healthString('workspace') || t('common.unavailable')}</span>
                 </div>
               </div>
-              <button className="btn-primary text-sm" onClick={() => api.checkForUpdate().then(r => alert(JSON.stringify(r)))}>
-                {t('settings.checkUpdates')}
-              </button>
+              <div className="space-y-2">
+                <button
+                  className="btn-primary text-sm"
+                  disabled={updateState === 'checking'}
+                  onClick={handleCheckUpdates}
+                >
+                  {updateState === 'checking' ? t('settings.checkingUpdates') : t('settings.checkUpdates')}
+                </button>
+                {updateResult && (
+                  <div className="text-xs text-white/60 space-y-0.5">
+                    {updateResult.supported === false ? (
+                      <p className="text-amber-300">{t('settings.updateUnsupported')}{updateResult.reason ? ` — ${updateResult.reason}` : ''}</p>
+                    ) : updateResult.error ? (
+                      <p className="text-coral-400">{String(updateResult.error)}</p>
+                    ) : (
+                      <>
+                        <p className={updateResult.update_available ? 'text-amber-300' : 'text-sage-400'}>
+                          {updateResult.update_available ? t('settings.updateAvailable') : t('settings.upToDate')}
+                        </p>
+                        <p>{t('settings.latestVersion')}: {String(updateResult.latest ?? '—')}</p>
+                        {typeof updateResult.release_url === 'string' && updateResult.release_url !== '' && (
+                          <a className="text-ocean-400 underline" href={updateResult.release_url} target="_blank" rel="noreferrer">
+                            {String(updateResult.release_url)}
+                          </a>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -316,9 +435,27 @@ export function SettingsPage() {
             <div className="max-w-2xl xl:max-w-3xl 2xl:max-w-4xl animate-fade-in space-y-4">
               <h2 className="text-lg font-semibold">{t('autonomy.title')}</h2>
               <div className="card space-y-3 text-sm">
-                <p className="text-secondary">{t('autonomy.level')}: <strong>{String(health?.tier || 'supervised')}</strong></p>
-                <p className="text-secondary">{t('autonomy.workspaceOnly')}: <strong>{health?.workspace_only ? 'Yes' : 'No'}</strong></p>
+                <div>
+                  <p className="text-white/60">{t('autonomy.level')}: <strong>{currentTier || t('common.unavailable')}</strong></p>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {TIERS.map(opt => (
+                      <button
+                        key={opt.id}
+                        disabled={tierSaving}
+                        onClick={() => changeTier(opt.id)}
+                        className={`px-3 py-1.5 rounded-lg text-xs text-left transition-all disabled:opacity-50 ${
+                          currentTier === opt.id ? 'bg-ocean-500/15 text-ocean-300 ring-1 ring-ocean-500/40' : 'text-white/50 hover:text-white/80 hover:bg-white/5'
+                        }`}
+                      >
+                        <span className="font-mono">{opt.label}</span>
+                        <span className="block text-[10px] text-white/30">{t(opt.descKey)}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-white/60">{t('autonomy.workspaceOnly')}: <strong>{workspaceOnly === null ? t('common.unavailable') : workspaceOnly ? t('common.yes') : t('common.no')}</strong></p>
               </div>
+              {tierError && <p className="text-xs text-coral-400">{tierError}</p>}
             </div>
           )}
 
@@ -326,17 +463,22 @@ export function SettingsPage() {
             <div className="max-w-2xl xl:max-w-3xl 2xl:max-w-4xl animate-fade-in space-y-4">
               <h2 className="text-lg font-semibold">{t('keyring.title')}</h2>
               <div className="card space-y-3 text-sm">
-                <div className="flex justify-between"><span>{t('keyring.status')}</span><span className="font-mono">{String((health?.keyring_status as any)?.available ? t('keyring.available') : t('keyring.unavailable'))}</span></div>
-                <div className="flex justify-between"><span>{t('keyring.mode')}</span><span className="font-mono">{String((health?.keyring_status as any)?.activeMode || '—')}</span></div>
-                <div className="flex justify-between"><span>{t('keyring.backend')}</span><span className="font-mono">{String((health?.keyring_status as any)?.backendName || '—')}</span></div>
+                <div className="flex justify-between">
+                  <span>{t('keyring.status')}</span>
+                  <span className="font-mono">
+                    {keyring ? (keyring.available ? t('keyring.available') : t('keyring.unavailable')) : t('common.unavailable')}
+                  </span>
+                </div>
+                <div className="flex justify-between"><span>{t('keyring.mode')}</span><span className="font-mono">{keyring?.activeMode || t('common.unavailable')}</span></div>
+                <div className="flex justify-between"><span>{t('keyring.backend')}</span><span className="font-mono">{keyring?.backendName || t('common.unavailable')}</span></div>
+                {keyring?.failureReason && (
+                  <p className="text-xs font-mono text-coral-400">{keyring.failureReason}</p>
+                )}
               </div>
-              <button className="btn-primary text-sm" onClick={async () => {
-                await api.keyringRetryProbe();
-                const h = await api.health();
-                setHealth(h);
-              }}>
+              <button className="btn-primary text-sm" disabled={keyringProbing} onClick={retryKeyringProbe}>
                 {t('keyring.retryProbe')}
               </button>
+              {keyringError && <p className="text-xs text-coral-400">{keyringError}</p>}
             </div>
           )}
 

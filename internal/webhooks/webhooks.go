@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/simon/mneme/internal/config"
 	"github.com/simon/mneme/internal/security"
 )
 
@@ -68,7 +69,7 @@ func (s *Server) Start() error {
 	})
 
 	s.server = &http.Server{
-		Addr:    fmt.Sprintf("127.0.0.1:%d", s.port),
+		Addr:    fmt.Sprintf("%s:%d", config.DefaultLoopbackBind, s.port),
 		Handler: mux,
 	}
 

@@ -163,10 +163,10 @@ func writePPTX(path, title, author string, slides []slide) error {
 	writeZipFile(w, "ppt/_rels/presentation.xml.rels", relsXML)
 
 	// ppt/presentation.xml
-	presXML := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+	presXML := `<?xml version="1.0" encoding="UTF-8"?>
 <p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst>
-  <p:sldIdLst>`)
+  <p:sldIdLst>`
 	for i := range slides {
 		presXML += fmt.Sprintf(`<p:sldId id="%d" r:id="rId%d"/>`, 256+i, i+3)
 	}

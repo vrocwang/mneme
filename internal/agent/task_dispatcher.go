@@ -8,6 +8,12 @@ import (
 	"time"
 )
 
+// DefaultTaskMaxRetries is the retry budget for a dispatched task when the
+// caller does not set one. It is the single source of truth for both the
+// in-memory fallback (TaskDispatcher.Enqueue) and the dispatch_tasks DDL
+// default (TaskStore.migrate), which previously duplicated the number 3.
+const DefaultTaskMaxRetries = 3
+
 // DispatchTask is a unit of autonomous work to be executed.
 type DispatchTask struct {
 	ID          string     `json:"id"`
@@ -88,7 +94,7 @@ func (d *TaskDispatcher) Enqueue(task *DispatchTask) error {
 	task.Status = "pending"
 	task.CreatedAt = time.Now().UTC()
 	if task.MaxRetries == 0 {
-		task.MaxRetries = 3
+		task.MaxRetries = DefaultTaskMaxRetries
 	}
 	d.tasks[task.ID] = task
 	d.pending = append(d.pending, task.ID)

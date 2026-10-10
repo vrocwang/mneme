@@ -154,5 +154,3 @@ func TestGraph_EdgeKeyDeterministic(t *testing.T) {
 		t.Errorf("expected alice::bob, got %s", k1)
 	}
 }
-
-

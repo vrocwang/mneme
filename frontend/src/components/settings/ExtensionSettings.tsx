@@ -29,24 +29,24 @@ export function ExtensionSettings() {
       setInstallPath('');
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Install failed');
+      setError(e instanceof Error ? e.message : t('errors.installFailed'));
     } finally {
       setInstalling(false);
     }
   };
 
   const handleUninstall = async (category: string, name: string) => {
-    if (!confirm(`Uninstall ${name}?`)) return;
+    if (!confirm(t('extensions.uninstallConfirm', { name }))) return;
     try {
       await api.uninstallExtension(category, name);
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Uninstall failed');
+      setError(e instanceof Error ? e.message : t('errors.uninstallFailed'));
     }
   };
 
   const healthColor = (h: string) =>
-    h === 'ok' ? 'bg-sage-400' : h === 'degraded' ? 'bg-amber-400' : h === 'error' ? 'bg-coral-400' : 'bg-gray-500';
+    h === 'ok' ? 'bg-sage-400' : h === 'degraded' ? 'bg-amber-400' : h === 'error' ? 'bg-coral-400' : 'bg-white/20';
 
   return (
     <div className="max-w-2xl xl:max-w-3xl 2xl:max-w-4xl animate-fade-in space-y-6">
@@ -95,7 +95,7 @@ export function ExtensionSettings() {
                       {ext.author && <span>{ext.author}</span>}
                       {ext.homepage && (
                         <a href={ext.homepage} target="_blank" rel="noopener noreferrer"
-                          className="text-ocean-400/70 hover:text-ocean-300 transition-colors">Homepage</a>
+                          className="text-ocean-400/70 hover:text-ocean-300 transition-colors">{t('extensions.homepage')}</a>
                       )}
                       <span className={ext.loaded ? 'text-sage-400/70' : 'text-amber-400/70'}>
                         {ext.loaded ? t('extensions.loaded') : t('extensions.notLoaded')}

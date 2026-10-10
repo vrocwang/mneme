@@ -95,4 +95,3 @@ func (m *Manager) syncOne(ctx context.Context, c Connector, pipeline Pipeline) {
 // ── TextConnector ────────────────────────────────────────────────
 
 // ── Format helpers ───────────────────────────────────────────────
-

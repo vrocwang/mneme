@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/simon/mneme/internal/workflows"
+	workflow_doc "github.com/simon/mneme/internal/workflow_doc"
 )
 
 // WorkflowInjector matches user tasks against available WORKFLOW.md files and
@@ -13,7 +13,7 @@ import (
 type WorkflowInjector struct {
 	userDir    string
 	projectDir string
-	workflows  []*workflows.Workflow
+	workflows  []*workflow_doc.Workflow
 }
 
 // NewWorkflowInjector creates an injector that discovers workflows from the
@@ -27,13 +27,13 @@ func NewWorkflowInjector(userWorkflowsDir, projectRoot string) *WorkflowInjector
 
 // Load discovers all WORKFLOW.md files from the configured directories.
 func (wi *WorkflowInjector) Load() {
-	wi.workflows = workflows.DiscoverWorkflows(wi.userDir, wi.projectDir)
+	wi.workflows = workflow_doc.DiscoverWorkflows(wi.userDir, wi.projectDir)
 }
 
 // Match finds workflows relevant to the user's task description.
 // Uses BestMatch (word-overlap scoring on the when_to_use field) and
 // falls back to name/description matching.
-func (wi *WorkflowInjector) Match(ctx context.Context, task string) []*workflows.Workflow {
+func (wi *WorkflowInjector) Match(ctx context.Context, task string) []*workflow_doc.Workflow {
 	if len(wi.workflows) == 0 {
 		return nil
 	}
@@ -41,17 +41,17 @@ func (wi *WorkflowInjector) Match(ctx context.Context, task string) []*workflows
 
 	// Score each workflow by word overlap with when_to_use, name, and description.
 	type scored struct {
-		wf    *workflows.Workflow
+		wf    *workflow_doc.Workflow
 		score int
 	}
 	var results []scored
 	for _, wf := range wi.workflows {
 		score := 0
 		if whenToUse := wf.Frontmatter["when_to_use"]; whenToUse != "" {
-			score += workflows.WordOverlap(taskLower, strings.ToLower(whenToUse))
+			score += workflow_doc.WordOverlap(taskLower, strings.ToLower(whenToUse))
 		}
-		score += workflows.WordOverlap(taskLower, strings.ToLower(wf.Name))
-		score += workflows.WordOverlap(taskLower, strings.ToLower(wf.Description))
+		score += workflow_doc.WordOverlap(taskLower, strings.ToLower(wf.Name))
+		score += workflow_doc.WordOverlap(taskLower, strings.ToLower(wf.Description))
 		if score > 0 {
 			results = append(results, scored{wf: wf, score: score})
 		}
@@ -69,7 +69,7 @@ func (wi *WorkflowInjector) Match(ctx context.Context, task string) []*workflows
 		results = results[:3]
 	}
 
-	out := make([]*workflows.Workflow, len(results))
+	out := make([]*workflow_doc.Workflow, len(results))
 	for i, r := range results {
 		out[i] = r.wf
 	}
@@ -103,7 +103,7 @@ func (wi *WorkflowInjector) InjectPrompt(ctx context.Context, userMessage, syste
 		if len(wf.Phases) > 0 {
 			b.WriteString("**Phases:**\n")
 			for _, name := range wf.PhaseNames() {
-				guidance := workflows.PhaseGuidance(wf, name)
+				guidance := workflow_doc.PhaseGuidance(wf, name)
 				if guidance != "" {
 					// Truncate per-phase guidance to save context.
 					if len(guidance) > 800 {
@@ -128,12 +128,12 @@ func (wi *WorkflowInjector) InjectPrompt(ctx context.Context, userMessage, syste
 	return b.String()
 }
 
-// Len returns the number of loaded workflows.
+// Len returns the number of loaded workflow_doc.
 func (wi *WorkflowInjector) Len() int {
 	return len(wi.workflows)
 }
 
 // Workflows returns the currently loaded workflows (read-only).
-func (wi *WorkflowInjector) Workflows() []*workflows.Workflow {
+func (wi *WorkflowInjector) Workflows() []*workflow_doc.Workflow {
 	return wi.workflows
 }

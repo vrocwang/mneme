@@ -22,9 +22,11 @@ security model — with all non-core capabilities delivered as runtime extension
 - **Layered security**: prompt-injection detection, autonomy tiers, command
   gating, approval flows, audit logging, sandboxing, credential scrubbing, and
   a narration/failure circuit breaker.
-- **Extension system**: 38 runtime extensions (tools, channels, agents,
-  integrations) discovered via `manifest.json` and spoken to over JSON-RPC — no
-  recompilation needed.
+- **Extension system**: 40 runtime extensions (tools, channels, agents,
+  integrations, plus agent packs) discovered via `manifest.json` and spoken to
+  over JSON-RPC — no recompilation needed. Core keeps only the agent loop, the
+  capability registry, memory/learning, security, and the two in-process
+  channels; file-state, todos, and workflow execution are extensions.
 - **MCP**: Model Context Protocol servers managed from the UI, persisted to
   SQLite, and reconnected at boot.
 
@@ -142,7 +144,7 @@ internal/           - All business logic
   inference/        - LLM provider abstraction (streaming + non-streaming)
   prompts/          - Embedded prompt templates (defaults/*.txt)
   mcp/              - MCP server store, registry, tools
-  ...               - cron, dag, desktop, monitor, todos, webhooks, workflows
+  ...               - cron, dag, desktop, monitor, notifications, webhooks
 pkg/                - Reusable libraries (events, rpc, tools, embeddings)
 cmd/                - Build tools (mneme-cli, build-extensions)
 extensions/         - Runtime-loaded extensions (JSON-RPC)

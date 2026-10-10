@@ -16,7 +16,6 @@ import (
 type STTResult struct {
 	Text       string  `json:"text"`
 	Confidence float64 `json:"confidence"`
-	Language   string  `json:"language,omitempty"`
 }
 
 // STTEngine is the speech-to-text interface.

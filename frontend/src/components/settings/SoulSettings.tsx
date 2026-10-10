@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getSOUL, setSOUL, getIdentity, setIdentity } from '../../services/wails';
 import { useT } from '../../lib/i18n/I18nContext';
+import { FEEDBACK_RESET_MS } from '../../lib/timing';
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -20,7 +21,7 @@ function useEditorState(fetchFn: () => Promise<string>, saveFn: (content: string
       await saveFn(content);
       setOriginal(content);
       setState('saved');
-      setTimeout(() => setState('idle'), 2000);
+      setTimeout(() => setState('idle'), FEEDBACK_RESET_MS);
     } catch (e) {
       setError(String(e));
       setState('error');
@@ -55,7 +56,7 @@ export function SoulSettings() {
             disabled={!soul.dirty || soul.state === 'saving'}
             className={`btn-primary text-xs px-3 py-1.5 ${
               soul.state === 'saved' ? '!bg-sage-500' :
-              soul.state === 'error' ? '!bg-red-500' : ''
+              soul.state === 'error' ? '!bg-coral-500' : ''
             }`}
           >
             {saveLabel(soul.state)}
@@ -64,11 +65,11 @@ export function SoulSettings() {
         <textarea
           value={soul.content}
           onChange={e => soul.setContent(e.target.value)}
-          className="w-full h-48 bg-surface-input border border-surface-border rounded-lg p-3
+          className="w-full h-48 bg-surface border border-surface-border rounded-lg p-3
                      text-sm text-white/80 font-mono resize-y focus:outline-none focus:border-ocean-500/50"
           spellCheck={false}
         />
-        {soul.error && <p className="text-xs text-red-400 mt-1">{soul.error}</p>}
+        {soul.error && <p className="text-xs text-coral-400 mt-1">{soul.error}</p>}
       </section>
 
       {/* IDENTITY.md */}
@@ -83,7 +84,7 @@ export function SoulSettings() {
             disabled={!identity.dirty || identity.state === 'saving'}
             className={`btn-primary text-xs px-3 py-1.5 ${
               identity.state === 'saved' ? '!bg-sage-500' :
-              identity.state === 'error' ? '!bg-red-500' : ''
+              identity.state === 'error' ? '!bg-coral-500' : ''
             }`}
           >
             {saveLabel(identity.state)}
@@ -92,11 +93,11 @@ export function SoulSettings() {
         <textarea
           value={identity.content}
           onChange={e => identity.setContent(e.target.value)}
-          className="w-full h-48 bg-surface-input border border-surface-border rounded-lg p-3
+          className="w-full h-48 bg-surface border border-surface-border rounded-lg p-3
                      text-sm text-white/80 font-mono resize-y focus:outline-none focus:border-ocean-500/50"
           spellCheck={false}
         />
-        {identity.error && <p className="text-xs text-red-400 mt-1">{identity.error}</p>}
+        {identity.error && <p className="text-xs text-coral-400 mt-1">{identity.error}</p>}
       </section>
 
       {/* Help */}

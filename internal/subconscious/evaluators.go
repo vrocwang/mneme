@@ -11,25 +11,17 @@ import (
 // ── Memory Gap Evaluator ───────────────────────────────────────────
 // Checks memory tree health and suggests review of under-represented topics.
 
-// MemoryGapConfig tunes gap detection thresholds.
-type MemoryGapConfig struct {
-	// MinMessagesForGapCheck is the minimum messages before gap detection fires.
-	MinMessagesForGapCheck int
-	// ThinBranchThreshold is the minimum content length for a healthy branch.
-	ThinBranchThreshold int
-}
-
-func DefaultMemoryGapConfig() MemoryGapConfig {
-	return MemoryGapConfig{
-		MinMessagesForGapCheck: 10,
-		ThinBranchThreshold:    200,
-	}
-}
+// Gap detection thresholds. A probe with fewer than thinBranchMinResults hits
+// is treated as thin coverage, and fewer than minGapsToReport thin topics are
+// not worth a nudge.
+const (
+	thinBranchMinResults = 2
+	minGapsToReport      = 3
+)
 
 // MemoryGapEvaluator detects gaps in memory coverage and suggests review.
 type MemoryGapEvaluator struct {
 	log      *slog.Logger
-	config   MemoryGapConfig
 	pipeline MemoryPipeline
 
 	// Track last nudge time to avoid spam.
@@ -40,7 +32,6 @@ type MemoryGapEvaluator struct {
 func NewMemoryGapEvaluator(log *slog.Logger) *MemoryGapEvaluator {
 	return &MemoryGapEvaluator{
 		log:         log,
-		config:      DefaultMemoryGapConfig(),
 		minInterval: 30 * time.Minute,
 	}
 }
@@ -79,7 +70,7 @@ func (e *MemoryGapEvaluator) Evaluate(ctx context.Context, state *EngineState) (
 		if err != nil {
 			continue
 		}
-		if result == nil || result.TotalCount < 2 {
+		if result == nil || result.TotalCount < thinBranchMinResults {
 			gaps = append(gaps, probe)
 		}
 	}
@@ -88,7 +79,7 @@ func (e *MemoryGapEvaluator) Evaluate(ctx context.Context, state *EngineState) (
 		return nil, nil
 	}
 
-	if len(gaps) < 3 {
+	if len(gaps) < minGapsToReport {
 		return nil, nil // not significant enough
 	}
 

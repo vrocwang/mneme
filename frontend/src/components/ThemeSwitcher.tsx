@@ -1,12 +1,28 @@
-import { useEffect, useState, useCallback } from 'react';
-import { load, save } from '../lib/persist';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { StorageKeys, loadValue, saveValue } from '../lib/storage';
+import { useT } from '../lib/i18n/I18nContext';
 
-type Theme = 'dark' | 'light' | 'system';
+export type Theme = 'dark' | 'light' | 'system';
 
-const STORAGE_KEY = 'theme';
+// i18n key for each theme name, shared by the switcher tooltip and Settings.
+const THEME_LABEL_KEYS: Record<Theme, string> = {
+  dark: 'settings.darkLabel',
+  light: 'settings.lightLabel',
+  system: 'settings.systemLabel',
+};
+
+// Module-level store: the applied theme has one owner, so the switcher and the
+// Settings appearance tab can never disagree about it.
+let currentTheme: Theme = (loadValue(StorageKeys.theme) as Theme) || 'dark';
+const listeners = new Set<() => void>();
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
 
 export function getTheme(): Theme {
-  return (load(STORAGE_KEY) as Theme) || 'dark';
+  return currentTheme;
 }
 
 function resolveSystemTheme(): 'dark' | 'light' {
@@ -25,37 +41,55 @@ export function applyTheme(theme: Theme) {
 }
 
 export function setTheme(theme: Theme) {
-  save(STORAGE_KEY, theme);
+  currentTheme = theme;
+  saveValue(StorageKeys.theme, theme);
   applyTheme(theme);
+  listeners.forEach(listener => listener());
 }
 
-export function ThemeSwitcher() {
-  const [current, setCurrent] = useState<Theme>(getTheme);
+// useTheme reads the shared theme and applies it, tracking OS changes while in
+// system mode. Every consumer renders the same value.
+export function useTheme(): Theme {
+  const theme = useSyncExternalStore(subscribe, getTheme, getTheme);
 
-  const handleChange = useCallback(() => {
-    const next: Theme = current === 'dark' ? 'light' : current === 'light' ? 'system' : 'dark';
-    setCurrent(next);
-    setTheme(next);
-  }, [current]);
-
-  // Listen for system theme changes when in system mode.
   useEffect(() => {
-    applyTheme(current);
-    if (current !== 'system') return;
+    applyTheme(theme);
+    if (theme !== 'system') return;
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const handler = () => applyTheme('system');
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
+  }, [theme]);
+
+  return theme;
+}
+
+// Click order of the switcher: dark → light → system → dark.
+const THEME_CYCLE: Theme[] = ['dark', 'light', 'system'];
+
+function nextTheme(current: Theme): Theme {
+  return THEME_CYCLE[(THEME_CYCLE.indexOf(current) + 1) % THEME_CYCLE.length];
+}
+
+export function ThemeSwitcher() {
+  const { t } = useT();
+  const current = useTheme();
+  const next = nextTheme(current);
+
+  const handleChange = useCallback(() => {
+    setTheme(nextTheme(current));
   }, [current]);
 
   const icon = current === 'dark' ? '🌙' : current === 'light' ? '☀️' : '🖥️';
-  const nextLabel = current === 'dark' ? 'light' : current === 'light' ? 'system' : 'dark';
 
   return (
     <button
       onClick={handleChange}
       className="text-xs text-white/40 hover:text-white/70 transition-colors"
-      title={`Theme: ${current} (click for ${nextLabel})`}
+      title={t('common.themeTooltip', {
+        current: t(THEME_LABEL_KEYS[current]),
+        next: t(THEME_LABEL_KEYS[next]),
+      })}
     >
       {icon}
     </button>

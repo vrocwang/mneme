@@ -1,46 +1,56 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useT } from '../../lib/i18n/I18nContext';
+import { StorageKeys, loadFlag, saveFlag } from '../../lib/storage';
+import { navSelector } from '../../lib/routes';
+import type { RouteId } from '../../lib/routes';
 
-type StepKey = 'chat' | 'memory' | 'capabilities' | 'settings';
+type StepKey = Extract<RouteId, 'chat' | 'memory' | 'capabilities' | 'settings'>;
 
 const steps: StepKey[] = ['chat', 'memory', 'capabilities', 'settings'];
 const selectors: Record<StepKey, string> = {
-  chat:         '[data-nav="chat"]',
-  memory:       '[data-nav="memory"]',
-  capabilities: '[data-nav="capabilities"]',
-  settings:     '[data-nav="settings"]',
+  chat:         navSelector('chat'),
+  memory:       navSelector('memory'),
+  capabilities: navSelector('capabilities'),
+  settings:     navSelector('settings'),
 };
+
+// Tooltip geometry. TOOLTIP_WIDTH must stay in sync with the `w-[260px]`
+// class on the tooltip element (Tailwind only sees the literal).
+const TOOLTIP_WIDTH = 260;
+const TOOLTIP_GAP = 14;
+const TOOLTIP_MIN_TOP = 12;
+const TOOLTIP_CENTER_OFFSET = 60;
+// The sidebar needs a frame to lay out before it can be measured.
+const RENDER_SETTLE_MS = 200;
 
 export function Walkthrough() {
   const { t } = useT();
   const [step, setStep] = useState(0);
   const [dismissed, setDismissed] = useState(() => {
-    if (localStorage.getItem('walkthrough_done') === 'true') return true;
-    if (localStorage.getItem('onboarding_done') !== 'true') return true; // wait for onboarding
+    if (loadFlag(StorageKeys.walkthroughDone)) return true;
+    if (!loadFlag(StorageKeys.onboardingDone)) return true; // wait for onboarding
     return false;
   });
-  const [pos, setPos] = useState({ top: 0, left: 0, side: 'right' as 'left' | 'right', height: 0 });
+  const [pos, setPos] = useState({ top: 0, left: 0, side: 'right' as 'left' | 'right' });
 
   const measure = useCallback(() => {
     const el = document.querySelector(selectors[steps[step]]);
     if (!el) return;
     const r = el.getBoundingClientRect();
-    const tooltipW = 260;
-    const gap = 14;
+    const tooltipW = TOOLTIP_WIDTH;
+    const gap = TOOLTIP_GAP;
     const vw = window.innerWidth;
     const rightSide = r.right + gap + tooltipW < vw;
     setPos({
-      top: Math.max(12, r.top + r.height / 2 - 60),
+      top: Math.max(TOOLTIP_MIN_TOP, r.top + r.height / 2 - TOOLTIP_CENTER_OFFSET),
       left: rightSide ? r.right + gap : r.left - gap - tooltipW,
       side: rightSide ? 'left' : 'right',
-      height: r.height,
     });
   }, [step]);
 
   useEffect(() => {
     if (dismissed) return;
-    // Wait for sidebar to render
-    const timer = setTimeout(measure, 200);
+    const timer = setTimeout(measure, RENDER_SETTLE_MS);
     window.addEventListener('resize', measure);
     return () => { clearTimeout(timer); window.removeEventListener('resize', measure); };
   }, [dismissed, measure]);
@@ -48,14 +58,13 @@ export function Walkthrough() {
   if (dismissed) return null;
 
   const key = steps[step];
-  if (!key) return null;
 
   const next = () => {
     if (step < steps.length - 1) setStep(step + 1);
     else dismiss();
   };
   const prev = () => { if (step > 0) setStep(step - 1); };
-  const dismiss = () => { localStorage.setItem('walkthrough_done', 'true'); setDismissed(true); };
+  const dismiss = () => { saveFlag(StorageKeys.walkthroughDone, true); setDismissed(true); };
 
   return (
     <div className="fixed inset-0 z-50 pointer-events-none">
@@ -69,10 +78,10 @@ export function Walkthrough() {
       >
         {/* Arrow pointing toward the sidebar */}
         {pos.side === 'left' && (
-          <div className="absolute top-[56px] -left-1.5 w-3 h-3 bg-surface border-l border-t border-surface-border rotate-[-45deg]" />
+          <div className="absolute top-14 -left-1.5 w-3 h-3 bg-surface border-l border-t border-surface-border rotate-[-45deg]" />
         )}
         {pos.side === 'right' && (
-          <div className="absolute top-[56px] -right-1.5 w-3 h-3 bg-surface border-r border-t border-surface-border rotate-45" />
+          <div className="absolute top-14 -right-1.5 w-3 h-3 bg-surface border-r border-t border-surface-border rotate-45" />
         )}
 
         <div className="flex items-center justify-between mb-2">

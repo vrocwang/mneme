@@ -11,15 +11,18 @@ package main
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log/slog"
 
 	_ "github.com/simon/mneme/internal/sqlite"
 
+	"github.com/simon/mneme/internal/about"
 	"github.com/simon/mneme/internal/agent"
 	"github.com/simon/mneme/internal/app_state"
 	"github.com/simon/mneme/internal/approval"
 	"github.com/simon/mneme/internal/boot"
 	"github.com/simon/mneme/internal/capability"
+	"github.com/simon/mneme/internal/channels"
 	"github.com/simon/mneme/internal/config"
 	"github.com/simon/mneme/internal/cost"
 	"github.com/simon/mneme/internal/cron"
@@ -34,6 +37,7 @@ import (
 	"github.com/simon/mneme/internal/notifications"
 	"github.com/simon/mneme/internal/security"
 	"github.com/simon/mneme/internal/webhooks"
+	ws "github.com/simon/mneme/internal/workspace"
 	"github.com/simon/mneme/pkg/events"
 )
 
@@ -47,9 +51,11 @@ type App struct {
 
 	// Wails RPC objects (wired by main.go before startup)
 	capRPC      *capability.CapabilityRPC
+	aboutRPC    *about.RPC
 	appStateRPC *app_state.AppStateRPC
 	agentRPC    *agent.AgentRPC
 	approvalRPC *approval.ApprovalRPC
+	channelRPC  *channels.ChannelRPC
 
 	// Event subscriptions (managed by subscribers.go)
 	eventSubs *subscriberSet
@@ -99,13 +105,34 @@ func (a *App) wireRPC() {
 	if a.capRPC != nil {
 		a.capRPC.SetRegistry(a.CapReg)
 		a.capRPC.SetMCPPersister(a.McpStore)
-		a.capRPC.SetWorkspace(a.Cfg.Workspace)
+		a.capRPC.SetCapabilityWorkspace(a.Cfg.Workspace)
 	}
 	if a.agentRPC != nil {
-		a.agentRPC.SetRegistry(a.CapReg)
+		a.agentRPC.SetAgentRegistry(a.CapReg)
+		a.agentRPC.SetAgentsDir(ws.AgentsDir(a.Cfg.Workspace))
+	}
+	if a.aboutRPC != nil {
+		// The update check itself lives in the tool-update extension; this is
+		// the generic RPC→extension-tool bridge (host→extension calls only).
+		a.aboutRPC.SetUpdateChecker(func(ctx context.Context) (string, error) {
+			if a.CapReg == nil {
+				return "", fmt.Errorf("capability registry not available")
+			}
+			res := a.CapReg.Execute(ctx, "update_check", nil)
+			if res.Error != "" {
+				return "", fmt.Errorf("%s", res.Error)
+			}
+			return res.Output, nil
+		})
 	}
 	if a.approvalRPC != nil {
 		a.approvalRPC.SetGate(a.ApprovalGate)
+	}
+	// The channel orchestrator is created in AppCore.Init (non-headless branch)
+	// and this RPC object is built before Init, so the controller resolves the
+	// orchestrator lazily; in headless mode it reports a clear error.
+	if a.channelRPC != nil {
+		a.channelRPC.SetController(boot.NewChannelController(a.AppCore))
 	}
 	if a.ApprovalGate != nil {
 		a.ApprovalGate.SetEventPublisher(&approvalEventBridge{busFn: func() *events.Bus { return a.EventBus }})
@@ -123,8 +150,10 @@ func (a *App) wireRPC() {
 
 func (a *App) GetCapReg() *capability.CapabilityRegistry { return a.CapReg }
 func (a *App) SetCapRPC(rpc *capability.CapabilityRPC)   { a.capRPC = rpc }
+func (a *App) SetAboutRPC(rpc *about.RPC)                { a.aboutRPC = rpc }
 func (a *App) SetAppStateRPC(rpc *app_state.AppStateRPC) { a.appStateRPC = rpc }
 func (a *App) SetApprovalRPC(rpc *approval.ApprovalRPC)  { a.approvalRPC = rpc }
+func (a *App) SetChannelRPC(rpc *channels.ChannelRPC)    { a.channelRPC = rpc }
 func (a *App) GetApprovalGate() *approval.Gate           { return a.ApprovalGate }
 func (a *App) GetLearningEngine() *learning.Engine       { return a.Learning }
 func (a *App) GetCronScheduler() *cron.Scheduler         { return a.Cron }

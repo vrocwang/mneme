@@ -50,19 +50,6 @@ func TestChaCha20DecryptShortBlob(t *testing.T) {
 	}
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 func randomTestKey() (*[32]byte, error) {
 	var b [32]byte
 	if _, err := rand.Read(b[:]); err != nil {

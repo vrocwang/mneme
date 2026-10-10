@@ -11,6 +11,8 @@ import { CapabilitiesPage } from './components/capabilities/CapabilitiesPage';
 import { NotificationCenter } from './components/notifications/NotificationCenter';
 import { NotificationToast } from './components/notifications/NotificationToast';
 import { MonitorPanel } from './components/monitor/MonitorPanel';
+import { ROUTES, routeSegment } from './lib/routes';
+import { StorageKeys, removeValue } from './lib/storage';
 
 function AppLayout() {
   const location = useLocation();
@@ -30,9 +32,9 @@ function AppLayout() {
 function ResetOnboarding() {
   const nav = useNavigate();
   useEffect(() => {
-    localStorage.removeItem('onboarding_done');
-    localStorage.removeItem('walkthrough_done');
-    nav('/chat', { replace: true });
+    removeValue(StorageKeys.onboardingDone);
+    removeValue(StorageKeys.walkthroughDone);
+    nav(ROUTES.chat, { replace: true });
   }, [nav]);
   return null;
 }
@@ -43,17 +45,17 @@ export default function AppRouter() {
       <Routes>
         <Route element={<AppLayout />}>
           <Route index element={<HomePage />} />
-          <Route path="chat" element={<ChatView />} />
-          <Route path="chat/:threadId" element={<ChatView />} />
-          <Route path="memory" element={<MemorySearch />} />
-          <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="settings/*" element={<SettingsPage />} />
-          <Route path="capabilities" element={<CapabilitiesPage />} />
-          <Route path="notifications" element={<NotificationCenter />} />
-          <Route path="monitor" element={<MonitorPanel />} />
+          <Route path={routeSegment('chat')} element={<ChatView />} />
+          <Route path={`${routeSegment('chat')}/:threadId`} element={<ChatView />} />
+          <Route path={routeSegment('memory')} element={<MemorySearch />} />
+          <Route path={routeSegment('dashboard')} element={<DashboardPage />} />
+          <Route path={`${routeSegment('settings')}/*`} element={<SettingsPage />} />
+          <Route path={routeSegment('capabilities')} element={<CapabilitiesPage />} />
+          <Route path={routeSegment('notifications')} element={<NotificationCenter />} />
+          <Route path={routeSegment('monitor')} element={<MonitorPanel />} />
         </Route>
-        <Route path="/reset" element={<ResetOnboarding />} />
-        <Route path="*" element={<Navigate to="/chat" replace />} />
+        <Route path={ROUTES.reset} element={<ResetOnboarding />} />
+        <Route path="*" element={<Navigate to={ROUTES.chat} replace />} />
       </Routes>
     </HashRouter>
   );

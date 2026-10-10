@@ -196,11 +196,16 @@ func (r *CapabilityRegistry) ListSets() []*CapabilitySet {
 func (r *CapabilityRegistry) ListSetsByKind(kind SourceKind) []*CapabilitySet {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]*CapabilitySet, 0)
-	for _, s := range r.sets {
+	ids := make([]string, 0, len(r.sets))
+	for id, s := range r.sets {
 		if s.Kind == kind {
-			out = append(out, s)
+			ids = append(ids, id)
 		}
+	}
+	sort.Strings(ids)
+	out := make([]*CapabilitySet, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, r.sets[id])
 	}
 	return out
 }
@@ -247,9 +252,14 @@ func (r *CapabilityRegistry) bindToolLocked(setID, name string, t tools.Tool) {
 func (r *CapabilityRegistry) AllTools() []ToolDescriptor {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]ToolDescriptor, 0, len(r.exec))
-	for name, t := range r.exec {
-		out = append(out, toolToDescriptor(name, t))
+	names := make([]string, 0, len(r.exec))
+	for name := range r.exec {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]ToolDescriptor, 0, len(names))
+	for _, name := range names {
+		out = append(out, toolToDescriptor(name, r.exec[name]))
 	}
 	return out
 }
@@ -277,6 +287,7 @@ func (r *CapabilityRegistry) ToolNames() []string {
 	for name := range r.exec {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }
 

@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "gen:rpc-routes": "node scripts/gen-rpc-routes.mjs",
+    "check:rpc-routes": "node scripts/gen-rpc-routes.mjs --check"
   },
   "dependencies": {
     "@reduxjs/toolkit": "^2.12.0",

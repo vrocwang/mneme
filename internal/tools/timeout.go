@@ -8,11 +8,15 @@ import (
 	"strconv"
 	"sync/atomic"
 	"time"
+
+	pkgtools "github.com/simon/mneme/pkg/tools"
 )
 
 const (
-	// DefaultTimeoutSecs is the default tool execution timeout in seconds.
-	DefaultTimeoutSecs = 120
+	// DefaultTimeoutSecs is the default tool execution timeout in seconds. It
+	// aliases pkg/tools.DefaultTimeoutSecs, the single source of truth, so this
+	// runtime fallback and the config default cannot drift apart.
+	DefaultTimeoutSecs = pkgtools.DefaultTimeoutSecs
 
 	// MinTimeoutSecs is the minimum allowed timeout.
 	MinTimeoutSecs = 1

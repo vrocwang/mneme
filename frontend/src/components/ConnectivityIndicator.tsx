@@ -1,9 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useT } from '../lib/i18n/I18nContext';
+import { CONNECTIVITY_POLL_MS } from '../lib/timing';
 import * as api from '../services/wails';
 
 type Status = 'online' | 'offline' | 'checking' | 'degraded';
 
 export function ConnectivityIndicator() {
+  const { t } = useT();
   const [coreStatus, setCoreStatus] = useState<Status>('checking');
   const [backendStatus, setBackendStatus] = useState<Status>('checking');
   const [internetStatus, setInternetStatus] = useState<Status>('checking');
@@ -42,7 +45,7 @@ export function ConnectivityIndicator() {
     const handleOffline = () => setInternetStatus('offline');
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-    const interval = setInterval(check, 30000);
+    const interval = setInterval(check, CONNECTIVITY_POLL_MS);
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
@@ -60,18 +63,18 @@ export function ConnectivityIndicator() {
     <div className="flex items-center gap-3 text-xs text-white/30">
       <span className="flex items-center gap-1">
         <span className={`inline-block w-1.5 h-1.5 rounded-full ${dot(internetStatus)}`} />
-        <span className="sr-only">Internet</span>
-        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-label="Internet">
+        <span className="sr-only">{t('common.internet')}</span>
+        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-label={t('common.internet')}>
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
       </span>
       <span className="flex items-center gap-1">
         <span className={`inline-block w-1.5 h-1.5 rounded-full ${dot(coreStatus)}`} />
-        Core
+        {t('common.core')}
       </span>
       <span className="flex items-center gap-1">
         <span className={`inline-block w-1.5 h-1.5 rounded-full ${dot(backendStatus)}`} />
-        API
+        {t('common.api')}
       </span>
     </div>
   );

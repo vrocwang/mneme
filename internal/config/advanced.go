@@ -8,11 +8,10 @@ import pkgtools "github.com/simon/mneme/pkg/tools"
 type AgentLimits struct {
 	MaxToolRounds      int `toml:"max_tool_rounds"      json:"max_tool_rounds"`
 	DefaultToolTimeout int `toml:"default_tool_timeout" json:"default_tool_timeout"`
-	MaxHistoryMessages int `toml:"max_history_messages" json:"max_history_messages"`
 }
 
 func defaultAgentLimits() AgentLimits {
-	return AgentLimits{MaxToolRounds: pkgtools.DefaultMaxIterations, DefaultToolTimeout: 120, MaxHistoryMessages: 100}
+	return AgentLimits{MaxToolRounds: pkgtools.DefaultMaxIterations, DefaultToolTimeout: pkgtools.DefaultTimeoutSecs}
 }
 
 // SecurityCommands holds custom command classification lists.
@@ -80,11 +79,10 @@ func defaultToolsShellConfig() ToolsShellConfig {
 type CircuitBreakerConfig struct {
 	MaxRepeatFailures  int `toml:"max_repeat_failures"   json:"max_repeat_failures"`
 	MaxNoProgressFails int `toml:"max_no_progress_fails" json:"max_no_progress_fails"`
-	MaxHardRejects     int `toml:"max_hard_rejects"      json:"max_hard_rejects"`
 }
 
 func defaultCircuitBreakerConfig() CircuitBreakerConfig {
-	return CircuitBreakerConfig{MaxRepeatFailures: 3, MaxNoProgressFails: 6, MaxHardRejects: 2}
+	return CircuitBreakerConfig{MaxRepeatFailures: 3, MaxNoProgressFails: 6}
 }
 
 // CostConfig holds cost tracking configuration.
@@ -145,7 +143,12 @@ func defaultAutonomyConfig() AutonomyConfig {
 
 // SandboxConfig controls command execution sandboxing.
 type SandboxConfig struct {
-	Mode            string `toml:"mode" json:"mode"` // none, read_only, read_write, sandboxed
+	// Mode selects the sandbox policy: "none" (no sandboxing), "read_only" or
+	// "read_write" (use the best available backend, which exposes the workspace
+	// as the one writable root), or "sandboxed" (same, but refuse to run at all
+	// when no backend is available). "disabled" is a legacy alias for "none".
+	// An unknown value is logged and falls back to the detected sandbox.
+	Mode            string `toml:"mode" json:"mode"`
 	BackendOverride string `toml:"backend_override" json:"backend_override,omitempty"`
 }
 
@@ -181,8 +184,19 @@ type ScreenIntelligenceConfig struct {
 	CaptureIntervalSecs int  `toml:"capture_interval_secs" json:"capture_interval_secs"`
 }
 
+// DefaultScreenCaptureIntervalSecs is the documented screen-capture cadence in
+// seconds. It is the single source for the config default.
+//
+// Remaining divergence (cannot be fixed from this package): the desktop loop
+// in internal/desktop/screen_intel.go substitutes a hardcoded 30s fallback
+// when the interval is zero. That package exports no constant for it and
+// internal/config must not import internal/desktop, so the two values still
+// disagree for a zero-valued interval; the config default below is non-zero,
+// which is what the runtime actually uses.
+const DefaultScreenCaptureIntervalSecs = 5
+
 func defaultScreenIntelligenceConfig() ScreenIntelligenceConfig {
-	return ScreenIntelligenceConfig{Enabled: false, CaptureIntervalSecs: 5}
+	return ScreenIntelligenceConfig{Enabled: false, CaptureIntervalSecs: DefaultScreenCaptureIntervalSecs}
 }
 
 // InferenceHTTPConfig controls the local inference HTTP server.
@@ -193,5 +207,5 @@ type InferenceHTTPConfig struct {
 }
 
 func defaultInferenceHTTPConfig() InferenceHTTPConfig {
-	return InferenceHTTPConfig{Enabled: true, Port: 8080, Bind: "127.0.0.1"}
+	return InferenceHTTPConfig{Enabled: true, Port: DefaultInferenceHTTPPort, Bind: DefaultLoopbackBind}
 }

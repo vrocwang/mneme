@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
+import { StorageKeys, loadValue, saveValue } from '../storage';
 import en from './en';
+import type { EnTranslations } from './en';
 import zhCN from './zh-CN';
 import de from './de';
 import es from './es';
@@ -12,19 +14,47 @@ import ko from './ko';
 
 export type Locale = 'en' | 'zh-CN' | 'de' | 'es' | 'fr' | 'it' | 'pt' | 'pl' | 'ru' | 'ko';
 
-// Use a looser type here — typeof en creates an exact brand that
-// doesn't match structurally identical objects from other modules.
-const locales: Record<string, Record<string, unknown>> = {
-  en: en as unknown as Record<string, unknown>,
-  'zh-CN': zhCN as unknown as Record<string, unknown>,
-  de: de as unknown as Record<string, unknown>,
-  es: es as unknown as Record<string, unknown>,
-  fr: fr as unknown as Record<string, unknown>,
-  it: it as unknown as Record<string, unknown>,
-  pt: pt as unknown as Record<string, unknown>,
-  pl: pl as unknown as Record<string, unknown>,
-  ru: ru as unknown as Record<string, unknown>,
-  ko: ko as unknown as Record<string, unknown>,
+// Every non-English locale is a deep-partial overlay of the English dictionary:
+// only translated leaves are listed, and any unknown or misspelled key is a
+// compile error.
+export type DeepPartial<T> = {
+  [K in keyof T]?: T[K] extends string ? T[K] : DeepPartial<T[K]>;
+};
+
+type Dict = Record<string, unknown>;
+
+function isDict(value: unknown): value is Dict {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+// Deep-merge a locale overlay on top of the English base (objects recurse,
+// leaves win) so a missing translation resolves to English, never a key path.
+function deepMerge(base: Dict, overlay: unknown): Dict {
+  const merged: Dict = { ...base };
+  if (!isDict(overlay)) return merged;
+  for (const [key, value] of Object.entries(overlay)) {
+    const baseValue = merged[key];
+    merged[key] = isDict(baseValue) ? deepMerge(baseValue, value) : value;
+  }
+  return merged;
+}
+
+const enDict: Dict = en as Dict;
+
+// Applied once at module scope — never per t() call.
+const withEnglishFallback = (overlay: DeepPartial<EnTranslations>): Dict => deepMerge(enDict, overlay);
+
+const locales: Record<Locale, Dict> = {
+  en: enDict,
+  'zh-CN': withEnglishFallback(zhCN),
+  de: withEnglishFallback(de),
+  es: withEnglishFallback(es),
+  fr: withEnglishFallback(fr),
+  it: withEnglishFallback(it),
+  pt: withEnglishFallback(pt),
+  pl: withEnglishFallback(pl),
+  ru: withEnglishFallback(ru),
+  ko: withEnglishFallback(ko),
 };
 
 const localeLabels: Record<Locale, string> = {
@@ -64,7 +94,7 @@ const browserLocaleMap: Record<string, Locale> = {
 
 function detectLocale(): Locale {
   try {
-    const stored = localStorage.getItem('mneme-locale') as Locale | null;
+    const stored = loadValue(StorageKeys.locale) as Locale | null;
     if (stored && locales[stored]) return stored;
     const nav = navigator.language || '';
     if (browserLocaleMap[nav]) return browserLocaleMap[nav];
@@ -89,7 +119,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
 
   const handleSetLocale = useCallback((l: Locale) => {
     setLocale(l);
-    try { localStorage.setItem('mneme-locale', l); } catch {}
+    saveValue(StorageKeys.locale, l);
   }, []);
 
   const t = useCallback((path: string, fallbackOrVars?: string | Record<string, string | number>): string => {

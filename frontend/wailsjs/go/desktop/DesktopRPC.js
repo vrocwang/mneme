@@ -29,4 +29,3 @@ export function StopCompanionLoop() {
 export function StopScreenIntel() {
   return window['go']['desktop']['DesktopRPC']['StopScreenIntel']();
 }
-

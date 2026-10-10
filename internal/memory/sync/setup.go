@@ -26,6 +26,7 @@ func RegisterEnvConnectors(mgr *Manager, log *slog.Logger) {
 		}
 	}
 }
+
 // SnapshotFunc is called after each sync tick to capture a memory snapshot.
 type SnapshotFunc func(label string) error
 

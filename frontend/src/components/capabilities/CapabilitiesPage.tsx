@@ -4,11 +4,11 @@ import * as api from '../../services/wails';
 import type { CapabilitySet } from '../../services/wails';
 import { SetCard } from './SetCard';
 
-const KIND_GROUPS: { kind: string; label: string }[] = [
-  { kind: 'builtin', label: 'Built-in' },
-  { kind: 'extension', label: 'Extensions' },
-  { kind: 'mcp_server', label: 'MCP Servers' },
-  { kind: 'skill', label: 'Skills' },
+const KIND_GROUPS: { kind: string; labelKey: string }[] = [
+  { kind: 'builtin', labelKey: 'capabilities.kindBuiltin' },
+  { kind: 'extension', labelKey: 'capabilities.groupExtensions' },
+  { kind: 'mcp_server', labelKey: 'capabilities.groupMcpServers' },
+  { kind: 'skill', labelKey: 'capabilities.groupSkills' },
 ];
 
 export function CapabilitiesPage() {
@@ -21,6 +21,7 @@ export function CapabilitiesPage() {
   const [mcpForm, setMcpForm] = useState({ name: '', transport: 'stdio', command: '', url: '', args: '' });
   const [skillUrl, setSkillUrl] = useState('');
   const [skillMsg, setSkillMsg] = useState('');
+  const [skillOk, setSkillOk] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [showAgentEditor, setShowAgentEditor] = useState(false);
   const [editingAgent, setEditingAgent] = useState<api.AgentInfo | null>(null);
@@ -32,11 +33,11 @@ export function CapabilitiesPage() {
       const data = await api.listCapabilitySets();
       setSets(data || []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load capabilities');
+      setError(e instanceof Error ? e.message : t('errors.loadCapabilities'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { fetchSets(); }, [fetchSets]);
 
@@ -46,7 +47,7 @@ export function CapabilitiesPage() {
       await api.connectCapMCPServer(name);
       await fetchSets();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Connect failed');
+      setError(e instanceof Error ? e.message : t('errors.connectFailed'));
     }
   };
 
@@ -56,7 +57,7 @@ export function CapabilitiesPage() {
       await api.disconnectCapMCPServer(name);
       await fetchSets();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Disconnect failed');
+      setError(e instanceof Error ? e.message : t('errors.disconnectFailed'));
     }
   };
 
@@ -66,7 +67,7 @@ export function CapabilitiesPage() {
       await api.removeMCPServer(name);
       await fetchSets();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Remove failed');
+      setError(e instanceof Error ? e.message : t('errors.removeFailed'));
     }
   };
 
@@ -85,7 +86,7 @@ export function CapabilitiesPage() {
       setShowInstall(false);
       await fetchSets();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Install failed');
+      setError(e instanceof Error ? e.message : t('errors.installFailed'));
     } finally {
       setInstalling(false);
     }
@@ -130,7 +131,7 @@ export function CapabilitiesPage() {
       setShowAgentEditor(false);
       await fetchSets();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Agent save failed');
+      setError(e instanceof Error ? e.message : t('errors.agentSaveFailed'));
     } finally {
       setInstalling(false);
     }
@@ -141,25 +142,27 @@ export function CapabilitiesPage() {
     if (!url) return;
     setInstalling(true);
     setSkillMsg('');
+    setSkillOk(false);
     try {
       await api.installSkill(url);
       setSkillUrl('');
-      setSkillMsg('Skill installed. It will appear in the list after the next refresh.');
+      setSkillMsg(t('capabilities.skillInstalled'));
+      setSkillOk(true);
       await fetchSets();
     } catch (e) {
-      setSkillMsg(e instanceof Error ? e.message : 'Install failed');
+      setSkillMsg(e instanceof Error ? e.message : t('errors.installFailed'));
     } finally {
       setInstalling(false);
     }
   };
 
   const handleAgentDelete = async (id: string) => {
-    if (!confirm(`Delete agent "${id}"?`)) return;
+    if (!confirm(t('capabilities.deleteAgentConfirm', { id }))) return;
     try {
       await api.removeAgent(id);
       await fetchSets();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Agent delete failed');
+      setError(e instanceof Error ? e.message : t('errors.agentDeleteFailed'));
     }
   };
 
@@ -178,7 +181,7 @@ export function CapabilitiesPage() {
           <div>
             <h1 className="text-lg font-semibold text-white/90">{t('capabilities.title')}</h1>
             <p className="text-xs text-white/40 mt-0.5">
-              {totalTools} tools &middot; {totalAgents} agents &middot; {sets.length} sources
+              {t('capabilities.summary', { tools: totalTools, agents: totalAgents, sources: sets.length })}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -187,7 +190,7 @@ export function CapabilitiesPage() {
                 onClick={openAgentCreate}
                 className="text-xs px-3 py-1.5 rounded-md bg-sage-500/15 text-sage-300 hover:bg-sage-500/25 transition-colors"
               >
-                + Agent
+                {t('capabilities.addAgent')}
               </button>
             )}
             {(activeKind === 'all' || activeKind === 'mcp_server') && (
@@ -209,9 +212,9 @@ export function CapabilitiesPage() {
               activeKind === 'all' ? 'bg-white/10 text-white/80' : 'text-white/40 hover:text-white/60'
             }`}
           >
-            All ({sets.length})
+            {t('capabilities.allTab', { count: sets.length })}
           </button>
-          {KIND_GROUPS.map(({ kind, label }) => {
+          {KIND_GROUPS.map(({ kind, labelKey }) => {
             const count = sets.filter(s => s.kind === kind).length;
             return (
               <button
@@ -221,7 +224,7 @@ export function CapabilitiesPage() {
                   activeKind === kind ? 'bg-white/10 text-white/80' : 'text-white/40 hover:text-white/60'
                 }`}
               >
-                {label} ({count})
+                {t(labelKey)} ({count})
               </button>
             );
           })}
@@ -244,7 +247,7 @@ export function CapabilitiesPage() {
       {activeKind === 'extension' && (
         <div className="shrink-0 mx-6 mt-3 px-3 py-2 rounded bg-surface-elevated border border-surface-border">
           <p className="text-xs text-white/40">
-            Extensions are managed in Settings → Extensions.
+            {t('capabilities.extensionsManaged')}
           </p>
         </div>
       )}
@@ -253,7 +256,7 @@ export function CapabilitiesPage() {
       {activeKind === 'skill' && (
         <div className="shrink-0 mx-6 mt-3 px-3 py-2 rounded bg-surface-elevated border border-surface-border">
           <p className="text-xs text-white/40 mb-2">
-            Install a skill from a URL (GitHub raw, any HTTP URL) or a local SKILL.md path.
+            {t('capabilities.skillInstallHint')}
           </p>
           <div className="flex gap-2">
             <input
@@ -261,7 +264,7 @@ export function CapabilitiesPage() {
               value={skillUrl}
               onChange={e => setSkillUrl(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSkillInstall()}
-              placeholder="https://raw.githubusercontent.com/org/repo/main/SKILL.md"
+              placeholder={t('capabilities.skillUrlPlaceholder')}
               className="flex-1 text-xs px-2 py-1.5 rounded bg-black/30 border border-white/10 text-white/70 placeholder-white/20 focus:outline-none focus:border-ocean-500/50"
             />
             <button
@@ -269,11 +272,11 @@ export function CapabilitiesPage() {
               disabled={installing || !skillUrl.trim()}
               className="text-xs px-3 py-1.5 rounded-md bg-ocean-500 text-white hover:bg-ocean-600 disabled:opacity-40 transition-colors shrink-0"
             >
-              {installing ? 'Installing...' : 'Install'}
+              {installing ? t('capabilities.installing') : t('extensions.install')}
             </button>
           </div>
           {skillMsg && (
-            <p className={`text-xs mt-1.5 ${skillMsg.startsWith('Skill installed') ? 'text-sage-400' : 'text-coral-400'}`}>
+            <p className={`text-xs mt-1.5 ${skillOk ? 'text-sage-400' : 'text-coral-400'}`}>
               {skillMsg}
             </p>
           )}
@@ -321,7 +324,7 @@ export function CapabilitiesPage() {
           <div className="bg-surface-elevated border border-surface-border rounded-lg w-full max-w-lg mx-4 p-5 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-semibold text-white/90">
-                {editingAgent ? `Edit ${editingAgent.name}` : 'Create Agent'}
+                {editingAgent ? t('capabilities.editAgent', { name: editingAgent.name }) : t('capabilities.createAgent')}
               </h2>
               <button onClick={() => setShowAgentEditor(false)} className="text-white/30 hover:text-white/60">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -332,27 +335,27 @@ export function CapabilitiesPage() {
             <div className="flex flex-col gap-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[11px] text-white/40 block mb-1">ID</label>
+                  <label className="text-[11px] text-white/40 block mb-1">{t('capabilities.labelId')}</label>
                   <input className="input-field w-full bg-surface border border-surface-border rounded px-2.5 py-1.5 text-xs text-white/80 font-mono"
                     value={agentForm.id} onChange={e => setAgentForm({ ...agentForm, id: e.target.value })}
-                    placeholder="my_agent" disabled={!!editingAgent} />
+                    placeholder={t('capabilities.idPlaceholder')} disabled={!!editingAgent} />
                 </div>
                 <div>
-                  <label className="text-[11px] text-white/40 block mb-1">Name</label>
+                  <label className="text-[11px] text-white/40 block mb-1">{t('settings.name')}</label>
                   <input className="input-field w-full bg-surface border border-surface-border rounded px-2.5 py-1.5 text-xs text-white/80"
                     value={agentForm.name} onChange={e => setAgentForm({ ...agentForm, name: e.target.value })}
-                    placeholder="My Agent" />
+                    placeholder={t('capabilities.namePlaceholder')} />
                 </div>
               </div>
               <div>
-                <label className="text-[11px] text-white/40 block mb-1">Description</label>
+                <label className="text-[11px] text-white/40 block mb-1">{t('capabilities.labelDescription')}</label>
                 <input className="input-field w-full bg-surface border border-surface-border rounded px-2.5 py-1.5 text-xs text-white/80"
                   value={agentForm.description} onChange={e => setAgentForm({ ...agentForm, description: e.target.value })}
-                  placeholder="What this agent does..." />
+                  placeholder={t('capabilities.descriptionPlaceholder')} />
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="text-[11px] text-white/40 block mb-1">Tier</label>
+                  <label className="text-[11px] text-white/40 block mb-1">{t('capabilities.labelTier')}</label>
                   <select className="input-field w-full bg-surface border border-surface-border rounded px-2.5 py-1.5 text-xs text-white/80"
                     value={agentForm.tier} onChange={e => setAgentForm({ ...agentForm, tier: e.target.value })}>
                     <option value="chat">chat</option>
@@ -361,46 +364,46 @@ export function CapabilitiesPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-[11px] text-white/40 block mb-1">Model (optional)</label>
+                  <label className="text-[11px] text-white/40 block mb-1">{t('capabilities.labelModelOptional')}</label>
                   <input className="input-field w-full bg-surface border border-surface-border rounded px-2.5 py-1.5 text-xs text-white/80"
                     value={agentForm.model} onChange={e => setAgentForm({ ...agentForm, model: e.target.value })}
-                    placeholder="inherit" />
+                    placeholder={t('capabilities.modelPlaceholder')} />
                 </div>
                 <div>
-                  <label className="text-[11px] text-white/40 block mb-1">Max Iterations</label>
+                  <label className="text-[11px] text-white/40 block mb-1">{t('capabilities.labelMaxIterations')}</label>
                   <input className="input-field w-full bg-surface border border-surface-border rounded px-2.5 py-1.5 text-xs text-white/80"
                     type="number" min={1} max={50}
                     value={agentForm.maxIterations} onChange={e => setAgentForm({ ...agentForm, maxIterations: Number(e.target.value) })} />
                 </div>
               </div>
               <div>
-                <label className="text-[11px] text-white/40 block mb-1">Tool Allowlist (comma-separated, or * for all)</label>
+                <label className="text-[11px] text-white/40 block mb-1">{t('capabilities.labelToolAllowlist')}</label>
                 <input className="input-field w-full bg-surface border border-surface-border rounded px-2.5 py-1.5 text-xs text-white/80 font-mono"
                   value={agentForm.toolAllowlist} onChange={e => setAgentForm({ ...agentForm, toolAllowlist: e.target.value })}
-                  placeholder="read_file, write_file, shell" />
+                  placeholder={t('capabilities.toolAllowlistPlaceholder')} />
               </div>
               <div>
-                <label className="text-[11px] text-white/40 block mb-1">System Prompt</label>
+                <label className="text-[11px] text-white/40 block mb-1">{t('capabilities.labelSystemPrompt')}</label>
                 <textarea className="input-field w-full bg-surface border border-surface-border rounded px-2.5 py-1.5 text-xs text-white/80 font-mono h-24 resize-y"
                   value={agentForm.systemPrompt} onChange={e => setAgentForm({ ...agentForm, systemPrompt: e.target.value })}
-                  placeholder="You are a helpful assistant..." />
+                  placeholder={t('capabilities.systemPromptPlaceholder')} />
               </div>
               <div className="flex justify-between gap-2 mt-2">
                 <div>
                   {editingAgent && (
                     <button onClick={() => { handleAgentDelete(editingAgent.id); setShowAgentEditor(false); }}
                       className="text-xs px-3 py-1.5 rounded bg-coral-500/15 text-coral-300 hover:bg-coral-500/25 transition-colors">
-                      Delete
+                      {t('settings.delete')}
                     </button>
                   )}
                 </div>
                 <div className="flex gap-2">
                   <button onClick={() => setShowAgentEditor(false)}
-                    className="text-xs px-3 py-1.5 rounded text-white/40 hover:text-white/60 transition-colors">Cancel</button>
+                    className="text-xs px-3 py-1.5 rounded text-white/40 hover:text-white/60 transition-colors">{t('settings.cancel')}</button>
                   <button onClick={handleAgentSave}
                     disabled={installing || !agentForm.id.trim() || !agentForm.name.trim()}
                     className="text-xs px-4 py-1.5 rounded-md bg-ocean-500 text-white hover:bg-ocean-600 disabled:opacity-40 transition-colors">
-                    {installing ? 'Saving...' : editingAgent ? 'Update' : 'Create'}
+                    {installing ? t('settings.saving') : editingAgent ? t('settings.update') : t('capabilities.createAgentBtn')}
                   </button>
                 </div>
               </div>
@@ -428,7 +431,7 @@ export function CapabilitiesPage() {
                   className="input-field w-full bg-surface border border-surface-border rounded px-2.5 py-1.5 text-xs text-white/80"
                   value={mcpForm.name}
                   onChange={e => setMcpForm({ ...mcpForm, name: e.target.value })}
-                  placeholder="my-server"
+                  placeholder={t('capabilities.serverNamePlaceholder')}
                 />
               </div>
               <div>
@@ -450,7 +453,7 @@ export function CapabilitiesPage() {
                       className="input-field w-full bg-surface border border-surface-border rounded px-2.5 py-1.5 text-xs text-white/80"
                       value={mcpForm.command}
                       onChange={e => setMcpForm({ ...mcpForm, command: e.target.value })}
-                      placeholder="npx -y @modelcontextprotocol/server-filesystem"
+                      placeholder={t('capabilities.commandPlaceholder')}
                     />
                   </div>
                   <div>
@@ -459,7 +462,7 @@ export function CapabilitiesPage() {
                       className="input-field w-full bg-surface border border-surface-border rounded px-2.5 py-1.5 text-xs text-white/80"
                       value={mcpForm.args}
                       onChange={e => setMcpForm({ ...mcpForm, args: e.target.value })}
-                      placeholder="/path/to/allowed"
+                      placeholder={t('capabilities.argsPlaceholder')}
                     />
                   </div>
                 </>
@@ -470,7 +473,7 @@ export function CapabilitiesPage() {
                     className="input-field w-full bg-surface border border-surface-border rounded px-2.5 py-1.5 text-xs text-white/80"
                     value={mcpForm.url}
                     onChange={e => setMcpForm({ ...mcpForm, url: e.target.value })}
-                    placeholder="http://localhost:8080"
+                    placeholder={t('capabilities.urlPlaceholder')}
                   />
                 </div>
               )}

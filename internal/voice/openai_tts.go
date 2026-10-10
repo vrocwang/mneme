@@ -27,7 +27,7 @@ type OpenAITts struct {
 // NewOpenAITts creates an OpenAI-compatible TTS engine.
 func NewOpenAITts(endpoint, apiKey, model, voice string) *OpenAITts {
 	if endpoint == "" {
-		endpoint = "https://api.openai.com/v1"
+		endpoint = config.DefaultOpenAIBaseURL
 	}
 	if model == "" {
 		model = "tts-1"

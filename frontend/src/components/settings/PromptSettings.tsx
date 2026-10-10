@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import * as api from '../../services/wails';
 import { useT } from '../../lib/i18n/I18nContext';
+import { FLASH_TIMEOUT_MS } from '../../lib/timing';
 import type { PromptMeta } from '../../services/wails';
 
 /** Resolve a human-readable label for a prompt name via i18n. */
@@ -86,7 +87,7 @@ export function PromptSettings() {
       setMsg(`${t('errors.somethingWrong')}: ${e}`);
     } finally {
       setSaving(false);
-      setTimeout(() => setMsg(''), 3000);
+      setTimeout(() => setMsg(''), FLASH_TIMEOUT_MS);
     }
   };
 
@@ -102,7 +103,7 @@ export function PromptSettings() {
       setMsg(`${t('errors.somethingWrong')}: ${e}`);
     } finally {
       setSaving(false);
-      setTimeout(() => setMsg(''), 3000);
+      setTimeout(() => setMsg(''), FLASH_TIMEOUT_MS);
     }
   };
 
@@ -121,7 +122,7 @@ export function PromptSettings() {
       setMsg(`${t('errors.somethingWrong')}: ${e}`);
     } finally {
       setSaving(false);
-      setTimeout(() => setMsg(''), 3000);
+      setTimeout(() => setMsg(''), FLASH_TIMEOUT_MS);
     }
   };
 
@@ -139,7 +140,7 @@ export function PromptSettings() {
       setMsg(`${t('errors.somethingWrong')}: ${e}`);
     } finally {
       setSaving(false);
-      setTimeout(() => setMsg(''), 3000);
+      setTimeout(() => setMsg(''), FLASH_TIMEOUT_MS);
     }
   };
 
@@ -159,7 +160,7 @@ export function PromptSettings() {
               {t('settings.promptTemplates')}
             </h3>
             <button className="btn-ghost !text-xs !py-1 !px-2" onClick={() => setAdding(true)}>
-              + New
+              {t('settings.newPrompt')}
             </button>
           </div>
 
@@ -169,7 +170,7 @@ export function PromptSettings() {
                 value={newName}
                 onChange={e => setNewName(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') handleCreate(); if (e.key === 'Escape') setAdding(false); }}
-                placeholder="my_prompt"
+                placeholder={t('settings.promptNamePlaceholder')}
                 className="input-field !py-1 !text-xs w-full"
                 autoFocus
               />
@@ -192,7 +193,7 @@ export function PromptSettings() {
               <div className="flex items-center gap-1.5">
                 <span className="truncate flex-1 font-medium">{promptLabel(t, p.name)}</span>
                 {!p.builtin && (
-                  <span className="text-[9px] px-1 rounded bg-amber-500/15 text-amber-400 shrink-0">custom</span>
+                  <span className="text-[9px] px-1 rounded bg-amber-500/15 text-amber-400 shrink-0">{t('settings.customBadge')}</span>
                 )}
                 {p.overridden && (
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" title={t('settings.customizedHint')} />
@@ -219,7 +220,7 @@ export function PromptSettings() {
                 </div>
                 {selectedMeta?.builtin && (
                   <button className="btn-ghost !text-xs" onClick={toggleDefault}>
-                    {showDefault ? t('settings.hideDefault') || 'Hide default' : t('settings.viewDefault') || 'View default'}
+                    {showDefault ? t('settings.hideDefault') : t('settings.viewDefault')}
                   </button>
                 )}
                 {selectedMeta?.builtin ? (
@@ -228,7 +229,7 @@ export function PromptSettings() {
                   </button>
                 ) : (
                   <button className="btn-ghost !text-xs !text-coral-400" onClick={handleDelete} disabled={saving}>
-                    {t('settings.delete') || 'Delete'}
+                    {t('settings.delete')}
                   </button>
                 )}
                 <button className="btn-primary text-xs" onClick={handleSave} disabled={saving}>
@@ -242,18 +243,18 @@ export function PromptSettings() {
               )}
               <textarea value={body} onChange={e => setBody(e.target.value)}
                 className="input-field !font-mono !text-xs w-full min-h-[260px] resize-y"
-                placeholder="Prompt template text..." />
+                placeholder={t('settings.promptBodyPlaceholder')} />
               {showDefault && (
                 <div className="mt-3 p-3 rounded-md bg-surface-muted border border-surface-border">
                   <div className="text-[10px] text-white/30 uppercase tracking-wider mb-1">
-                    {t('settings.originalDefault') || 'Original default'}
+                    {t('settings.originalDefault')}
                   </div>
                   {defaultLoading ? (
-                    <p className="text-xs text-white/20 italic">Loading...</p>
+                    <p className="text-xs text-white/20 italic">{t('common.loading')}</p>
                   ) : defaultText ? (
                     <pre className="text-xs text-white/40 whitespace-pre-wrap font-mono leading-relaxed">{defaultText}</pre>
                   ) : (
-                    <p className="text-xs text-white/20 italic">Not available — rebuild the Go binary if this persists.</p>
+                    <p className="text-xs text-white/20 italic">{t('settings.defaultUnavailable')}</p>
                   )}
                 </div>
               )}

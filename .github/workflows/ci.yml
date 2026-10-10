@@ -29,11 +29,49 @@ jobs:
             exit 1
           fi
 
-      - name: go vet
-        run: go vet ./internal/... ./pkg/... ./cmd/... ./extensions/...
+      # The extension modules are separate Go modules, so `./...` from the root
+      # does not cover them; each is built, vetted, and tested on its own.
+      - name: go build/vet/test (core + every extension module)
+        run: |
+          set -e
+          go vet ./internal/... ./pkg/... ./cmd/...
+          go test ./internal/... ./pkg/... ./cmd/...
+          for mod in $(find extensions -maxdepth 2 -name go.mod | xargs -n1 dirname | sort); do
+            echo "::group::$mod"
+            (cd "$mod" && go build ./... && go vet ./... && go test ./...)
+            echo "::endgroup::"
+          done
 
-      - name: go test
-        run: go test ./internal/... ./pkg/... ./cmd/... ./extensions/...
+      # The Python extensions (media-generation) have no Go module, so they are
+      # only reachable through this syntax gate.
+      - name: python extension syntax
+        run: |
+          set -e
+          for f in $(find extensions -name '*.py'); do
+            python3 -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$f"
+          done
+
+      - name: staticcheck
+        run: |
+          set -e
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          staticcheck ./internal/... ./pkg/... ./cmd/...
+          for mod in $(find extensions -maxdepth 2 -name go.mod | xargs -n1 dirname | sort); do
+            (cd "$mod" && "$(go env GOPATH)/bin/staticcheck" ./...)
+          done
+
+      - name: dead code
+        run: |
+          set -e
+          go install golang.org/x/tools/cmd/deadcode@latest
+          # pkg/extsdk is the cross-module SDK seam: its symbols are consumed by
+          # the extension modules, which the root analysis cannot see.
+          out=$("$(go env GOPATH)/bin/deadcode" -test ./... | grep -v '^pkg/extsdk/' || true)
+          if [ -n "$out" ]; then
+            echo "::error::unreachable code:"
+            echo "$out"
+            exit 1
+          fi
 
   frontend:
     runs-on: ubuntu-latest
@@ -51,4 +89,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      # The RPC route table is generated from frontend/wailsjs; if the bindings
+      # were regenerated without it, invoke() would point at the wrong struct.
+      - run: pnpm run check:rpc-routes
       - run: pnpm run build

@@ -20,20 +20,13 @@ func SetupEmbedder(p *Pipeline, cfg config.EmbeddingConfig, log *slog.Logger) {
 	if cfg.Provider == "" {
 		return
 	}
+	baseURL, apiKey := resolveEmbeddingEndpoint(cfg)
 	var embedder embeddings.Provider
 	switch cfg.Provider {
 	case "ollama":
-		baseURL := cfg.BaseURL
-		if baseURL == "" {
-			baseURL = "http://localhost:11434"
-		}
 		embedder = embproviders.NewOllama(baseURL, cfg.Model)
 	case "openai":
-		apiKey := cfg.APIKey
-		if apiKey == "" {
-			apiKey = os.Getenv("OPENAI_API_KEY")
-		}
-		embedder = embproviders.NewOpenAI(apiKey, cfg.BaseURL, cfg.Model)
+		embedder = embproviders.NewOpenAI(apiKey, baseURL, cfg.Model)
 	}
 	if embedder != nil {
 		p.WithEmbedder(embeddings.NewBatchedProvider(embedder, 200*time.Millisecond, 8))
@@ -49,6 +42,28 @@ func SetupEmbedder(p *Pipeline, cfg config.EmbeddingConfig, log *slog.Logger) {
 			}
 		}()
 	}
+}
+
+// resolveEmbeddingEndpoint returns the effective base URL and API key for the
+// configured embedding provider, in priority order:
+//
+//  1. explicit embedding.api_key / embedding.base_url values;
+//  2. values resolved at config load from a matching [[providers]] entry
+//     (config.Config.ResolveEmbeddingConfig), which is what makes a TOML-only
+//     provider key/base URL visible to the embedder;
+//  3. provider-specific fallbacks — the loopback Ollama URL, then the
+//     OPENAI_API_KEY env var for the openai provider (kept for deployments
+//     that set only the env var and no provider/embedding section).
+func resolveEmbeddingEndpoint(cfg config.EmbeddingConfig) (baseURL, apiKey string) {
+	baseURL = cfg.ResolvedBaseURL()
+	apiKey = cfg.ResolvedAPIKey()
+	if baseURL == "" && cfg.Provider == "ollama" {
+		baseURL = config.DefaultOllamaBaseURL
+	}
+	if apiKey == "" && cfg.Provider == "openai" {
+		apiKey = os.Getenv("OPENAI_API_KEY")
+	}
+	return baseURL, apiKey
 }
 
 // SetupArchivist creates an LLM-based archivist and wires it into the pipeline.

@@ -110,6 +110,14 @@ const (
 // eino agent constructor.
 const DefaultMaxIterations = 10
 
+// DefaultTimeoutSecs is the tool execution timeout in seconds used when neither
+// configuration nor the environment sets one. It lives in this package — which
+// imports only "context" — so internal/config can reference it without
+// importing internal/tools (internal/tools imports internal/config, so the
+// reverse edge would be a cycle). internal/tools aliases it, and the config
+// default for agent.limits.default_tool_timeout references it directly.
+const DefaultTimeoutSecs = 120
+
 // Schema describes a tool's JSON Schema for LLM function calling.
 type Schema struct {
 	Name        string                 `json:"name"`
@@ -123,6 +131,21 @@ type Result struct {
 	Output  string `json:"output"`
 	Error   string `json:"error,omitempty"`
 }
+
+// ToolFailurePrefix marks tool output that reports a tool-level failure. The
+// agent runtime detects it to flag the result as an error for the UI while
+// still feeding the text back to the model.
+const ToolFailurePrefix = "Tool error: "
+
+// ToolFailure is a failure reported by a tool itself — a missing file, a
+// command refused by policy, a timeout — as opposed to an infrastructure or
+// programming error. The agent runtime converts it into tool output so the
+// model can correct course (retry, pick another tool) instead of the turn
+// aborting; the loop breaker still counts it as a failure, so a model that
+// repeats the same failing call is still cut off.
+type ToolFailure struct{ Message string }
+
+func (e *ToolFailure) Error() string { return e.Message }
 
 // Tool is the interface all tools must implement.
 type Tool interface {

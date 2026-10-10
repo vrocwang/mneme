@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import * as api from '../../services/wails';
 import { useT } from '../../lib/i18n/I18nContext';
-import type { ToolDiagnostics, DoctorReport, CostDashboard, AppStateSnapshot } from '../../services/wails';
+import type { ToolDiagnostics, DoctorReport, CostDashboard, AppStateSnapshot, AuditEventRecord } from '../../services/wails';
 
 function StatRow({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
   return (
@@ -27,20 +27,25 @@ export function DiagnosticsSettings() {
   const [doctor, setDoctor] = useState<DoctorReport | null>(null);
   const [cost, setCost] = useState<CostDashboard | null>(null);
   const [snapshot, setSnapshot] = useState<AppStateSnapshot | null>(null);
+  const [denials, setDenials] = useState<AuditEventRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [t, d, c, s] = await Promise.allSettled([
+    const [t, d, c, s, dn] = await Promise.allSettled([
       api.getToolDiagnostics(),
       api.getDoctorReport(),
       api.getCostDashboard(),
       api.getAppStateSnapshot(),
+      // Tool denials come from the audit trail now that the diagnostics payload
+      // no longer carries them. "tool.blocked" is security.AuditToolBlocked.
+      api.listAuditEventsByKind('tool.blocked', 10),
     ]);
     if (t.status === 'fulfilled') setTools(t.value);
     if (d.status === 'fulfilled') setDoctor(d.value);
     if (c.status === 'fulfilled') setCost(c.value);
     if (s.status === 'fulfilled') setSnapshot(s.value);
+    if (dn.status === 'fulfilled') setDenials(dn.value || []);
     setLoading(false);
   }, []);
 
@@ -61,51 +66,56 @@ export function DiagnosticsSettings() {
         <div className="card space-y-1">
           <h3 className="text-sm font-semibold text-white/80 mb-2">{t('diagnostics.title')}</h3>
           <StatRow label={t('diagnostics.totalTools')} value={snapshot.tool_count} />
-          <StatRow label="Agents" value={snapshot.agent_count} />
+          <StatRow label={t('capabilities.agents')} value={snapshot.agent_count} />
           <StatRow label={t('approval.pending')} value={snapshot.pending_approvals} />
-          <StatRow label="Provider" value={snapshot.provider_ready ? 'Ready' : 'Not configured'} />
-          <StatRow label="Database" value={snapshot.db_ready ? 'Connected' : 'Not available'} />
+          <StatRow label={t('home.providerConnected')}
+            value={snapshot.provider_ready ? t('diagnostics.providerReady') : t('diagnostics.providerNotConfigured')} />
+          <StatRow label={t('home.dbStatus')}
+            value={snapshot.db_ready ? t('home.connected') : t('diagnostics.notAvailable')} />
         </div>
       )}
 
       {/* Tool registry */}
       {tools?.ok && (
         <div className="card space-y-1">
-          <h3 className="text-sm font-semibold text-white/80 mb-2">Tools</h3>
+          <h3 className="text-sm font-semibold text-white/80 mb-2">{t('capabilities.tools')}</h3>
           <StatRow label={t('diagnostics.totalTools')} value={tools.totalTools} />
           <StatRow label={t('diagnostics.enabledTools')} value={tools.enabledTools} />
-          <StatRow label={t('diagnostics.writeSurfaces')} value={tools.writeSurfaces} sub="tools with side effects" />
-          <StatRow label="In-process" value={tools.inProcessTools} />
-          <StatRow label="MCP stdio" value={tools.mcpStdioTools} />
-          <StatRow label="JSON-RPC" value={tools.jsonRpcTools} />
+          <StatRow label={t('diagnostics.writeSurfaces')} value={tools.writeSurfaces} sub={t('diagnostics.sideEffectsSub')} />
+          <StatRow label={t('diagnostics.inProcess')} value={tools.inProcessTools} />
+          <StatRow label={t('diagnostics.mcpStdio')} value={tools.mcpStdioTools} />
+          <StatRow label={t('diagnostics.mcpHttp')} value={tools.mcpHTTPTools} />
+          <StatRow label={t('diagnostics.jsonRpc')} value={tools.jsonRpcTools} />
           {tools.bySource && Object.keys(tools.bySource).length > 0 && (
             <div className="mt-2 pt-2 border-t border-surface-border">
-              <span className="text-xs text-white/40">By source:</span>
+              <span className="text-xs text-white/40">{t('diagnostics.bySource')}</span>
               {Object.entries(tools.bySource).map(([src, count]) => (
                 <StatRow key={src} label={`  ${src}`} value={count} />
               ))}
             </div>
           )}
-          {tools.recentDenials && tools.recentDenials.length > 0 && (
-            <div className="mt-3">
-              <span className="text-xs font-semibold text-coral-400">{t('diagnostics.recentDenials')}</span>
-              <div className="mt-1 space-y-1 max-h-32 overflow-y-auto">
-                {tools.recentDenials.map((d, i) => (
-                  <div key={i} className="text-xs text-white/40 bg-surface-muted rounded px-2 py-1 font-mono">
-                    <span className="text-coral-400/70">{d.tool_name}</span> — {d.reason}
-                    <span className="text-white/20 ml-2">{new Date(d.time).toLocaleTimeString()}</span>
-                  </div>
-                ))}
+        </div>
+      )}
+
+      {/* Recent tool denials, from the security audit trail */}
+      {denials.length > 0 && (
+        <div className="card space-y-1">
+          <h3 className="text-xs font-semibold text-coral-400 mb-1">{t('diagnostics.recentDenials')}</h3>
+          <div className="space-y-1 max-h-40 overflow-y-auto">
+            {denials.map(d => (
+              <div key={d.id} className="text-xs text-white/40 bg-surface-muted rounded px-2 py-1 font-mono">
+                <span className="text-coral-400/70">{d.tool_name || d.command || d.kind}</span> — {d.reason || d.decision || ''}
+                <span className="text-white/20 ml-2">{new Date(d.created_at).toLocaleTimeString()}</span>
               </div>
-            </div>
-          )}
+            ))}
+          </div>
         </div>
       )}
 
       {/* Doctor report */}
       {doctor?.ok && (
         <div className="card space-y-2">
-          <h3 className="text-sm font-semibold text-white/80 mb-1">Health Checks</h3>
+          <h3 className="text-sm font-semibold text-white/80 mb-1">{t('diagnostics.healthChecks')}</h3>
           {doctor.checks.map((check, i) => (
             <div key={i} className="flex items-center gap-2 text-sm">
               <StatusBadge ok={check.status === 'ok'} />
@@ -119,15 +129,15 @@ export function DiagnosticsSettings() {
       {/* Cost */}
       {cost?.ok && (
         <div className="card space-y-1">
-          <h3 className="text-sm font-semibold text-white/80 mb-2">Cost</h3>
-          <StatRow label="Total cost" value={`$${(cost.total_cost_cents / 100).toFixed(2)}`} />
-          <StatRow label="Budget used" value={`${cost.budget_used_pct.toFixed(1)}%`} />
+          <h3 className="text-sm font-semibold text-white/80 mb-2">{t('diagnostics.cost')}</h3>
+          <StatRow label={t('diagnostics.totalCost')} value={`$${(cost.total_cost_cents / 100).toFixed(2)}`} />
+          <StatRow label={t('diagnostics.budgetUsed')} value={`${cost.budget_used_pct.toFixed(1)}%`} />
           <p className="text-xs text-white/30 mt-1">{cost.overview}</p>
         </div>
       )}
 
       <button className="btn-ghost text-xs mt-2" onClick={load}>
-        {t('keyring.retryProbe')}
+        {t('dashboard.refresh')}
       </button>
     </div>
   );

@@ -64,11 +64,14 @@ func SetSandboxConfig(cfg config.SandboxConfig) {
 // into a Sandbox seam (backend + fail-closed requirement). Both the global
 // seam (SetSandboxConfig) and the shell tool use it, so the fail-closed logic
 // cannot drift between them.
+//
+// Accepted modes are the documented set — none, read_only, read_write,
+// sandboxed — plus "disabled" as a legacy alias for "none". Every backend
+// exposes one workspace-writable grant (sandbox.Backend has no read-only
+// variant), so read_only and read_write both mean "use the best available
+// sandbox"; only sandboxed makes the sandbox mandatory (fail closed).
 func resolveSandbox(cfg config.SandboxConfig) *Sandbox {
-	switch {
-	case cfg.Mode == "disabled":
-		return newSandbox(sandbox.NoopBackend(), false)
-	case cfg.BackendOverride != "":
+	if cfg.BackendOverride != "" {
 		backend := sandbox.NewByName(cfg.BackendOverride)
 		required := sandbox.IsNoop(backend)
 		if required {
@@ -76,13 +79,24 @@ func resolveSandbox(cfg config.SandboxConfig) *Sandbox {
 				"backend_override", cfg.BackendOverride)
 		}
 		return newSandbox(backend, required)
-	default:
+	}
+
+	switch cfg.Mode {
+	case "none", "disabled":
+		return newSandbox(sandbox.NoopBackend(), false)
+	case "sandboxed":
 		backend := sandbox.Detect()
-		required := cfg.Mode == "sandboxed" && sandbox.IsNoop(backend)
+		required := sandbox.IsNoop(backend)
 		if required {
 			slog.Error("sandbox: mode=sandboxed requested but no sandbox backend is available; tool execution will be refused")
 		}
 		return newSandbox(backend, required)
+	case "", "read_only", "read_write":
+		return newSandbox(sandbox.Detect(), false)
+	default:
+		slog.Warn("sandbox: unknown mode, falling back to the detected sandbox",
+			"mode", cfg.Mode, "valid", "none, read_only, read_write, sandboxed")
+		return newSandbox(sandbox.Detect(), false)
 	}
 }
 

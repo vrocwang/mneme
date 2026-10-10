@@ -9,6 +9,7 @@ import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
 import { KeyringConsentOverlay } from './components/keyring/KeyringConsentOverlay';
 import { NotificationBridge } from './components/notifications/NotificationBridge';
 import { Walkthrough } from './components/walkthrough/Walkthrough';
+import { StorageKeys, loadFlag, removeValue } from './lib/storage';
 import * as api from './services/wails';
 
 export default function App() {
@@ -22,7 +23,7 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     const check = async () => {
-      const wasDone = localStorage.getItem('onboarding_done') === 'true';
+      const wasDone = loadFlag(StorageKeys.onboardingDone);
       if (!wasDone) { if (!cancelled) setShowOnboarding(true); return; }
 
       // Even if previously completed, re-show if the workspace is empty
@@ -33,8 +34,7 @@ export default function App() {
           api.listProviders().catch(() => []),
         ]);
         if (!cancelled) {
-          const isEmpty = (!Array.isArray(threads) || threads.length === 0) &&
-                          (!Array.isArray(providers) || providers.length === 0);
+          const isEmpty = threads.length === 0 && providers.length === 0;
           setShowOnboarding(isEmpty);
         }
       } catch {
@@ -49,8 +49,8 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.shiftKey && e.key === 'O') {
-        localStorage.removeItem('onboarding_done');
-        localStorage.removeItem('walkthrough_done');
+        removeValue(StorageKeys.onboardingDone);
+        removeValue(StorageKeys.walkthroughDone);
         window.location.reload();
       }
     };
@@ -69,7 +69,9 @@ export default function App() {
             <NotificationBridge />
             {showOnboarding && <OnboardingWizard onComplete={handleComplete} />}
             <KeyringConsentOverlay />
-            <Walkthrough />
+            {/* Mounted only after onboarding closes so it reads the
+                onboarding/walkthrough flags that were just written. */}
+            {!showOnboarding && <Walkthrough />}
             <AppRouter />
           </AppProvider>
         </I18nProvider>

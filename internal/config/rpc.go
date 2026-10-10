@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/simon/mneme/internal/prompts"
 	"github.com/simon/mneme/internal/security"
@@ -286,7 +287,7 @@ func (r *ConfigRPC) SetWorkspace(dir string) error {
 	}
 
 	// Update config and save to new location.
-	newConfig := filepath.Join(dir, "config.toml")
+	newConfig := filepath.Join(dir, workspace.FileConfig)
 	r.cfg.Workspace = dir
 	r.path = newConfig
 	r.log.Info("SetWorkspace saving config", "path", r.path)
@@ -365,10 +366,6 @@ func applyUpdates(cfg *Config, updates map[string]interface{}) error {
 		case "breaker_max_no_progress":
 			if v, ok := toInt(val); ok {
 				cfg.CircuitBreaker.MaxNoProgressFails = v
-			}
-		case "breaker_max_hard_rejects":
-			if v, ok := toInt(val); ok {
-				cfg.CircuitBreaker.MaxHardRejects = v
 			}
 		case "cost_budget_cents":
 			if v, ok := toInt(val); ok {
@@ -547,25 +544,57 @@ func (r *ConfigRPC) ListCredentials(provider string) []map[string]interface{} {
 	return result
 }
 
-// TestProviderConnection validates a provider configuration is present and usable.
+// TestProviderConnection performs a real request against the provider's
+// endpoint and reports the result. The registry lock is released before the
+// network call so a slow provider cannot block other config RPCs.
 func (r *ConfigRPC) TestProviderConnection(providerName string) map[string]interface{} {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, p := range r.cfg.Providers {
-		if p.Name == providerName || providerName == "" {
-			if p.APIKey == "" && p.Type != "ollama" {
-				return map[string]interface{}{
-					"ok": false, "error": "No API key configured for " + p.Name, "provider": p.Name,
-				}
-			}
-			return map[string]interface{}{
-				"ok": true, "provider": p.Name, "endpoint": p.BaseURL, "status": 200,
-			}
+	var found *ProviderConfig
+	defaultModel := r.cfg.Agent.DefaultModel
+	for i := range r.cfg.Providers {
+		if providerName == "" || r.cfg.Providers[i].Name == providerName {
+			cp := r.cfg.Providers[i]
+			found = &cp
+			break
 		}
 	}
-	return map[string]interface{}{
-		"ok": false, "error": "Provider " + providerName + " not found",
+	r.mu.Unlock()
+
+	if found == nil {
+		return map[string]interface{}{"ok": false, "error": "Provider " + providerName + " not found"}
 	}
+	p := *found
+	if p.APIKey == "" && p.Type != "ollama" {
+		return map[string]interface{}{
+			"ok": false, "error": "No API key configured for " + p.Name, "provider": p.Name,
+		}
+	}
+
+	model := defaultModel
+	if len(p.Models) > 0 {
+		model = p.Models[0]
+	}
+
+	start := time.Now()
+	status, err := probeProvider(p, model)
+	out := map[string]interface{}{
+		"provider":   p.Name,
+		"endpoint":   p.BaseURL,
+		"status":     status,
+		"latency_ms": time.Since(start).Milliseconds(),
+	}
+	if err != nil {
+		out["ok"] = false
+		out["error"] = err.Error()
+		return out
+	}
+	if status >= 200 && status < 300 {
+		out["ok"] = true
+		return out
+	}
+	out["ok"] = false
+	out["error"] = fmt.Sprintf("HTTP %d from %s", status, p.BaseURL)
+	return out
 }
 
 // ── Extension config ──────────────────────────────────────────────────────

@@ -6,6 +6,10 @@ export function AppStateSnapshot() {
   return window['go']['app_state']['AppStateRPC']['AppStateSnapshot']();
 }
 
+export function SetApprovalGate(arg1) {
+  return window['go']['app_state']['AppStateRPC']['SetApprovalGate'](arg1);
+}
+
 export function SetCapReg(arg1) {
   return window['go']['app_state']['AppStateRPC']['SetCapReg'](arg1);
 }

@@ -5,5 +5,5 @@
   "description": "Composio OAuth SaaS integrations. Provides tools for listing toolkits and executing actions on connected services (Gmail, Slack, GitHub, etc.).",
   "binary": "composio",
   "build": "go build -ldflags=\"-s -w\" -o composio .",
-  "tools": ["composio_list_toolkits", "composio_execute_action"]
+  "tools": ["composio_list_toolkits", "composio_execute_action", "composio_list_connections", "composio_start_oauth", "composio_complete_oauth", "composio_refresh_token", "composio_revoke_token"]
 }

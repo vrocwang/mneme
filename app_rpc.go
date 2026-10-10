@@ -13,13 +13,31 @@ import (
 	"fmt"
 
 	"github.com/simon/mneme/internal/agent"
-	"github.com/simon/mneme/internal/todos"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ── jsonrpc.AppMethods implementation ──────────────────────────────
 
 func (a *App) Health() map[string]interface{} { return a.AppCore.Health() }
+
+// ── Chat RPC delegates ──────────────────────────────────────────────
+
+type ChatRequest struct {
+	ThreadID string `json:"threadId"`
+	Message  string `json:"message"`
+}
+
+type ChatResponse struct {
+	ThreadID string `json:"threadId"`
+	Content  string `json:"content"`
+	Done     bool   `json:"done"`
+}
+
+// ── JSON-RPC HTTP surface (internal/jsonrpc.AppMethods) ─────────────
+//
+// These two keep the names jsonrpc.AppMethods requires. They intentionally
+// mirror agent.AgentRPC.ListAgents / memory.MemoryRPC.ListAgents-style methods
+// that the Wails frontend uses; the HTTP surface serves non-UI clients.
 
 func (a *App) ListAgents() []map[string]interface{} {
 	if a.CapReg == nil {
@@ -49,43 +67,15 @@ func (a *App) SearchMemory(query string) (string, error) {
 	return result.Formatted(), nil
 }
 
-// ── Approval RPC delegates ──────────────────────────────────────────
-
-func (a *App) ListPendingApprovals() []map[string]interface{} {
-	if a.ApprovalGate == nil {
-		return nil
-	}
-	return a.ApprovalGate.ListPendingForUI()
-}
-
-func (a *App) DecideApproval(id string, approve bool) error {
-	if a.ApprovalGate == nil {
-		return fmt.Errorf("approval gate not initialized")
-	}
-	return a.ApprovalGate.DecideByBool(id, approve)
-}
-
-// ── Chat RPC delegates ──────────────────────────────────────────────
-
-type ChatRequest struct {
-	ThreadID string `json:"threadId"`
-	Message  string `json:"message"`
-}
-
-type ChatResponse struct {
-	ThreadID string `json:"threadId"`
-	Content  string `json:"content"`
-	Done     bool   `json:"done"`
-}
-
 func (a *App) StreamChatMessage(req ChatRequest) {
 	if a.ChatService == nil {
 		runtime.EventsEmit(a.ctx, "chat:error", map[string]interface{}{"threadId": req.ThreadID, "error": "chat service not available"})
 		return
 	}
 	a.ChatService.StreamMessage(a.ctx, req.ThreadID, req.Message, func(evt agent.StreamEvent) {
-		runtime.EventsEmit(a.ctx, "chat:"+evt.Type, map[string]interface{}{
-			"threadId": evt.ThreadID, "content": evt.Content, "args": evt.Args, "done": evt.Done,
+		runtime.EventsEmit(a.ctx, "chat:"+string(evt.Type), map[string]interface{}{
+			"threadId": evt.ThreadID, "content": evt.Content, "args": evt.Args,
+			"error": evt.Error, "done": evt.Done,
 		})
 	})
 }
@@ -117,68 +107,6 @@ func (a *App) GetMetrics() map[string]interface{} {
 	return map[string]interface{}{
 		"counters": snap.Counters, "gauges": snap.Gauges, "histograms": snap.Histograms,
 	}
-}
-
-func (a *App) GetPreferences() []map[string]interface{} {
-	if a.Learning == nil {
-		return []map[string]interface{}{}
-	}
-	prefs := a.Learning.Preferences()
-	result := make([]map[string]interface{}, len(prefs))
-	for i, p := range prefs {
-		result[i] = map[string]interface{}{"key": p.Key, "value": p.Value, "confidence": p.Confidence}
-	}
-	return result
-}
-
-func (a *App) ActivateCompanion() string {
-	if a.gui == nil || a.gui.CompanionLoop == nil {
-		return "Companion not available - no provider configured."
-	}
-	go a.gui.CompanionLoop.Activate(a.ctx)
-	return "Companion activated"
-}
-
-func (a *App) GetCronJobs() []map[string]interface{} {
-	if a.Cron == nil {
-		return nil
-	}
-	jobs := a.Cron.List()
-	result := make([]map[string]interface{}, len(jobs))
-	for i, j := range jobs {
-		result[i] = map[string]interface{}{"id": j.ID, "name": j.Name, "schedule": j.Schedule, "enabled": j.Enabled}
-	}
-	return result
-}
-
-// ── Todo board RPC ──────────────────────────────────────────────────
-
-func (a *App) ListTodos(threadID string) (*todos.Snapshot, error) {
-	if a.TodoStore == nil {
-		return nil, fmt.Errorf("todo store not available")
-	}
-	return a.TodoStore.List(threadID)
-}
-
-func (a *App) AddTodo(threadID, title, notes string) (*todos.Snapshot, error) {
-	if a.TodoStore == nil {
-		return nil, fmt.Errorf("todo store not available")
-	}
-	return a.TodoStore.Add(threadID, title, notes)
-}
-
-func (a *App) UpdateTodoStatus(threadID, cardID, status string) (*todos.Snapshot, error) {
-	if a.TodoStore == nil {
-		return nil, fmt.Errorf("todo store not available")
-	}
-	return a.TodoStore.UpdateStatus(threadID, cardID, todos.Status(status))
-}
-
-func (a *App) RemoveTodo(threadID, cardID string) (*todos.Snapshot, error) {
-	if a.TodoStore == nil {
-		return nil, fmt.Errorf("todo store not available")
-	}
-	return a.TodoStore.Remove(threadID, cardID)
 }
 
 // ── Subconscious delegates ──────────────────────────────────────────

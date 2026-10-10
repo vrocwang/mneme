@@ -118,4 +118,3 @@ func (h *CostTrackingHook) Name() string { return "cost-tracking" }
 func (h *CostTrackingHook) OnTurnComplete(ctx context.Context, s *TurnSnapshot) {
 	h.tracker.Record(s.Model, s.InputTokens, s.OutputTokens)
 }
-

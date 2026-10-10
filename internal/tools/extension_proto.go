@@ -2,6 +2,7 @@ package tools
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,10 +15,24 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/simon/mneme/pkg/extsdk"
 )
 
 // ProtocolVersion is the current extension protocol version supported by the host.
 const ProtocolVersion = 1
+
+// defaultCallTimeout bounds a host→extension request when the caller supplies a
+// context without a deadline.
+//
+// Today's guarantee comes from the SDK side: pkg/extsdk wraps every
+// extension.call_tool handler in a context with extsdk.DefaultCallTimeout (60s,
+// overridable by the extension via SetCallTimeout), so a conforming extension
+// always answers within its own call timeout. The host applies the same bound so
+// that a non-conforming or hung extension fails the call instead of blocking a
+// host goroutine forever. Callers that need longer pass a context with a longer
+// deadline, which the agent tool runner already does for tool executions.
+const defaultCallTimeout = extsdk.DefaultCallTimeout
 
 // ── Proto manifest ───────────────────────────────────────────────────────────
 
@@ -68,6 +83,10 @@ type protoToolDef struct {
 	Parameters  map[string]interface{} `json:"parameters"`
 	Permission  string                 `json:"permission,omitempty"`
 	HasEffects  bool                   `json:"has_effects,omitempty"`
+	// ConcurrencySafe is declared by the extension (extsdk.ToolDef.ConcurrencySafe).
+	// It makes the tool satisfy ConcurrencySafeTool when true; when false the
+	// descriptor reports the same "not concurrency safe" default as before.
+	ConcurrencySafe bool `json:"concurrency_safe,omitempty"`
 }
 
 type protoCallToolParams struct {
@@ -236,7 +255,17 @@ func resolveInterpreter(path string) []string {
 		defer f.Close()
 		var first [128]byte
 		n, _ := f.Read(first[:])
-		line := strings.TrimSpace(string(first[:n]))
+		// Only the shebang LINE is meaningful. Reading a fixed block and
+		// trimming the whole thing would append the first line of script body
+		// as interpreter arguments (e.g. "sh" then "while"), so stop at the
+		// first newline and ignore a trailing partial line.
+		head := string(first[:n])
+		if i := strings.IndexByte(head, '\n'); i >= 0 {
+			head = head[:i]
+		} else if n == len(first) && !strings.Contains(head, "#!") {
+			head = ""
+		}
+		line := strings.TrimSpace(head)
 		if strings.HasPrefix(line, "#!") {
 			line = strings.TrimPrefix(line, "#!")
 			line = strings.TrimSpace(line)
@@ -271,22 +300,156 @@ func resolveInterpreter(path string) []string {
 	return nil
 }
 
+// ── Response demultiplexer ───────────────────────────────────────────────────
+
+// protoDemux routes JSON-RPC responses read from an extension's stdout to the
+// goroutine waiting on the matching request id.
+//
+// One background reader owns stdout; every call registers a buffered channel
+// (capacity 1) before writing its request, so several requests can be in flight
+// to the same extension at once. That is what lets the host deliver a cancel
+// while a long-running call is still outstanding — the previous implementation
+// held a single mutex across the whole write→read cycle and consumed exactly one
+// line per call, so two requests could never overlap.
+type protoDemux struct {
+	mu      sync.Mutex
+	pending map[int64]chan *protoResponse
+	log     *slog.Logger
+}
+
+func newProtoDemux(log *slog.Logger) *protoDemux {
+	if log == nil {
+		log = slog.Default()
+	}
+	return &protoDemux{pending: make(map[int64]chan *protoResponse), log: log}
+}
+
+// register allocates the delivery channel for id. The one-slot buffer is what
+// makes a late response for an abandoned call harmless: the reader can always
+// deliver without blocking, and the buffered value is discarded with the channel.
+func (d *protoDemux) register(id int64) chan *protoResponse {
+	ch := make(chan *protoResponse, 1)
+	d.mu.Lock()
+	d.pending[id] = ch
+	d.mu.Unlock()
+	return ch
+}
+
+// deregister drops id. Idempotent: cancelling after the reader has already
+// delivered is fine, and a later response for the id finds no waiter.
+func (d *protoDemux) deregister(id int64) {
+	d.mu.Lock()
+	delete(d.pending, id)
+	d.mu.Unlock()
+}
+
+// dispatch parses one stdout line and delivers the response to the waiter
+// registered for its id, reporting whether one was found. Malformed lines and
+// unsolicited/unknown ids are logged and dropped: the host never expects
+// notifications today, and a response for a deregistered (cancelled) call must
+// not wake an unrelated waiter or panic.
+func (d *protoDemux) dispatch(line []byte) bool {
+	var resp protoResponse
+	if err := json.Unmarshal(line, &resp); err != nil {
+		d.log.Warn("extension stdout line is not valid JSON-RPC", "error", err)
+		return false
+	}
+	d.mu.Lock()
+	ch, ok := d.pending[resp.ID]
+	d.mu.Unlock()
+	if !ok {
+		// Also covers id 0 (a notification, or a response with no id): request
+		// ids start at 1, so no waiter can exist for it.
+		d.log.Warn("dropping unsolicited extension response", "id", resp.ID)
+		return false
+	}
+	select {
+	case ch <- &resp:
+		return true
+	default:
+		// A second response for one id: the waiter already has its answer.
+		d.log.Warn("dropping duplicate extension response", "id", resp.ID)
+		return false
+	}
+}
+
+// protoTransport is the per-process-generation protocol state: the response
+// demultiplexer, the id allocator, the process-exit signal, and the sync
+// primitives that must not be copied. Restart swaps this whole value instead of
+// copying individual locks, so each process generation starts with a fresh id
+// space, a fresh pending map and a fresh exit channel.
+type protoTransport struct {
+	demux *protoDemux
+	log   *slog.Logger
+
+	idMu sync.Mutex
+	id   int64
+
+	exit     chan struct{}
+	exitOnce sync.Once
+	stopOnce sync.Once
+	readerWG sync.WaitGroup
+}
+
+func newProtoTransport(log *slog.Logger) *protoTransport {
+	if log == nil {
+		log = slog.Default()
+	}
+	return &protoTransport{
+		demux: newProtoDemux(log),
+		log:   log,
+		id:    1,
+		exit:  make(chan struct{}),
+	}
+}
+
+// nextID returns the next unused request id.
+func (t *protoTransport) nextID() int64 {
+	t.idMu.Lock()
+	defer t.idMu.Unlock()
+	id := t.id
+	t.id++
+	return id
+}
+
+// markExited closes the process-exit channel exactly once. Every pending call
+// selects on it, so this is what makes Stop() and process death fail in-flight
+// calls promptly instead of leaving them blocked on a dead pipe.
+func (t *protoTransport) markExited() {
+	t.exitOnce.Do(func() { close(t.exit) })
+}
+
 // ── ProtoProcess ─────────────────────────────────────────────────────────────
 
 // ProtoProcess represents a running extension subprocess connected via
 // stdin/stdout JSON-RPC. It is the Go-side handle for the subprocess.
+//
+// Requests are demultiplexed by JSON-RPC id: writes are serialised by writeMu
+// (never held while waiting), and a background reader delivers each response to
+// the call that registered that id. Several requests can therefore be in flight
+// to one extension at a time.
 type ProtoProcess struct {
 	Manifest ProtoManifest
 	toolList []string // local copy of tool names
 
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
-	stdout *bufio.Reader
-	mu     sync.Mutex
-	reqID  int64
 	log    *slog.Logger
 	cancel context.CancelFunc
 	done   chan struct{}
+
+	// writeMu serialises request writes only. It is deliberately not held while
+	// waiting for a response (that wait is a select on the demux channel), so a
+	// second request can be written while the first is still outstanding.
+	writeMu sync.Mutex
+
+	// transport carries the demultiplexer, id allocator and exit signal for the
+	// current process generation.
+	transport *protoTransport
+
+	// mu guards the mutable process state below and the per-generation handles
+	// (cmd, stdin, transport, cancel, done) that Restart replaces.
+	mu sync.Mutex
 
 	// Restart fields: stored so the extension can be re-launched after a crash.
 	extensionPath string
@@ -346,15 +509,24 @@ func StartProto(ctx context.Context, log *slog.Logger, extensionPath string, arg
 	pp := &ProtoProcess{
 		cmd:           cmd,
 		stdin:         stdin,
-		stdout:        bufio.NewReader(stdoutPipe),
-		mu:            sync.Mutex{},
-		reqID:         1,
 		log:           log,
 		cancel:        cancel,
 		done:          make(chan struct{}),
+		transport:     newProtoTransport(log),
 		extensionPath: extensionPath,
 		extensionArgs: args,
 	}
+
+	// One background reader owns stdout for this process generation. It
+	// demultiplexes responses to their waiters by JSON-RPC id, which is what
+	// allows more than one request to be in flight (see protoDemux). It exits on
+	// stdout EOF or read error and fails every pending call.
+	tr := pp.transport
+	tr.readerWG.Add(1)
+	go func() {
+		defer tr.readerWG.Done()
+		pp.readLoop(stdoutPipe, tr)
+	}()
 
 	// Drain stderr in the background. Crash keywords (panic, fatal, SIGSEGV)
 	// are detected and surfaced as log.Error for alerting. A ring buffer
@@ -363,6 +535,8 @@ func StartProto(ctx context.Context, log *slog.Logger, extensionPath string, arg
 	var ringPos int
 	go func() {
 		defer close(pp.done)
+		// stderr EOF means the process is gone: fail any pending call.
+		defer tr.markExited()
 		scanner := bufio.NewScanner(stderrPipe)
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -440,15 +614,66 @@ func StartProto(ctx context.Context, log *slog.Logger, extensionPath string, arg
 	return pp, nil
 }
 
-// call sends a JSON-RPC request to the extension and waits for the response.
-// Holds the mutex for the entire request—response cycle to prevent concurrent
-// calls from interleaving stdout reads and mismatching responses.
-func (pp *ProtoProcess) call(ctx context.Context, method string, params interface{}) (*protoResponse, error) {
-	pp.mu.Lock()
-	defer pp.mu.Unlock()
+// readLoop owns stdout for one process generation. It reads line-delimited
+// JSON-RPC responses and hands each complete line to the demultiplexer, which
+// delivers it to the goroutine waiting on that id. Incomplete trailing data at
+// EOF is ignored. Returning marks the process exited, which fails every pending
+// call promptly.
+func (pp *ProtoProcess) readLoop(r io.Reader, tr *protoTransport) {
+	reader := bufio.NewReader(r)
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err == nil && len(bytes.TrimSpace(line)) > 0 {
+			tr.demux.dispatch(line)
+		}
+		if err != nil {
+			if err != io.EOF {
+				tr.log.Warn("extension stdout read failed", "error", err)
+			}
+			tr.markExited()
+			return
+		}
+	}
+}
 
-	id := pp.reqID
-	pp.reqID++
+// call sends a JSON-RPC request to the extension and waits for the response
+// carrying its id.
+//
+// The write mutex is held only for the single write of the request line, never
+// while waiting, so several calls can be in flight to one extension: the
+// background reader (see protoDemux) delivers each response to the goroutine
+// that asked for it. That is what makes it possible to deliver a cancel request
+// while a long-running call is still outstanding.
+//
+// ctx bounds the wait. When it carries no deadline, defaultCallTimeout is
+// applied — the SDK-side bound (extsdk.DefaultCallTimeout) that today's
+// guarantee rests on. On cancellation or process exit the pending id is
+// deregistered before returning, so a late response for it is dropped by the
+// reader rather than resurrecting this waiter.
+func (pp *ProtoProcess) call(ctx context.Context, method string, params interface{}) (*protoResponse, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, defaultCallTimeout)
+		defer cancel()
+	}
+
+	// Snapshot the handles Restart can swap out.
+	pp.mu.Lock()
+	tr := pp.transport
+	stdin := pp.stdin
+	pp.mu.Unlock()
+	if tr == nil || stdin == nil {
+		return nil, fmt.Errorf("%s: extension not running", method)
+	}
+
+	id := tr.nextID()
+	ch := tr.demux.register(id)
+	// Idempotent: covers every early return, the success path, and the cancel
+	// path (a late response then finds no waiter).
+	defer tr.demux.deregister(id)
 
 	var rawParams json.RawMessage
 	if params != nil {
@@ -459,39 +684,34 @@ func (pp *ProtoProcess) call(ctx context.Context, method string, params interfac
 		rawParams = b
 	}
 
-	req := protoRequest{
+	reqBytes, err := json.Marshal(protoRequest{
 		JSONRPC: "2.0",
 		ID:      id,
 		Method:  method,
 		Params:  rawParams,
-	}
-
-	reqBytes, err := json.Marshal(req)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	if _, err := fmt.Fprintf(pp.stdin, "%s\n", reqBytes); err != nil {
-		return nil, fmt.Errorf("write request: %w", err)
+	pp.writeMu.Lock()
+	_, werr := fmt.Fprintf(stdin, "%s\n", reqBytes)
+	pp.writeMu.Unlock()
+	if werr != nil {
+		return nil, fmt.Errorf("write request %s: %w", method, werr)
 	}
 
-	// Read response line — mutex is held so no other call() can interleave.
-	line, err := pp.stdout.ReadBytes('\n')
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
+	select {
+	case resp := <-ch:
+		if resp.Error != nil {
+			return nil, fmt.Errorf("extension error [%d]: %s", resp.Error.Code, resp.Error.Message)
+		}
+		return resp, nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("%s: %w", method, ctx.Err())
+	case <-tr.exit:
+		return nil, fmt.Errorf("%s: extension process exited", method)
 	}
-
-	var resp protoResponse
-	if err := json.Unmarshal(line, &resp); err != nil {
-		return nil, fmt.Errorf("unmarshal response: %w", err)
-	}
-	if resp.ID != id {
-		return nil, fmt.Errorf("response id mismatch: expected %d, got %v", id, resp.ID)
-	}
-	if resp.Error != nil {
-		return nil, fmt.Errorf("extension error [%d]: %s", resp.Error.Code, resp.Error.Message)
-	}
-	return &resp, nil
 }
 
 // ListTools asks the extension for its tool definitions.
@@ -604,23 +824,51 @@ func (pp *ProtoProcess) Configure(ctx context.Context, config map[string]interfa
 }
 
 // Stop terminates the extension subprocess and reaps the child process to
-// prevent zombie accumulation. Safe to call multiple times.
+// prevent zombie accumulation.
+//
+// Pending calls are failed immediately (the process-exit channel is closed
+// before the process is even signalled), so a call in flight cannot keep a host
+// goroutine blocked. Stop is idempotent: the shutdown body runs once per process
+// generation, and Restart installs a fresh generation.
 func (pp *ProtoProcess) Stop() error {
-	pp.cancel()
-	// Give the process a moment to exit gracefully.
-	select {
-	case <-pp.done:
-		// Reap the child process to release OS resources.
-		if pp.cmd != nil && pp.cmd.Process != nil {
-			pp.cmd.Wait()
-		}
+	pp.mu.Lock()
+	tr := pp.transport
+	cmd := pp.cmd
+	cancel := pp.cancel
+	stdin := pp.stdin
+	done := pp.done
+	pp.mu.Unlock()
+
+	if tr == nil {
 		return nil
-	case <-time.After(2 * time.Second):
-		if pp.cmd.Process != nil {
-			pp.cmd.Process.Kill()
-			pp.cmd.Wait() // reap after kill
-		}
 	}
+	tr.stopOnce.Do(func() {
+		tr.markExited() // fail every pending call now
+		if cancel != nil {
+			cancel()
+		}
+		if stdin != nil {
+			stdin.Close() // stdin EOF: a well-behaved extension exits
+		}
+		// Give the process a moment to exit gracefully.
+		waitCh := done
+		if waitCh == nil {
+			closed := make(chan struct{})
+			close(closed)
+			waitCh = closed
+		}
+		select {
+		case <-waitCh:
+		case <-time.After(2 * time.Second):
+			if cmd != nil && cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+		}
+		// Reap the child process to release OS resources.
+		if cmd != nil {
+			_ = cmd.Wait()
+		}
+	})
 	return nil
 }
 
@@ -669,19 +917,22 @@ func (pp *ProtoProcess) Restart(ctx context.Context) error {
 		return fmt.Errorf("extension restart: %w", err)
 	}
 
-	// Copy state from the new process into the receiver.
+	// Copy state from the new process into the receiver. The transport (and with
+	// it the demultiplexer, id space, exit signal and stop/exit onces) is
+	// replaced wholesale, never copied: a new process generation needs a fresh
+	// pending map and a live exit channel, and copying sync primitives is
+	// exactly the kind of mistake that leaks or double-closes.
 	pp.mu.Lock()
-	defer pp.mu.Unlock()
 	pp.cmd = newProc.cmd
 	pp.stdin = newProc.stdin
-	pp.stdout = newProc.stdout
+	pp.transport = newProc.transport
 	pp.Manifest = newProc.Manifest
 	pp.toolList = newProc.toolList
-	pp.reqID = 1
 	pp.cancel = newProc.cancel
 	pp.done = newProc.done
 	pp.crashed = false
 	pp.stderrTail = ""
+	pp.mu.Unlock()
 
 	pp.log.Info("extension restarted", "extension", pp.extensionPath, "version", pp.Manifest.Version)
 	return nil
@@ -752,6 +1003,14 @@ func (pt *protoTool) SideEffects() bool {
 	return pt.def.HasEffects
 }
 
+// ConcurrencySafe reports whether the extension declared this tool safe to run
+// concurrently (extsdk.ToolDef.ConcurrencySafe → wire field concurrency_safe).
+// Extensions that do not declare it keep the previous default of false, so this
+// only ever widens what a tool opts into.
+func (pt *protoTool) ConcurrencySafe() bool {
+	return pt.def.ConcurrencySafe
+}
+
 func (pt *protoTool) Category() ToolCategory {
 	return CategorySkill
 }
@@ -771,8 +1030,9 @@ func (pt *protoTool) Descriptor() ToolDescriptor {
 
 // Compile-time check: protoTool implements extended interfaces.
 var (
-	_ PermissionedTool = (*protoTool)(nil)
-	_ SideEffectTool   = (*protoTool)(nil)
-	_ CategorizedTool  = (*protoTool)(nil)
-	_ DescribedTool    = (*protoTool)(nil)
+	_ PermissionedTool    = (*protoTool)(nil)
+	_ SideEffectTool      = (*protoTool)(nil)
+	_ CategorizedTool     = (*protoTool)(nil)
+	_ DescribedTool       = (*protoTool)(nil)
+	_ ConcurrencySafeTool = (*protoTool)(nil)
 )

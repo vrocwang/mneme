@@ -1,12 +1,14 @@
-const ru = {
-  app: { title: 'Mneme', tagline: 'ИИ-ассистент для сообществ' },
+import type { EnTranslations } from './en';
+import type { DeepPartial } from './I18nContext';
+
+const ru: DeepPartial<EnTranslations> = {
+  app: { title: 'Mneme' },
 
   nav: {
     home: 'Главная',
     chat: 'Чат',
     memory: 'Память',
     tools: 'Инструменты',
-    skills: 'Навыки',
     dashboard: 'Панель',
     notifications: 'Уведомления',
     settings: 'Настройки'
@@ -236,58 +238,6 @@ const ru = {
     add: 'Добавить'
   },
 
-  tools: {
-    title: 'Tools & Agents',
-    toolsTab: 'Tools',
-    agentsTab: 'Agents',
-    mcpTab: 'MCP',
-    pageError: 'Page Error',
-    retry: 'Retry',
-    noTools: 'No tools registered.',
-    noDescription: 'No description',
-    registeredAgents: 'Registered Agents',
-    newAgent: '+ New Agent',
-    editAgent: 'Edit Agent',
-    newAgentTitle: 'New Agent',
-    id: 'ID',
-    name: 'Name',
-    description: 'Description',
-    systemPrompt: 'System Prompt',
-    save: 'Save',
-    saving: 'Saving...',
-    cancel: 'Cancel',
-    edit: 'Edit',
-    delete: 'Delete',
-    noAgents: 'No agents registered.',
-    hidden: 'hidden',
-    fork: 'fork',
-    agentSaved: 'Saved',
-    agentDeleteConfirm: 'Delete agent',
-    mcpUninstallConfirm: 'Uninstall',
-    error: 'Error',
-    mcpServers: 'MCP Servers',
-    installMCP: '+ Install MCP Server',
-    installMCPTitle: 'Install MCP Server',
-    installConnect: 'Install & Connect',
-    noMCPServers: 'No MCP servers installed.',
-    noMCPServersHint: 'Click "+ Install MCP Server" to add one.',
-    selectMCP: 'Select an MCP server to view details.',
-    disconnect: 'Disconnect',
-    connect: 'Connect',
-    uninstall: 'Uninstall',
-    discoveredTools: 'Discovered Tools',
-    testToolCall: 'Test Tool Call',
-    callTool: 'Call Tool',
-    transport: 'Transport',
-    args: 'Args (comma-separated)',
-    command: 'Command',
-    url: 'URL',
-    toolName: 'Tool name',
-    offline: 'offline',
-    loadFailed: 'Failed to load',
-    installedConnected: 'Installed & connected'
-  },
-
   errors: {
     somethingWrong: 'Что-то пошло не так',
     
@@ -322,27 +272,9 @@ const ru = {
     dbStatus: 'База данных'
   },
 
-  skills: {
-    title: 'Навыки',
-    installed: 'Установленные навыки',
-    install: 'Установить навык',
-    browse: 'Обзор',
-    all: 'Все',
-    noSkills: 'Нет установленных навыков',
-    noSkillsHint: 'Навыки расширяют агента специализированными инструментами и поведением.',
-    running: 'Активен',
-    loaded: 'Загружен',
-    disabled: 'Отключен',
-    error: 'Ошибка',
-    enable: 'Включить',
-    disable: 'Отключить',
-    uninstall: 'Удалить'
-  },
-
   extensions: {
     title: 'Extensions',
     install: 'Install',
-    uninstall: 'Uninstall'
   },
 
   webhooks: {
@@ -405,10 +337,6 @@ const ru = {
       memory: {
         title: 'Memory',
         content: "Search and explore your AI's memory. View knowledge graphs, timelines, and entity associations."
-      },
-      tools: {
-        title: 'Tools & Agents',
-        content: 'Manage tools, MCP servers, and agent configurations. Install extensions to add new capabilities.'
       },
       settings: {
         title: 'Settings',

@@ -1,19 +1,54 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useT } from '../../lib/i18n/I18nContext';
 import { useApp } from '../../state/AppContext';
 import { useApprovals } from '../../hooks/useApprovals';
+import { EventsOn } from '../../../wailsjs/runtime/runtime';
+import { Events } from '../../lib/events';
+import * as api from '../../services/wails';
+import type { NotificationRecord } from '../../services/wails';
 
-interface Notification {
+// Payload the backend emits on the notification:new event (notifications/subscribers.go).
+// The event carries no read flag — anything arriving live is unread.
+interface IncomingNotification {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  thread_id?: string;
+  channel?: string;
+  created_at: string;
+}
+
+// A row in the centre: either a persisted RPC notification or a live pending
+// approval, which is decision-capable and not in the persisted list yet.
+interface NotificationItem {
   id: string;
   kind: string;
   title: string;
   body: string;
   timestamp: string;
   read: boolean;
+  approval: boolean;
+}
+
+function iconKind(kind: string): 'approval' | 'error' | 'warning' | 'success' | 'info' {
+  switch (kind) {
+    case 'approval':
+    case 'approval_needed':
+      return 'approval';
+    case 'system_alert':
+      return 'warning';
+    case 'error':
+      return 'error';
+    case 'cron_result':
+      return 'success';
+    default:
+      return 'info';
+  }
 }
 
 function KindIcon({ kind }: { kind: string }) {
-  switch (kind) {
+  switch (iconKind(kind)) {
     case 'approval':
       return (
         <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -49,42 +84,97 @@ function KindIcon({ kind }: { kind: string }) {
 
 export function NotificationCenter() {
   const { t } = useT();
-  const { state } = useApp();
+  const { actions } = useApp();
   const { pendingApprovals, decideApproval } = useApprovals();
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
-  const [readIds, setReadIds] = useState<Set<string>>(new Set());
+  const [notifications, setNotifications] = useState<NotificationRecord[]>([]);
 
-  const markAllRead = () => {
-    const allIds = new Set([
-      ...pendingApprovals.map(a => a.id),
-      ...state.toasts.map(t => t.id),
-    ]);
-    setReadIds(allIds);
-  };
+  // `actions` is recreated on every app-state change; keep the toast callback in
+  // a ref so the load effect and the event listener register exactly once. `t`
+  // is held the same way so a locale switch reaches those toasts.
+  const addToastRef = useRef(actions.addToast);
+  addToastRef.current = actions.addToast;
+  const tRef = useRef(t);
+  tRef.current = t;
 
-  const notifications: Notification[] = [
+  // Persisted history lives behind notifications.RPC — toasts disappear after
+  // 5s, so the centre can only be durable by reading the stored rows.
+  useEffect(() => {
+    let active = true;
+    api.listNotifications(50).then(
+      list => { if (active) setNotifications(list || []); },
+      e => { if (active) addToastRef.current('error', tRef.current('errors.loadNotifications'), String(e)); },
+    );
+    return () => { active = false; };
+  }, []);
+
+  // New notifications are persisted by the backend before the event is emitted,
+  // so prepending the payload keeps the list in sync without a re-fetch.
+  useEffect(() => {
+    const off = EventsOn(Events.NotificationNew, (n: IncomingNotification) => {
+      if (!n || !n.id) return;
+      setNotifications(prev => {
+        if (prev.some(p => p.id === n.id)) return prev;
+        const record: NotificationRecord = {
+          id: n.id,
+          kind: n.kind,
+          title: n.title || '',
+          body: n.body || '',
+          thread_id: n.thread_id,
+          channel: n.channel,
+          read: false,
+          created_at: n.created_at || new Date().toISOString(),
+        };
+        return [record, ...prev];
+      });
+    });
+    return () => { off?.(); };
+  }, []);
+
+  const markAllRead = useCallback(async () => {
+    try {
+      await api.markAllNotificationsRead();
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    } catch (e) {
+      addToastRef.current('error', tRef.current('errors.markAllReadFailed'), String(e));
+    }
+  }, []);
+
+  const markRead = useCallback(async (id: string) => {
+    try {
+      await api.markNotificationRead(id);
+      setNotifications(prev => prev.map(n => (n.id === id ? { ...n, read: true } : n)));
+    } catch (e) {
+      addToastRef.current('error', tRef.current('errors.markReadFailed'), String(e));
+    }
+  }, []);
+
+  // Approvals first: they are actionable and vanish from the list on decision.
+  const items: NotificationItem[] = [
     ...pendingApprovals.map(a => ({
       id: a.id,
       kind: 'approval',
       title: t('notifications.approvalRequest'),
       body: `${a.tool_name}: ${a.reason || ''}`,
       timestamp: a.created_at || '',
-      read: readIds.has(a.id),
+      read: false,
+      approval: true,
     })),
-    ...state.toasts.map(toast => ({
-      id: toast.id,
-      kind: toast.kind,
-      title: toast.title,
-      body: toast.body,
-      timestamp: new Date().toISOString(),
-      read: readIds.has(toast.id),
+    ...notifications.map(n => ({
+      id: n.id,
+      kind: n.kind,
+      title: n.title,
+      body: n.body,
+      timestamp: n.created_at,
+      read: n.read,
+      approval: false,
     })),
   ];
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const unreadCount = items.filter(n => !n.read).length;
   const filtered = filter === 'unread'
-    ? notifications.filter(n => !n.read)
-    : notifications;
+    ? items.filter(n => !n.read)
+    : items;
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -124,10 +214,11 @@ export function NotificationCenter() {
             <div className="space-y-2 animate-fade-in">
               {filtered.map(n => (
                 <div
-                  key={n.id}
+                  key={`${n.approval ? 'approval' : 'notification'}:${n.id}`}
+                  onClick={() => { if (!n.approval && !n.read) markRead(n.id); }}
                   className={`flex items-start gap-3 p-4 rounded-xl border transition-colors ${
                     n.read ? 'bg-surface border-surface-border opacity-60' : 'bg-surface-overlay border-ocean-500/20'
-                  }`}
+                  } ${!n.approval && !n.read ? 'cursor-pointer' : ''}`}
                 >
                   <span className="shrink-0 mt-0.5"><KindIcon kind={n.kind} /></span>
                   <div className="flex-1 min-w-0">
@@ -136,7 +227,7 @@ export function NotificationCenter() {
                       {!n.read && <span className="w-2 h-2 rounded-full bg-ocean-400 shrink-0" />}
                     </div>
                     <p className="text-xs text-white/50 mt-1 line-clamp-2">{n.body}</p>
-                    {n.kind === 'approval' && (
+                    {n.approval && (
                       <div className="flex gap-1.5 mt-2">
                         <button
                           className="text-[10px] px-1.5 py-0.5 bg-sage-500/20 text-sage-400 rounded hover:bg-sage-500/30 transition-colors"

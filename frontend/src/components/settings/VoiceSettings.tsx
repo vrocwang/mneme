@@ -1,7 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import * as api from '../../services/wails';
 import { useT } from '../../lib/i18n/I18nContext';
+import { providerSpec } from '../../lib/providers';
+import { FLASH_TIMEOUT_MS } from '../../lib/timing';
 import type { VoiceConfig } from '../../services/wails';
+
+// Default endpoint shown for the cloud (OpenAI) STT/TTS providers.
+const OPENAI_ENDPOINT = providerSpec('openai').baseUrl;
 
 const STT_PROVIDERS = [
   { value: 'system', key: 'voice.sttSystem' },
@@ -31,7 +36,7 @@ export function VoiceSettings() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
 
-  const flash = (text: string) => { setMsg(text); setTimeout(() => setMsg(''), 3000); };
+  const flash = (text: string) => { setMsg(text); setTimeout(() => setMsg(''), FLASH_TIMEOUT_MS); };
 
   const load = useCallback(async () => {
     try {
@@ -96,7 +101,7 @@ export function VoiceSettings() {
               <input
                 value={config.stt_endpoint || ''}
                 onChange={e => setConfig(prev => ({ ...prev, stt_endpoint: e.target.value }))}
-                placeholder="https://api.openai.com/v1"
+                placeholder={OPENAI_ENDPOINT}
                 className="input-field"
               />
             </div>
@@ -106,7 +111,7 @@ export function VoiceSettings() {
                 type="password"
                 value={config.stt_api_key || ''}
                 onChange={e => setConfig(prev => ({ ...prev, stt_api_key: e.target.value }))}
-                placeholder="sk-..."
+                placeholder={t('common.apiKeyPlaceholder')}
                 className="input-field"
               />
               <p className="text-[10px] text-white/20">{t('voice.apiKeyHint')}</p>
@@ -148,7 +153,7 @@ export function VoiceSettings() {
               <input
                 value={config.tts_endpoint || ''}
                 onChange={e => setConfig(prev => ({ ...prev, tts_endpoint: e.target.value }))}
-                placeholder="https://api.openai.com/v1"
+                placeholder={OPENAI_ENDPOINT}
                 className="input-field"
               />
             </div>
@@ -158,7 +163,7 @@ export function VoiceSettings() {
                 type="password"
                 value={config.tts_api_key || ''}
                 onChange={e => setConfig(prev => ({ ...prev, tts_api_key: e.target.value }))}
-                placeholder="sk-..."
+                placeholder={t('common.apiKeyPlaceholder')}
                 className="input-field"
               />
               <p className="text-[10px] text-white/20">{t('voice.apiKeyHint')}</p>

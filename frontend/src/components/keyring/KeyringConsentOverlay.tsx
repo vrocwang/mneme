@@ -33,17 +33,17 @@ export function KeyringConsentOverlay() {
             </svg>
           </div>
           <h3 className="text-sm font-semibold text-white/90">
-            {t('keyring.consentTitle') || 'Storage Authorization'}
+            {t('keyring.consentTitle')}
           </h3>
         </div>
 
         <p className="text-xs text-white/50 mb-3 leading-relaxed">
-          {t('keyring.consentBody') || 'The system keyring is not available. Would you like to store secrets in an encrypted local file instead?'}
+          {t('keyring.consentBody')}
         </p>
 
         {status && (
           <div className="text-[10px] text-white/30 mb-4 space-y-0.5 font-mono bg-surface border border-surface-border rounded-lg px-3 py-2">
-            <p>Backend: {String(status.backendName || 'file')} · Mode: {String(status.activeMode || 'consent_pending')}</p>
+            <p>{t('keyring.backend')}: {String(status.backendName || 'file')} · {t('keyring.mode')}: {String(status.activeMode || 'consent_pending')}</p>
             {status.failureReason ? <p className="text-amber-400/70">{String(status.failureReason)}</p> : null}
           </div>
         )}
@@ -53,13 +53,13 @@ export function KeyringConsentOverlay() {
             onClick={() => decide('declined')}
             className="text-xs px-4 py-2 rounded-lg border border-surface-border text-white/50 hover:text-white/70 hover:bg-white/5 transition-colors"
           >
-            {t('keyring.consentDecline') || 'Decline'}
+            {t('keyring.consentDecline')}
           </button>
           <button
             onClick={() => decide('local_encrypted')}
             className="text-xs px-4 py-2 rounded-lg bg-ocean-500 text-white hover:bg-ocean-600 transition-colors"
           >
-            {t('keyring.consentAllow') || 'Allow Local Storage'}
+            {t('keyring.consentAllow')}
           </button>
         </div>
       </div>

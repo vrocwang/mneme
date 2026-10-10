@@ -1,0 +1,9 @@
+{
+  "name": "file-state",
+  "version": "0.1.0",
+  "category": "tools",
+  "description": "Track file changes, checksums, and snapshots in the workspace.",
+  "binary": "file-state",
+  "build": "go build -ldflags=\"-s -w\" -o file-state .",
+  "tools": ["file_snapshot", "file_diff_state"]
+}

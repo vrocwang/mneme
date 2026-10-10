@@ -10,20 +10,16 @@ export function ConnectMCPServer(arg1) {
   return window['go']['capability']['CapabilityRPC']['ConnectMCPServer'](arg1);
 }
 
-export function CreateAgent(arg1) {
-  return window['go']['capability']['CapabilityRPC']['CreateAgent'](arg1);
-}
-
-export function DeleteAgent(arg1) {
-  return window['go']['capability']['CapabilityRPC']['DeleteAgent'](arg1);
-}
-
 export function DisconnectMCPServer(arg1) {
   return window['go']['capability']['CapabilityRPC']['DisconnectMCPServer'](arg1);
 }
 
 export function GetSet(arg1) {
   return window['go']['capability']['CapabilityRPC']['GetSet'](arg1);
+}
+
+export function GetToolDiagnostics() {
+  return window['go']['capability']['CapabilityRPC']['GetToolDiagnostics']();
 }
 
 export function GetToolSchema(arg1) {
@@ -34,16 +30,8 @@ export function InstallExtension(arg1) {
   return window['go']['capability']['CapabilityRPC']['InstallExtension'](arg1);
 }
 
-export function InstallLegacyExtension(arg1) {
-  return window['go']['capability']['CapabilityRPC']['InstallLegacyExtension'](arg1);
-}
-
 export function InstallSkill(arg1) {
   return window['go']['capability']['CapabilityRPC']['InstallSkill'](arg1);
-}
-
-export function InstallSkillFromCatalog(arg1) {
-  return window['go']['capability']['CapabilityRPC']['InstallSkillFromCatalog'](arg1);
 }
 
 export function ListAllAgents() {
@@ -62,16 +50,16 @@ export function ListSets() {
   return window['go']['capability']['CapabilityRPC']['ListSets']();
 }
 
-export function ListSkillCatalog() {
-  return window['go']['capability']['CapabilityRPC']['ListSkillCatalog']();
-}
-
-export function RefreshSkillCatalog() {
-  return window['go']['capability']['CapabilityRPC']['RefreshSkillCatalog']();
-}
-
 export function RemoveMCPServer(arg1) {
   return window['go']['capability']['CapabilityRPC']['RemoveMCPServer'](arg1);
+}
+
+export function SetCapabilityWorkspace(arg1) {
+  return window['go']['capability']['CapabilityRPC']['SetCapabilityWorkspace'](arg1);
+}
+
+export function SetMCPPersister(arg1) {
+  return window['go']['capability']['CapabilityRPC']['SetMCPPersister'](arg1);
 }
 
 export function SetRegistry(arg1) {
@@ -80,8 +68,4 @@ export function SetRegistry(arg1) {
 
 export function UninstallExtension(arg1, arg2) {
   return window['go']['capability']['CapabilityRPC']['UninstallExtension'](arg1, arg2);
-}
-
-export function UpdateAgent(arg1, arg2) {
-  return window['go']['capability']['CapabilityRPC']['UpdateAgent'](arg1, arg2);
 }

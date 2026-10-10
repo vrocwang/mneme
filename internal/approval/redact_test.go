@@ -160,5 +160,3 @@ func TestRedactArgsJSON_InvalidInput(t *testing.T) {
 		t.Errorf("invalid JSON should produce safe fallback, got %s", red)
 	}
 }
-
-

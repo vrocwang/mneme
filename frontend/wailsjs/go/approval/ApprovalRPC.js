@@ -13,3 +13,7 @@ export function ListApprovalAllowlist() {
 export function ListPendingApprovals() {
   return window['go']['approval']['ApprovalRPC']['ListPendingApprovals']();
 }
+
+export function SetGate(arg1) {
+  return window['go']['approval']['ApprovalRPC']['SetGate'](arg1);
+}

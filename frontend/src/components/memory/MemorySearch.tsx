@@ -5,6 +5,14 @@ import * as api from '../../services/wails';
 
 type FilterTab = 'all' | 'fts5' | 'vector' | 'graph';
 
+// Retrieval profiles the backend accepts; ids must match the Go config.
+const PROFILE_OPTIONS: readonly { id: string; labelKey: string }[] = [
+  { id: 'balanced', labelKey: 'memory.profileBalanced' },
+  { id: 'semantic', labelKey: 'memory.profileSemantic' },
+  { id: 'lexical', labelKey: 'memory.profileLexical' },
+  { id: 'graph_first', labelKey: 'memory.profileGraphFirst' },
+];
+
 interface MemoryStats {
   config: Record<string, unknown> | null;
   weights: Record<string, string> | null;
@@ -95,10 +103,10 @@ export function MemorySearch() {
                 <div className="pt-2 border-t border-surface-border">
                   <h4 className="text-xs font-semibold text-white/50 mb-2">{t('memory.weights')}</h4>
                   <div className="flex items-center gap-2 mb-3">
-                    <span className="text-xs text-white/30">{t('memory.profile') || 'Profile'}:</span>
+                    <span className="text-xs text-white/30">{t('memory.profile')}:</span>
                     <select
                       className="input-field !py-1 !text-xs"
-                      value={stats.weights.profile || 'balanced'}
+                      value={stats.weights.profile || PROFILE_OPTIONS[0].id}
                       onChange={async e => {
                         const profile = e.target.value;
                         try {
@@ -107,10 +115,9 @@ export function MemorySearch() {
                         } catch { /* browser mode — ignore */ }
                       }}
                     >
-                      <option value="balanced">Balanced</option>
-                      <option value="semantic">Semantic</option>
-                      <option value="lexical">Lexical</option>
-                      <option value="graph_first">Graph First</option>
+                      {PROFILE_OPTIONS.map(p => (
+                        <option key={p.id} value={p.id}>{t(p.labelKey)}</option>
+                      ))}
                     </select>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs">

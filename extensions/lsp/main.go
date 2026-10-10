@@ -558,20 +558,6 @@ func intFromArgs(args map[string]interface{}, key string) int {
 	return 0
 }
 
-func intFromOptArgs(args map[string]interface{}, key string) (int, bool) {
-	v, ok := args[key]
-	if !ok {
-		return 0, false
-	}
-	switch n := v.(type) {
-	case float64:
-		return int(n), true
-	case int:
-		return n, true
-	}
-	return 0, false
-}
-
 func getStrArg(args map[string]interface{}, key, fallback string) string {
 	if v, ok := args[key].(string); ok && v != "" {
 		return v

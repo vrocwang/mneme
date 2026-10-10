@@ -114,7 +114,8 @@ func qqStatus(ctx context.Context, args map[string]interface{}) extsdk.Result {
 		return extsdk.Result{Success: false, Error: fmt.Sprintf("QQ Bot API not configured: %v", err)}
 	}
 
-	url := fmt.Sprintf("https://api.sgroup.qq.com/users/@me")
+	const meURL = "https://api.sgroup.qq.com/users/@me"
+	url := meURL
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 	req.Header.Set("Authorization", fmt.Sprintf("Bot %s.%s", appID, os.Getenv("QQ_BOT_TOKEN")))
 	resp, err := httpClient.Do(req)

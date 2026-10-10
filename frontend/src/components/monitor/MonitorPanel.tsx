@@ -4,6 +4,17 @@ import { useT } from '../../lib/i18n/I18nContext';
 import * as api from '../../services/wails';
 import type { MonitorRunSummary } from '../../services/wails';
 
+// Seconds a started command is allowed to run before the backend kills it.
+const DEFAULT_TIMEOUT_SECS = 300;
+
+// Run statuses reported by the backend monitor.
+const STATUS_LABEL_KEYS: Record<string, string> = {
+  running: 'monitor.statusRunning',
+  completed: 'monitor.statusCompleted',
+  failed: 'monitor.statusFailed',
+  timeout: 'monitor.statusTimeout',
+};
+
 export function MonitorPanel() {
   const { dispatch } = useApp();
   const { t } = useT();
@@ -11,7 +22,7 @@ export function MonitorPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [command, setCommand] = useState('');
-  const [timeout, setTimeout_] = useState(300);
+  const [timeout, setTimeout_] = useState(DEFAULT_TIMEOUT_SECS);
   const [output, setOutput] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
@@ -22,11 +33,11 @@ export function MonitorPanel() {
       setRuns(result?.runs ?? []);
       setError('');
     } catch (e: any) {
-      setError(e.message || 'Failed to load monitor runs');
+      setError(e.message || t('errors.loadMonitorRuns'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -37,7 +48,7 @@ export function MonitorPanel() {
       setCommand('');
       load();
     } catch (e: any) {
-      setError(e.message || 'Start failed');
+      setError(e.message || t('errors.startFailed'));
     }
   };
 
@@ -54,9 +65,9 @@ export function MonitorPanel() {
   };
 
   const statusColor = (s: string) =>
-    s === 'running' ? 'bg-yellow-500' :
-    s === 'completed' ? 'bg-green-500' :
-    s === 'failed' || s === 'timeout' ? 'bg-red-500' : 'bg-gray-500';
+    s === 'running' ? 'bg-amber-400' :
+    s === 'completed' ? 'bg-sage-500' :
+    s === 'failed' || s === 'timeout' ? 'bg-coral-500' : 'bg-white/20';
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -101,7 +112,7 @@ export function MonitorPanel() {
             <div className="w-24">
               <label className="text-xs text-white/40 block mb-1">{t('monitor.timeout')}</label>
               <input
-                type="number" value={timeout} onChange={e => setTimeout_(Number(e.target.value) || 300)}
+                type="number" value={timeout} onChange={e => setTimeout_(Number(e.target.value) || DEFAULT_TIMEOUT_SECS)}
                 className="input-field"
               />
             </div>
@@ -133,7 +144,7 @@ export function MonitorPanel() {
                   <div className="flex items-center gap-2">
                     <span className={`w-2 h-2 rounded-full shrink-0 ${statusColor(r.status)}`} />
                     <span className="font-mono text-sm text-white/80 truncate flex-1">{r.command}</span>
-                    <span className="text-white/40 text-xs">{r.status}</span>
+                    <span className="text-white/40 text-xs">{t(STATUS_LABEL_KEYS[r.status] ?? 'monitor.statusUnknown')}</span>
                     {r.status === 'running' && (
                       <button onClick={() => handleStop(r.id)} className="text-xs text-coral-400 hover:text-coral-300 px-2 py-0.5 rounded border border-coral-500/30">{t('monitor.stop')}</button>
                     )}

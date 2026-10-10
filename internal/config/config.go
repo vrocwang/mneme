@@ -15,6 +15,37 @@ import (
 	workspace "github.com/simon/mneme/internal/workspace"
 )
 
+// ── Shared endpoint defaults ─────────────────────────────────────────────
+//
+// These constants are the single source of truth for endpoints and ports that
+// are also consumed by the wiring packages (internal/jsonrpc,
+// internal/webhooks, internal/embeddings, internal/voice, internal/memory).
+// Each was previously written twice — once as a config default and once as a
+// fallback in the consumer — so the two could drift. The import direction is
+// one-way: those packages import internal/config, never the reverse.
+
+const (
+	// DefaultInferenceHTTPPort is the loopback port the inference HTTP server
+	// binds when config does not specify one.
+	DefaultInferenceHTTPPort = 8080
+
+	// DefaultWebhookPort is the loopback port the inbound webhook listener
+	// binds when config does not specify one.
+	DefaultWebhookPort = 9500
+
+	// DefaultLoopbackBind is the bind address shared by the local-only HTTP
+	// surfaces (inference HTTP server and webhook listener).
+	DefaultLoopbackBind = "127.0.0.1"
+
+	// DefaultOllamaBaseURL is the default Ollama endpoint: the built-in
+	// "ollama" provider entry and the Ollama embedding provider both use it.
+	DefaultOllamaBaseURL = "http://localhost:11434"
+
+	// DefaultOpenAIBaseURL is the default endpoint for the OpenAI API and for
+	// every OpenAI-compatible client (LLM providers, embeddings, TTS, STT).
+	DefaultOpenAIBaseURL = "https://api.openai.com/v1"
+)
+
 // ProviderConfig defines an LLM provider in the config file.
 type ProviderConfig struct {
 	Name    string   `toml:"name" json:"name"`
@@ -104,6 +135,32 @@ type EmbeddingConfig struct {
 	Model    string `toml:"model"`    // model name, empty = provider default
 	BaseURL  string `toml:"base_url"` // override API base URL
 	APIKey   string `toml:"api_key"`  // API key (OpenAI)
+
+	// resolvedAPIKey and resolvedBaseURL carry the provider-derived endpoint
+	// resolved at load time (see Config.ResolveEmbeddingConfig). They are
+	// deliberately unexported so the TOML encoder never writes them back: a
+	// key that came from the environment would otherwise be persisted to
+	// config.toml and then shadow a later rotation of that env var.
+	resolvedAPIKey  string
+	resolvedBaseURL string
+}
+
+// ResolvedAPIKey returns the effective API key: the explicitly configured
+// value, else the provider-derived value resolution found, else "".
+func (e EmbeddingConfig) ResolvedAPIKey() string {
+	if e.APIKey != "" {
+		return e.APIKey
+	}
+	return e.resolvedAPIKey
+}
+
+// ResolvedBaseURL returns the effective base URL: the explicitly configured
+// value, else the provider-derived value resolution found, else "".
+func (e EmbeddingConfig) ResolvedBaseURL() string {
+	if e.BaseURL != "" {
+		return e.BaseURL
+	}
+	return e.resolvedBaseURL
 }
 
 // ToolsConfig holds configuration for tool implementations.
@@ -189,7 +246,7 @@ func DefaultConfig() *Config {
 			{
 				Name:    "ollama",
 				Type:    "ollama",
-				BaseURL: "http://localhost:11434",
+				BaseURL: DefaultOllamaBaseURL,
 				Models:  []string{"llama3", "qwen2.5", "deepseek-r1"},
 			},
 			{
@@ -213,7 +270,7 @@ func DefaultConfig() *Config {
 		ScreenIntelligence: defaultScreenIntelligenceConfig(),
 		InferenceHTTP:      defaultInferenceHTTPConfig(),
 		Webhook: WebhookConfig{
-			Port:    9500,
+			Port:    DefaultWebhookPort,
 			Enabled: false,
 		},
 	}
@@ -230,9 +287,9 @@ func WorkspaceDir() string {
 	return filepath.Join(filepath.Dir(exe), "data")
 }
 
-// TempDir returns a temp directory within the data directory.
+// TempDir returns the workspace's scratch directory.
 func TempDir() string {
-	dir := filepath.Join(WorkspaceDir(), "tmp")
+	dir := filepath.Join(WorkspaceDir(), workspace.DirTmp)
 	os.MkdirAll(dir, 0755)
 	return dir
 }
@@ -381,13 +438,70 @@ func (c *Config) FindProviderForModel(model string) *ProviderConfig {
 	return nil
 }
 
+// ResolveEmbeddingConfig returns the embedding config with its endpoint
+// resolved through the configured providers.
+//
+// The embedding section may leave api_key/base_url empty while the endpoint
+// credentials live in a [[providers]] entry (TOML-only, or env-injected). The
+// provider is matched by name first, then by the embedding model appearing in
+// its model list. Matching by provider *type* is deliberately not attempted:
+// several providers share type "openai" (a local LM Studio server, a hosted
+// gateway), so a type-only match could silently redirect the embedder to the
+// wrong endpoint. Explicit values in the embedding section always win; the
+// caller (internal/memory.SetupEmbedder) keeps the OPENAI_API_KEY environment
+// fallback for when no provider matched either.
+//
+// The derived values are kept in unexported fields so they are never persisted
+// by Save — see EmbeddingConfig.
+func (c *Config) ResolveEmbeddingConfig() EmbeddingConfig {
+	e := c.Embedding
+	if e.APIKey != "" && e.BaseURL != "" {
+		return e
+	}
+	if p := c.matchEmbeddingProvider(e); p != nil {
+		if e.APIKey == "" {
+			e.resolvedAPIKey = p.APIKey
+		}
+		if e.BaseURL == "" {
+			e.resolvedBaseURL = p.BaseURL
+		}
+	}
+	return e
+}
+
+// matchEmbeddingProvider finds the provider entry that serves the embedding
+// endpoint: an exact (case-insensitive) name match first, then the provider
+// whose model list contains the configured embedding model. Returns nil when
+// neither matches.
+func (c *Config) matchEmbeddingProvider(e EmbeddingConfig) *ProviderConfig {
+	if e.Provider != "" {
+		for i := range c.Providers {
+			if strings.EqualFold(c.Providers[i].Name, e.Provider) {
+				p := c.Providers[i]
+				return &p
+			}
+		}
+	}
+	if e.Model != "" {
+		for i := range c.Providers {
+			for _, m := range c.Providers[i].Models {
+				if m == e.Model {
+					p := c.Providers[i]
+					return &p
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // mergeEnvOverrides applies all environment-variable overrides to the config.
 // Env vars take precedence over TOML values at runtime but are never persisted
 // to disk. Sections: providers, agent, security, memory, voice, webhook,
 // context, learning, heartbeat, channels, search.
 func (c *Config) mergeEnvOverrides() {
 	if key := os.Getenv("OPENAI_API_KEY"); key != "" {
-		c.upsertProvider(ProviderConfig{Name: "openai", Type: "openai", APIKey: key, BaseURL: "https://api.openai.com/v1", Models: []string{"gpt-4o", "gpt-4o-mini"}})
+		c.upsertProvider(ProviderConfig{Name: "openai", Type: "openai", APIKey: key, BaseURL: DefaultOpenAIBaseURL, Models: []string{"gpt-4o", "gpt-4o-mini"}})
 	}
 	if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
 		c.upsertProvider(ProviderConfig{Name: "anthropic", Type: "anthropic", APIKey: key, BaseURL: "https://api.anthropic.com", Models: []string{"claude-sonnet-4-6", "claude-haiku-4-5"}})
@@ -398,7 +512,7 @@ func (c *Config) mergeEnvOverrides() {
 	if key := os.Getenv("MNEME_CUSTOM_API_KEY"); key != "" {
 		baseURL := os.Getenv("MNEME_CUSTOM_BASE_URL")
 		if baseURL == "" {
-			baseURL = "https://api.openai.com/v1"
+			baseURL = DefaultOpenAIBaseURL
 		}
 		c.upsertProvider(ProviderConfig{Name: "custom", Type: "openai", APIKey: key, BaseURL: baseURL})
 	}
@@ -565,6 +679,12 @@ func (c *Config) mergeEnvOverrides() {
 	if v := os.Getenv("SEARXNG_URL"); v != "" {
 		c.Search.SearxNGURL = v
 	}
+
+	// ── Embedding endpoint ──
+	// Resolve last, after providers and MNEME_EMBEDDING_* env overrides are in
+	// place, so a TOML-only provider api_key/base_url becomes visible to the
+	// embedder. Explicit embedding fields are never overwritten.
+	c.Embedding = c.ResolveEmbeddingConfig()
 }
 
 func (c *Config) upsertProvider(p ProviderConfig) {
@@ -637,6 +757,7 @@ func (c *Config) EffectiveModel() string {
 // agent definitions' `model` field, so the literal must not drift between the
 // call sites that consume a route and the roster that names one.
 const (
+	RouteCoding    = "coding"    // main agent turn; named by the coder agent's `model` field
 	RouteReasoning = "reasoning" // learning reflection, subconscious evaluator, triage
 	RouteSummary   = "summary"   // memory archivist, entity extraction, smart walk
 	RouteVision    = "vision"    // screenshot analysis
@@ -684,7 +805,10 @@ func (c *Config) BuildSecurityPolicy() *security.SecurityPolicy {
 	}
 
 	return &security.SecurityPolicy{
-		WorkspaceOnly:  c.Security.Tier == string(security.TierReadOnly),
+		// An explicit workspace_only is honored on any tier; the readonly tier
+		// implies it. Previously the field was read only through the tier
+		// comparison, so setting it under supervised/full did nothing.
+		WorkspaceOnly:  c.Security.WorkspaceOnly || c.Security.Tier == string(security.TierReadOnly),
 		WorkspaceRoot:  c.Workspace,
 		ActionDir:      actionDir,
 		TrustedRoots:   trustedRoots,

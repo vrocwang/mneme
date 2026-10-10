@@ -14,7 +14,7 @@ import (
 // internal application state (memory DBs, sessions, tokens, etc.) and must
 // never be writable (or readable) by agent tools.
 var WorkspaceInternalDirs = []string{
-	"memory",
+	workspace.DirMemory,
 	"memory_tree",
 	"state",
 	"approval",

@@ -4,11 +4,6 @@ import (
 	"testing"
 )
 
-
-
-
-
-
 func TestDetectPromptInjection_Clean(t *testing.T) {
 	decision := EnforcePromptInput("What is the weather today?")
 	t.Logf("clean input: score=%.2f action=%v reasons=%v", decision.Score, decision.Action, decision.Reasons)

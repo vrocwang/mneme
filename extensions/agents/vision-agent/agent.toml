@@ -1,0 +1,27 @@
+# Vision Agent agent pack.
+#
+# Loaded by boot.BootstrapAll via agenttoml.LoadAgentPacksFromDir, which reads
+# this file plus the sibling prompt.md (system prompt). Keys map 1:1 onto
+# internal/agent/toml.AgentTOML — no extension process is involved.
+#
+# The former allowlist entry "image_info" no longer exists anywhere in the repo;
+# it is replaced by the vision/media tools that do exist (screenshot and
+# screen_ocr/screen_analyze from extensions/browser-cdp and extensions/screen-intel,
+# plus web_fetch for remote media).
+id = "vision_agent"
+name = "Vision Agent"
+description = "Analyzes images and screenshots using vision models. Can describe visual content, identify objects, and extract text from images."
+tier = "reasoning"
+max_iterations = 10
+hidden = false
+
+tool_allowlist = [
+  "read_file",
+  "list_dir",
+  "screenshot",
+  "screen_analyze",
+  "screen_ocr",
+  "web_fetch",
+  "browser",
+  "current_time",
+]

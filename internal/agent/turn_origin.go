@@ -35,7 +35,6 @@ const (
 type TurnOrigin struct {
 	Kind     TurnOriginKind `json:"kind"`
 	ThreadID string         `json:"thread_id,omitempty"`
-	ClientID string         `json:"client_id,omitempty"`
 
 	// External channel details (set when Kind == OriginExternalChannel).
 	Channel string `json:"channel,omitempty"` // "slack", "discord", "telegram", etc.

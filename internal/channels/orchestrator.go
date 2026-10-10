@@ -2,22 +2,45 @@ package channels
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 )
 
+// channelRun tracks one started channel: the context derived for it (so it can
+// be cancelled in isolation), its cancel func, and the done channel closed by
+// its consume goroutine when it exits.
+type channelRun struct {
+	name   string
+	ch     Channel
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
 // Orchestrator manages the lifecycle of all channels and consumes their
 // events, routing each message to the dispatcher for agent processing.
 // Owned by the channels package so app.go stays a thin wiring layer.
+//
+// Lifecycle is addressable per channel: StartAll/StartChannel start channels
+// (each with its own derived context), StopChannel stops exactly one without
+// touching the others, and StopAll tears everything down. Start/Stop are
+// idempotent; concurrent start/stop is serialized by the lifecycle mutex.
 type Orchestrator struct {
 	log        *slog.Logger
 	channels   map[string]Channel
 	dispatcher *Dispatcher
 	mu         sync.Mutex
+	runs       map[string]*channelRun
 	wg         sync.WaitGroup
-	cancel     context.CancelFunc // cancels the consume-loop context on StopAll
+	rootCtx    context.Context    // set by StartAll, shared by its derived runs
+	rootCancel context.CancelFunc // cancels the consume-loop context on StopAll
+	// lifecycle serializes start/stop transitions. Holding it across a
+	// channel's Start/Stop call means two concurrent operations cannot
+	// interleave (and cannot both decide a channel is "not running").
+	lifecycle sync.Mutex
 }
 
 // NewOrchestrator creates a channel orchestrator.
@@ -26,6 +49,7 @@ func NewOrchestrator(log *slog.Logger, dispatcher *Dispatcher) *Orchestrator {
 		log:        log,
 		channels:   make(map[string]Channel),
 		dispatcher: dispatcher,
+		runs:       make(map[string]*channelRun),
 	}
 }
 
@@ -39,60 +63,206 @@ func (o *Orchestrator) Register(name string, ch Channel) {
 // StartAll starts all registered channels and begins consuming their events.
 // Each channel's Events() channel is consumed in its own goroutine. The
 // provided context controls the lifetime of all consumers; StopAll cancels it.
+// Idempotent per channel: a channel that is already running is left untouched.
 func (o *Orchestrator) StartAll(ctx context.Context) {
+	o.lifecycle.Lock()
+	defer o.lifecycle.Unlock()
+
 	// Derive a cancellable context so StopAll can signal all consume loops to
 	// exit even when the caller passed context.Background() (as the GUI boot
 	// does). Without this, channels whose Stop() doesn't close their Events()
 	// channel (e.g. web) would leave their consume goroutine blocked forever.
-	ctx, cancel := context.WithCancel(ctx)
+	// A second StartAll reuses the existing root so an earlier caller's context
+	// keeps governing the channels it already started.
 	o.mu.Lock()
-	o.cancel = cancel
-	chans := make(map[string]Channel, len(o.channels))
-	for name, ch := range o.channels {
-		chans[name] = ch
+	if o.rootCancel == nil {
+		rootCtx, cancel := context.WithCancel(ctx)
+		o.rootCtx = rootCtx
+		o.rootCancel = cancel
 	}
+	root := o.rootCtx
+	names := o.channelNamesLocked()
 	o.mu.Unlock()
 
-	for name, ch := range chans {
-		if err := ch.Start(ctx); err != nil {
+	started := 0
+	for _, name := range names {
+		if err := o.startChannelLocked(root, name); err != nil {
 			o.log.Error("channel start failed", "name", name, "error", err)
 			continue
 		}
-		o.log.Info("channel started", "name", name)
-
-		o.wg.Add(1)
-		go func(name string, ch Channel) {
-			defer o.wg.Done()
-			o.consume(ctx, name, ch)
-		}(name, ch)
+		started++
 	}
-	o.log.Info("channel orchestrator started", "count", len(chans))
+	o.log.Info("channel orchestrator started", "count", started, "registered", len(names))
 }
 
-// StopAll stops all channels and waits for event consumers to finish.
+// StartChannel starts a single registered channel and begins consuming its
+// events. It is idempotent: starting an already-running channel is a no-op.
+// The derived context is owned by the channel, so stopping it later does not
+// affect any other channel.
+func (o *Orchestrator) StartChannel(ctx context.Context, name string) error {
+	o.lifecycle.Lock()
+	defer o.lifecycle.Unlock()
+	return o.startChannelLocked(ctx, name)
+}
+
+// StopChannel stops a single running channel and waits for its consume
+// goroutine to exit. It is idempotent: stopping a channel that is not running
+// succeeds without calling channel Stop a second time.
+func (o *Orchestrator) StopChannel(name string) error {
+	o.lifecycle.Lock()
+	defer o.lifecycle.Unlock()
+	return o.stopChannelLocked(name)
+}
+
+// Running returns the names of the channels that are currently running,
+// sorted for a deterministic UI/status output.
+func (o *Orchestrator) Running() []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	names := make([]string, 0, len(o.runs))
+	for name := range o.runs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// IsRunning reports whether the named channel is currently running.
+func (o *Orchestrator) IsRunning(name string) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	_, ok := o.runs[name]
+	return ok
+}
+
+// StopAll stops all running channels and waits for their event consumers to
+// finish. Channels that were never started are not stopped, so a second
+// StopAll is a no-op rather than a double Stop.
 func (o *Orchestrator) StopAll() {
-	// Cancel the consume-loop context first so every consume goroutine's
+	o.lifecycle.Lock()
+	defer o.lifecycle.Unlock()
+
+	// Cancel the consume-loop contexts first so every consume goroutine's
 	// <-ctx.Done() branch fires and exits, even for channels whose Stop()
 	// does not close their Events() channel (e.g. web).
 	o.mu.Lock()
-	cancel := o.cancel
-	chans := make(map[string]Channel, len(o.channels))
-	for name, ch := range o.channels {
-		chans[name] = ch
+	cancel := o.rootCancel
+	o.rootCancel = nil
+	o.rootCtx = nil
+	runs := make([]*channelRun, 0, len(o.runs))
+	for _, run := range o.runs {
+		runs = append(runs, run)
 	}
 	o.mu.Unlock()
 
 	if cancel != nil {
 		cancel()
 	}
-
-	for name, ch := range chans {
-		if err := ch.Stop(); err != nil {
-			o.log.Warn("channel stop failed", "name", name, "error", err)
+	for _, run := range runs {
+		run.cancel()
+	}
+	for _, run := range runs {
+		if err := run.ch.Stop(); err != nil {
+			o.log.Warn("channel stop failed", "name", run.name, "error", err)
 		}
 	}
 	o.wg.Wait()
+
+	// The consume goroutines remove their own entries on exit; drop anything
+	// left over (e.g. a consumer that is still draining) so Running() is honest.
+	o.mu.Lock()
+	for _, run := range runs {
+		if o.runs[run.name] == run {
+			delete(o.runs, run.name)
+		}
+	}
+	o.mu.Unlock()
+
 	o.log.Info("channel orchestrator stopped")
+}
+
+// startChannelLocked starts one channel. Callers must hold o.lifecycle.
+func (o *Orchestrator) startChannelLocked(parent context.Context, name string) error {
+	o.mu.Lock()
+	if _, running := o.runs[name]; running {
+		o.mu.Unlock()
+		return nil // idempotent: already running
+	}
+	ch, ok := o.channels[name]
+	o.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("channel %q not registered", name)
+	}
+
+	runCtx, cancel := context.WithCancel(parent)
+	if err := ch.Start(runCtx); err != nil {
+		cancel()
+		return err
+	}
+
+	run := &channelRun{name: name, ch: ch, cancel: cancel, done: make(chan struct{})}
+	o.mu.Lock()
+	if _, exists := o.runs[name]; exists { // defensive: lifecycle serializes this
+		o.mu.Unlock()
+		cancel()
+		_ = ch.Stop()
+		return nil
+	}
+	o.runs[name] = run
+	o.mu.Unlock()
+
+	o.wg.Add(1)
+	go func() {
+		defer o.wg.Done()
+		defer o.finishRun(run)
+		o.consume(runCtx, name, ch)
+	}()
+
+	o.log.Info("channel started", "name", name)
+	return nil
+}
+
+// stopChannelLocked stops one running channel. Callers must hold o.lifecycle.
+func (o *Orchestrator) stopChannelLocked(name string) error {
+	o.mu.Lock()
+	run, ok := o.runs[name]
+	if ok {
+		delete(o.runs, name)
+	}
+	o.mu.Unlock()
+	if !ok {
+		return nil // idempotent: not running
+	}
+
+	run.cancel()
+	stopErr := run.ch.Stop()
+	<-run.done
+	if stopErr != nil {
+		return fmt.Errorf("stop channel %q: %w", name, stopErr)
+	}
+	o.log.Info("channel stopped", "name", name)
+	return nil
+}
+
+// finishRun removes a run's bookkeeping and unblocks any StopChannel waiting
+// on it. It must be called exactly once, by the consume goroutine.
+func (o *Orchestrator) finishRun(run *channelRun) {
+	o.mu.Lock()
+	if o.runs[run.name] == run {
+		delete(o.runs, run.name)
+	}
+	o.mu.Unlock()
+	close(run.done)
+}
+
+// channelNamesLocked returns the registered channel names. Callers must hold o.mu.
+func (o *Orchestrator) channelNamesLocked() []string {
+	names := make([]string, 0, len(o.channels))
+	for name := range o.channels {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 const (

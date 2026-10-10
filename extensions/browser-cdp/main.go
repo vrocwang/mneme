@@ -75,24 +75,6 @@ func main() {
 		HasEffects: false,
 	}, webFetchTool)
 
-	srv.RegisterTool(extsdk.ToolDef{
-		Name:        "curl",
-		Description: "Make a raw HTTP request with full control over method, headers, and body. Use for API calls and debugging.",
-		Parameters: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"url":     map[string]interface{}{"type": "string", "description": "URL to request"},
-				"method":  map[string]interface{}{"type": "string", "description": "HTTP method (GET, POST, PUT, DELETE, etc.)"},
-				"headers": map[string]interface{}{"type": "object", "description": "HTTP headers as key-value pairs"},
-				"body":    map[string]interface{}{"type": "string", "description": "Request body"},
-				"timeout": map[string]interface{}{"type": "number", "description": "Request timeout in seconds (default 30)"},
-			},
-			"required": []string{"url"},
-		},
-		Permission: "read_only",
-		HasEffects: false,
-	}, curlTool)
-
 	if err := srv.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "browser-cdp: %v\n", err)
 		os.Exit(1)

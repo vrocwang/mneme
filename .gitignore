@@ -30,3 +30,11 @@ extensions/model-council/model-council
 
 # ZCode agent state
 .zcode/
+
+# Built extension artifacts (produced by `go run cmd/build-extensions/main.go`)
+extensions-dist/*
+!extensions-dist/.gitkeep
+extensions/file-state/file-state
+extensions/todos/todos
+extensions/workflows/workflows
+.DS_Store

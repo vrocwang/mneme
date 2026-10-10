@@ -23,14 +23,16 @@ export function DashboardPage() {
   const fetchData = useCallback(async () => {
     setError(null);
     try {
+      // No per-promise catch: a failing backend call must reach the error
+      // branch below instead of rendering a half-empty dashboard.
       const [s, r, p] = await Promise.all([
-        api.getAppStateSnapshot().catch(() => null),
-        api.getReflections(10).catch(() => []),
-        api.getPreferences().catch(() => []),
+        api.getAppStateSnapshot(),
+        api.getReflections(10),
+        api.getPreferences(),
       ]);
       setSnapshot(s);
-      setReflections((r as unknown[]) || []);
-      setPreferences((p as unknown[]) || []);
+      setReflections(r || []);
+      setPreferences(p || []);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -46,12 +48,12 @@ export function DashboardPage() {
     { label: t('dashboard.tools'), value: snapshot?.tool_count ?? '--', color: 'text-sage-400' },
     { label: t('dashboard.agents'), value: snapshot?.agent_count ?? '--', color: 'text-amber-400' },
     { label: t('dashboard.pending'), value: pendingCount, color: 'text-coral-400' },
-    { label: t('dashboard.preferences'), value: prefCount, color: 'text-purple-400' },
+    { label: t('dashboard.preferences'), value: prefCount, color: 'text-ocean-300' },
   ];
 
   const statusItems = [
-    { label: t('home.providerConnected', 'Provider'), ok: snapshot?.provider_ready ?? false },
-    { label: t('home.dbStatus', 'Database'), ok: snapshot?.db_ready ?? false },
+    { label: t('home.providerConnected'), ok: snapshot?.provider_ready ?? false },
+    { label: t('home.dbStatus'), ok: snapshot?.db_ready ?? false },
   ];
 
   return (
@@ -98,14 +100,14 @@ export function DashboardPage() {
 
             {/* System status */}
             <div className="card">
-              <h3 className="text-sm font-semibold text-white/60 mb-3">{t('home.systemStatus', 'System Status')}</h3>
+              <h3 className="text-sm font-semibold text-white/60 mb-3">{t('home.systemStatus')}</h3>
               <div className="flex gap-6">
                 {statusItems.map(s => (
                   <div key={s.label} className="flex items-center gap-2">
                     <div className={`w-2 h-2 rounded-full ${s.ok ? 'bg-sage-400' : 'bg-coral-400'}`} />
                     <span className="text-sm text-white/70">{s.label}</span>
                     <span className={`text-xs ${s.ok ? 'text-sage-400' : 'text-coral-400'}`}>
-                      {s.ok ? t('home.connected', 'OK') : t('home.notConnected', 'Not Ready')}
+                      {s.ok ? t('home.connected') : t('home.notConnected')}
                     </span>
                   </div>
                 ))}
@@ -123,7 +125,7 @@ export function DashboardPage() {
                     <div key={i} className="card">
                       <div className="flex items-center gap-2 mb-2">
                         <span className={`badge text-xs px-2 py-0.5 rounded-full ${r.kind === 'insight' ? 'bg-ocean-500/20 text-ocean-400' : 'bg-amber-500/20 text-amber-400'}`}>
-                          {r.kind || 'reflection'}
+                          {r.kind || t('dashboard.reflection')}
                         </span>
                       </div>
                       <p className="text-sm text-white/50">{r.content || r.summary || JSON.stringify(r)}</p>

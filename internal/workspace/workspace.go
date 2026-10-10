@@ -44,27 +44,24 @@ const (
 	DirSecrets      = "secrets"           // keyring encrypted secrets
 	DirSkills       = "skills"            // user-installed skill definitions
 	DirTmp          = "tmp"               // temporary files
-	DirTranscripts  = "transcripts"       // session transcripts
 	DirWorkflowLogs = "workflow-logs"     // workflow execution logs
 	DirWorkflows    = "workflows"         // user-defined WORKFLOW.md files
 )
 
 // Path helpers return the absolute path of a workspace subdirectory.
-func AgentsDir(root string) string       { return filepath.Join(root, DirAgents) }
-func TaskBoardsDir(root string) string   { return filepath.Join(root, DirTaskBoards) }
-func ConfigDir(root string) string       { return filepath.Join(root, DirConfig) }
-func DataDir(root string) string         { return filepath.Join(root, DirData) }
-func ExtensionsDir(root string) string   { return filepath.Join(root, DirExtensions) }
-func LogsDir(root string) string         { return filepath.Join(root, DirLogs) }
-func MemoryDir(root string) string       { return filepath.Join(root, DirMemory) }
-func ProjectsDir(root string) string     { return filepath.Join(root, DirProjects) }
-func PromptsDir(root string) string      { return filepath.Join(root, DirPrompts) }
-func ScreenshotsDir(root string) string  { return filepath.Join(root, DirScreenshots) }
-func SecretsDir(root string) string      { return filepath.Join(root, DirSecrets) }
-func SkillsDir(root string) string       { return filepath.Join(root, DirSkills) }
-func TmpDir(root string) string          { return filepath.Join(root, DirTmp) }
-func WorkflowLogsDir(root string) string { return filepath.Join(root, DirWorkflowLogs) }
-func WorkflowsDir(root string) string    { return filepath.Join(root, DirWorkflows) }
+func AgentsDir(root string) string      { return filepath.Join(root, DirAgents) }
+func ConfigDir(root string) string      { return filepath.Join(root, DirConfig) }
+func DataDir(root string) string        { return filepath.Join(root, DirData) }
+func ExtensionsDir(root string) string  { return filepath.Join(root, DirExtensions) }
+func LogsDir(root string) string        { return filepath.Join(root, DirLogs) }
+func MemoryDir(root string) string      { return filepath.Join(root, DirMemory) }
+func ProjectsDir(root string) string    { return filepath.Join(root, DirProjects) }
+func PromptsDir(root string) string     { return filepath.Join(root, DirPrompts) }
+func ScreenshotsDir(root string) string { return filepath.Join(root, DirScreenshots) }
+func SecretsDir(root string) string     { return filepath.Join(root, DirSecrets) }
+func SkillsDir(root string) string      { return filepath.Join(root, DirSkills) }
+func TmpDir(root string) string         { return filepath.Join(root, DirTmp) }
+func WorkflowsDir(root string) string   { return filepath.Join(root, DirWorkflows) }
 
 var layout = []string{
 	DirAgents,
@@ -80,7 +77,6 @@ var layout = []string{
 	DirSecrets,
 	DirSkills,
 	DirTmp,
-	DirTranscripts,
 	DirWorkflowLogs,
 	DirWorkflows,
 }

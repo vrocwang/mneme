@@ -1,31 +1,47 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import * as api from '../../services/wails';
-import { useT } from '../../lib/i18n/I18nContext';
 import type { TodoSnapshot } from '../../services/wails';
+import { useApp } from '../../state/AppContext';
+import { useT } from '../../lib/i18n/I18nContext';
 
 export function TodoPanel({ threadId }: { threadId: string }) {
   const { t } = useT();
+  const { actions } = useApp();
   const [todos, setTodos] = useState<TodoSnapshot | null>(null);
   const [collapsed, setCollapsed] = useState(true);
   const [newTitle, setNewTitle] = useState('');
 
   useEffect(() => {
-    if (!collapsed) {
-      api.listTodos(threadId).then(setTodos).catch(() => {});
+    if (collapsed) return;
+    let cancelled = false;
+    api.listTodos(threadId)
+      .then(snapshot => { if (!cancelled) setTodos(snapshot); })
+      .catch(e => { if (!cancelled) actions.addToast('error', t('errors.loadTasks'), String(e)); });
+    return () => { cancelled = true; };
+  }, [threadId, collapsed, actions, t]);
+
+  // Every todo mutation returns the new snapshot; on failure the board keeps
+  // its last known state and the error is surfaced.
+  const apply = useCallback(async (op: () => Promise<TodoSnapshot>, failTitle: string) => {
+    try {
+      setTodos(await op());
+      return true;
+    } catch (e) {
+      actions.addToast('error', failTitle, String(e));
+      return false;
     }
-  }, [threadId, collapsed]);
+  }, [actions]);
 
   async function add(title: string) {
     if (!title.trim()) return;
-    const result = await api.addTodo(threadId, title.trim(), '');
-    setTodos(result);
-    setNewTitle('');
+    if (await apply(() => api.addTodo(threadId, title.trim(), ''), t('errors.addTask'))) {
+      setNewTitle('');
+    }
   }
 
   async function toggle(cardId: string, currentStatus: string) {
     const next = currentStatus === 'done' ? 'todo' : 'done';
-    const result = await api.updateTodoStatus(threadId, cardId, next);
-    setTodos(result);
+    await apply(() => api.updateTodoStatus(threadId, cardId, next), t('errors.updateTask'));
   }
 
   return (
@@ -65,7 +81,7 @@ export function TodoPanel({ threadId }: { threadId: string }) {
                 </span>
                 <button
                   className="opacity-0 group-hover:opacity-100 text-coral-400/60 hover:text-coral-400"
-                  onClick={async () => { const r = await api.removeTodo(threadId, card.id); setTodos(r); }}
+                  onClick={() => apply(() => api.removeTodo(threadId, card.id), t('errors.removeTask'))}
                 >
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

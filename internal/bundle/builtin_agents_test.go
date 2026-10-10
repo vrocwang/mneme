@@ -23,18 +23,18 @@ func TestBuiltinAgentsRoster(t *testing.T) {
 		hidden   bool
 		maxIters int
 	}{
-		"general":       {tier: "chat", maxIters: 10},
-		"orchestrator":  {tier: "chat", maxIters: 20},
-		"researcher":    {tier: "reasoning", maxIters: 15},
-		"coder":         {tier: "worker", maxIters: 15},
-		"critic":        {tier: "reasoning", maxIters: 5},
-		"planner":       {tier: "reasoning", maxIters: 10},
-		"summarizer":    {tier: "worker", hidden: true, maxIters: 3},
-		"archivist":     {tier: "worker", hidden: true, maxIters: 5},
-		"mcp_setup":     {tier: "worker", maxIters: 10},
-		"tool_maker":    {tier: "worker", maxIters: 15},
-		"task_manager":  {tier: "reasoning", maxIters: 15},
-		"tools_agent":   {tier: "worker", hidden: true, maxIters: 15},
+		"general":      {tier: "chat", maxIters: 10},
+		"orchestrator": {tier: "chat", maxIters: 20},
+		"researcher":   {tier: "reasoning", maxIters: 15},
+		"coder":        {tier: "worker", maxIters: 15},
+		"critic":       {tier: "reasoning", maxIters: 5},
+		"planner":      {tier: "reasoning", maxIters: 10},
+		"summarizer":   {tier: "worker", hidden: true, maxIters: 3},
+		"archivist":    {tier: "worker", hidden: true, maxIters: 5},
+		"mcp_setup":    {tier: "worker", maxIters: 10},
+		"tool_maker":   {tier: "worker", maxIters: 15},
+		"task_manager": {tier: "reasoning", maxIters: 15},
+		"tools_agent":  {tier: "worker", hidden: true, maxIters: 15},
 	}
 	if len(defs) < len(want) {
 		t.Fatalf("expected at least %d builtin agents, got %d", len(want), len(defs))

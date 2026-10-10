@@ -46,11 +46,12 @@ func screenshotTool(ctx context.Context, args map[string]interface{}) extsdk.Res
 
 	selector, hasSelector := args["selector"].(string)
 
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
+	// Reuse the allocator's browser; bound only the run itself.
 	tabCtx, tabCancel := chromedp.NewContext(allocCtx)
 	defer tabCancel()
+
+	runCtx, cancel := context.WithTimeout(tabCtx, 30*time.Second)
+	defer cancel()
 
 	var screenshot []byte
 
@@ -75,7 +76,7 @@ func screenshotTool(ctx context.Context, args map[string]interface{}) extsdk.Res
 		)
 	}
 
-	if err := chromedp.Run(tabCtx, actions...); err != nil {
+	if err := chromedp.Run(runCtx, actions...); err != nil {
 		return extsdk.Result{Error: fmt.Sprintf("screenshot: %v", err)}
 	}
 

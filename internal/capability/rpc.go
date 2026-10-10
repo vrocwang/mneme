@@ -2,6 +2,7 @@ package capability
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -10,19 +11,38 @@ import (
 	"path/filepath"
 	"strings"
 
-	agenttoml "github.com/simon/mneme/internal/agent/toml"
 	"github.com/simon/mneme/internal/tools"
 	ws "github.com/simon/mneme/internal/workspace"
 	"gopkg.in/yaml.v3"
 )
 
 // CapabilityRPC provides Wails-bound methods for the frontend capability page.
-// The registry is set during app startup; methods return empty results before that.
+// The registry is set during app startup (NewCapabilityRPC/SetRegistry).
+//
+// Readiness policy — one rule for every exported method:
+//
+//   - read-only queries (ListSets, GetSet, ListAllTools, GetToolSchema,
+//     ListAllAgents, GetToolDiagnostics, ListExtensions) return an empty
+//     result (nil slice/map, zero value) when the registry is not ready. They
+//     never error and never panic.
+//   - mutating operations (AddMCPServer, RemoveMCPServer, ConnectMCPServer,
+//     DisconnectMCPServer, InstallExtension, UninstallExtension, InstallSkill)
+//     return an explicit "registry not ready" error when the registry is not
+//     ready, so a mutation that did nothing is never reported as success.
+//
+// Previously the mutating set was split: the extension and agent-CRUD paths
+// errored, while the MCP mutations and InstallSkill returned nil — a silently
+// dropped mutation. Both halves now follow the rule above.
 type CapabilityRPC struct {
 	reg          *CapabilityRegistry
 	mcpPersister MCPServerPersister
 	workspace    string
 }
+
+// errRegistryNotReady is the error every mutating method returns while the
+// registry is unset. It is a single value so callers (and tests) can compare
+// with errors.Is instead of matching the message.
+var errRegistryNotReady = errors.New("registry not ready")
 
 // MCPServerPersister persists MCP server installations across restarts.
 // Implemented by mcp/store.Store (which imports capability), so the cycle is
@@ -54,24 +74,18 @@ func NewCapabilityRPC(reg *CapabilityRegistry) *CapabilityRPC {
 // When nil (e.g. no database), Add/Remove operate in-memory only.
 func (r *CapabilityRPC) SetMCPPersister(p MCPServerPersister) { r.mcpPersister = p }
 
-// SetWorkspace sets the active workspace root. Every install/scan path the RPC
+// SetCapabilityWorkspace sets the active workspace root. Struct-qualified
+// because Wails binds every exported method and config.ConfigRPC.SetWorkspace
+// is the one the frontend calls. Every install/scan path the RPC
 // touches (extensions, skills, user agents) is derived from it, so no path is
 // reconstructed from a sibling directory and the layout stays owned by
 // internal/workspace.
-func (r *CapabilityRPC) SetWorkspace(dir string) { r.workspace = dir }
+func (r *CapabilityRPC) SetCapabilityWorkspace(dir string) { r.workspace = dir }
 
 // SetRegistry updates the registry reference. Called after startup creates it.
 func (r *CapabilityRPC) SetRegistry(reg *CapabilityRegistry) { r.reg = reg }
 
 func (r *CapabilityRPC) ok() bool { return r.reg != nil }
-
-// agentsDir returns workspace/agents or an error when no workspace is set.
-func (r *CapabilityRPC) agentsDir() (string, error) {
-	if r.workspace == "" {
-		return "", fmt.Errorf("workspace not configured")
-	}
-	return ws.AgentsDir(r.workspace), nil
-}
 
 // skillsDir returns workspace/skills or an error when no workspace is set.
 func (r *CapabilityRPC) skillsDir() (string, error) {
@@ -79,14 +93,6 @@ func (r *CapabilityRPC) skillsDir() (string, error) {
 		return "", fmt.Errorf("workspace not configured")
 	}
 	return ws.SkillsDir(r.workspace), nil
-}
-
-// extensionsDir returns workspace/extensions or an error when no workspace is set.
-func (r *CapabilityRPC) extensionsDir() (string, error) {
-	if r.workspace == "" {
-		return "", fmt.Errorf("workspace not configured")
-	}
-	return ws.ExtensionsDir(r.workspace), nil
 }
 
 // ── Set queries ───────────────────────────────────────
@@ -135,9 +141,17 @@ func (r *CapabilityRPC) ListAllAgents() []AgentDescriptor {
 }
 
 // GetToolDiagnostics returns diagnostic information about registered tools.
+//
+// MCP sets are split by the transport recorded in their config: mcpStdioTools
+// counts stdio sets only, mcpHTTPTools counts every other MCP transport. Before
+// this split both kinds were reported as "stdio" because every MCP set was
+// counted into mcpStdioTools.
 func (r *CapabilityRPC) GetToolDiagnostics() map[string]interface{} {
 	if !r.ok() {
-		return map[string]interface{}{"ok": false, "totalTools": 0, "enabledTools": 0}
+		return map[string]interface{}{
+			"ok": false, "totalTools": 0, "enabledTools": 0,
+			"mcpStdioTools": 0, "mcpHTTPTools": 0,
+		}
 	}
 
 	allTools := r.reg.AllTools()
@@ -146,6 +160,7 @@ func (r *CapabilityRPC) GetToolDiagnostics() map[string]interface{} {
 	totalTools := len(allTools)
 	enabledTools := 0
 	mcpStdioTools := 0
+	mcpHTTPTools := 0
 	jsonRpcTools := 0
 	inProcessTools := 0
 	writeSurfaces := 0
@@ -159,7 +174,11 @@ func (r *CapabilityRPC) GetToolDiagnostics() map[string]interface{} {
 		}
 		switch set.Kind {
 		case KindMCPServer:
-			mcpStdioTools += count
+			if mcpSetTransport(set) == "stdio" {
+				mcpStdioTools += count
+			} else {
+				mcpHTTPTools += count
+			}
 		case KindExtension:
 			jsonRpcTools += count
 		case KindBuiltin:
@@ -179,93 +198,34 @@ func (r *CapabilityRPC) GetToolDiagnostics() map[string]interface{} {
 		"totalTools":     totalTools,
 		"enabledTools":   enabledTools,
 		"mcpStdioTools":  mcpStdioTools,
+		"mcpHTTPTools":   mcpHTTPTools,
 		"jsonRpcTools":   jsonRpcTools,
 		"inProcessTools": inProcessTools,
 		"writeSurfaces":  writeSurfaces,
 		"bySource":       bySource,
-		"recentDenials":  []map[string]interface{}{},
 	}
+}
+
+// mcpSetTransport reports the transport recorded in an MCP set's Config
+// (ServerEntry). An empty or unparseable config reports "stdio": every MCP set
+// built by NewMCPServerSet carries a transport, and stdio is the historical
+// default for sets created before the field existed.
+func mcpSetTransport(set *CapabilitySet) string {
+	if set == nil || len(set.Config) == 0 {
+		return "stdio"
+	}
+	var entry ServerEntry
+	if err := json.Unmarshal(set.Config, &entry); err != nil || entry.Transport == "" {
+		return "stdio"
+	}
+	return entry.Transport
 }
 
 // ── MCP management ────────────────────────────────────
 
-// ── Agent CRUD ───────────────────────────────────────
-
-func (r *CapabilityRPC) CreateAgent(def map[string]interface{}) error {
-	if !r.ok() {
-		return fmt.Errorf("registry not ready")
-	}
-	agentDef := &tools.AgentDef{}
-	b, err := json.Marshal(def)
-	if err != nil {
-		return fmt.Errorf("marshal agent def: %w", err)
-	}
-	if err := json.Unmarshal(b, agentDef); err != nil {
-		return fmt.Errorf("invalid agent definition: %w", err)
-	}
-	if agentDef.ID == "" || agentDef.Name == "" {
-		return fmt.Errorf("agent id and name are required")
-	}
-	agentsDir, err := r.agentsDir()
-	if err != nil {
-		return err
-	}
-	if err := agenttoml.SaveAgentToFile(agentsDir, agentDef); err != nil {
-		return fmt.Errorf("save agent: %w", err)
-	}
-	r.reg.RegisterAgentSet(UserAgentsSetID, KindUserAgent, UserAgentsSetName, agentDef)
-	return nil
-}
-
-func (r *CapabilityRPC) UpdateAgent(id string, def map[string]interface{}) error {
-	if !r.ok() {
-		return fmt.Errorf("registry not ready")
-	}
-	existing, ok := r.reg.GetAgent(id)
-	if !ok {
-		return fmt.Errorf("agent %q not found", id)
-	}
-	agentDef := existing
-	b, err := json.Marshal(def)
-	if err != nil {
-		return fmt.Errorf("marshal agent def: %w", err)
-	}
-	if err := json.Unmarshal(b, agentDef); err != nil {
-		return fmt.Errorf("invalid agent definition: %w", err)
-	}
-	agentDef.ID = id
-	agentsDir, err := r.agentsDir()
-	if err != nil {
-		return err
-	}
-	if err := agenttoml.SaveAgentToFile(agentsDir, agentDef); err != nil {
-		return fmt.Errorf("save agent: %w", err)
-	}
-	r.reg.RegisterAgentSet(UserAgentsSetID, KindUserAgent, UserAgentsSetName, agentDef)
-	return nil
-}
-
-func (r *CapabilityRPC) DeleteAgent(id string) error {
-	if !r.ok() {
-		return fmt.Errorf("registry not ready")
-	}
-	if _, ok := r.reg.GetAgent(id); !ok {
-		return fmt.Errorf("agent %q not found", id)
-	}
-	agentsDir, err := r.agentsDir()
-	if err != nil {
-		return err
-	}
-	if err := agenttoml.DeleteAgentFile(agentsDir, id); err != nil {
-		return fmt.Errorf("delete agent: %w", err)
-	}
-	r.reg.UnregisterAgent(id)
-	return nil
-}
-
 func (r *CapabilityRPC) AddMCPServer(name, transport, command, url string, args []string) error {
 	if !r.ok() {
-		return nil
+		return errRegistryNotReady
 	}
 	if name == "" {
 		return fmt.Errorf("name is required")
@@ -315,7 +275,7 @@ func (r *CapabilityRPC) AddMCPServer(name, transport, command, url string, args 
 
 func (r *CapabilityRPC) RemoveMCPServer(name string) error {
 	if !r.ok() {
-		return nil
+		return errRegistryNotReady
 	}
 	r.reg.DisconnectMCPServer(MCPSetID(name))
 	err := r.reg.RemoveSet(MCPSetID(name))
@@ -334,7 +294,7 @@ func (r *CapabilityRPC) RemoveMCPServer(name string) error {
 
 func (r *CapabilityRPC) ConnectMCPServer(name string) error {
 	if !r.ok() {
-		return nil
+		return errRegistryNotReady
 	}
 	set, ok := r.reg.GetSet(MCPSetID(name))
 	if !ok {
@@ -349,7 +309,7 @@ func (r *CapabilityRPC) ConnectMCPServer(name string) error {
 
 func (r *CapabilityRPC) DisconnectMCPServer(name string) error {
 	if !r.ok() {
-		return nil
+		return errRegistryNotReady
 	}
 	return r.reg.DisconnectMCPServer(MCPSetID(name))
 }
@@ -418,6 +378,9 @@ func (r *CapabilityRPC) ListExtensions() []ExtensionInfo {
 
 // InstallExtension installs an extension from a directory path.
 func (r *CapabilityRPC) InstallExtension(packagePath string) error {
+	if !r.ok() {
+		return errRegistryNotReady
+	}
 	if r.workspace == "" {
 		return fmt.Errorf("workspace not configured")
 	}
@@ -432,6 +395,12 @@ func (r *CapabilityRPC) InstallExtension(packagePath string) error {
 
 // UninstallExtension removes an extension by category and name.
 func (r *CapabilityRPC) UninstallExtension(category, name string) error {
+	if !r.ok() {
+		return errRegistryNotReady
+	}
+	if r.workspace == "" {
+		return fmt.Errorf("workspace not configured")
+	}
 	discovery := tools.NewExtensionDiscovery(r.workspace)
 	if err := discovery.UninstallExtension(category, name); err != nil {
 		return err
@@ -442,46 +411,7 @@ func (r *CapabilityRPC) UninstallExtension(category, name string) error {
 	return nil
 }
 
-// ── Extension / Skill install ──────────────────────────────
-
-// InstallLegacyExtension copies an extension file into the extensions directory, makes it
-// executable, and reloads extension discovery. Supports any executable:
-// Go binaries, shell scripts, Python, Ruby, Node.js (via shebang).
-func (r *CapabilityRPC) InstallLegacyExtension(sourcePath string) error {
-	if !r.ok() {
-		return nil
-	}
-	extDir, err := r.extensionsDir()
-	if err != nil {
-		return err
-	}
-	if _, err := os.Stat(sourcePath); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(extDir, 0755); err != nil {
-		return err
-	}
-	base := filepath.Base(sourcePath)
-	dest := filepath.Join(extDir, base)
-	src, err := os.Open(sourcePath)
-	if err != nil {
-		return err
-	}
-	defer src.Close()
-	dst, err := os.Create(dest)
-	if err != nil {
-		return err
-	}
-	defer dst.Close()
-	if _, err := io.Copy(dst, src); err != nil {
-		return err
-	}
-	if err := os.Chmod(dest, 0755); err != nil {
-		return err
-	}
-	_, err = discoverLegacyExtensions(r.reg, extDir, nil, slog.Default())
-	return err
-}
+// ── Skill install ──────────────────────────────────────────
 
 // InstallSkill installs a skill from a local SKILL.md file or hub URL.
 // Local: path to a SKILL.md file with YAML frontmatter.
@@ -489,7 +419,7 @@ func (r *CapabilityRPC) InstallLegacyExtension(sourcePath string) error {
 // The skill is written to skills/<name>/SKILL.md and registered as KindSkill.
 func (r *CapabilityRPC) InstallSkill(source string) error {
 	if !r.ok() {
-		return nil
+		return errRegistryNotReady
 	}
 	skillsDir, dirErr := r.skillsDir()
 	if dirErr != nil {
@@ -595,38 +525,6 @@ func (r *CapabilityRPC) registerSkill(m SkillManifest) error {
 
 func isURL(s string) bool {
 	return len(s) > 8 && (s[:7] == "http://" || s[:8] == "https://")
-}
-
-// ── Skill catalog ──────────────────────────────────────
-
-// ListSkillCatalog fetches the aggregated skill registry catalog.
-func (r *CapabilityRPC) ListSkillCatalog() ([]SkillCatalogEntry, error) {
-	if !r.ok() {
-		return nil, nil
-	}
-	return FetchSkillCatalog()
-}
-
-// RefreshSkillCatalog forces a catalog cache refresh.
-func (r *CapabilityRPC) RefreshSkillCatalog() ([]SkillCatalogEntry, error) {
-	if !r.ok() {
-		return nil, nil
-	}
-	return RefreshSkillCatalog()
-}
-
-// InstallSkillFromCatalog installs a skill by its catalog entry ID.
-func (r *CapabilityRPC) InstallSkillFromCatalog(entryID string) error {
-	entries, err := FetchSkillCatalog()
-	if err != nil {
-		return err
-	}
-	for _, e := range entries {
-		if e.ID == entryID && e.DownloadURL != "" {
-			return r.InstallSkill(e.DownloadURL)
-		}
-	}
-	return fmt.Errorf("catalog entry %q not found or has no download URL", entryID)
 }
 
 // loadExtension builds, starts, and registers a newly installed extension

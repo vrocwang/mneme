@@ -2,6 +2,11 @@ import { useState, useEffect } from 'react';
 import * as api from '../../services/wails';
 import { useT } from '../../lib/i18n/I18nContext';
 
+// Substrings the backend uses in companion status messages to report that a
+// feature is unavailable or failed; the panel colours the status from them.
+const NOT_AVAILABLE_MARK = 'not available';
+const ERROR_MARK = 'Error';
+
 export function CompanionSettings() {
   const { t } = useT();
   const [status, setStatus] = useState('');
@@ -20,7 +25,7 @@ export function CompanionSettings() {
     try {
       const msg = await api.activateCompanion();
       setStatus(msg);
-      if (msg && !msg.includes('not available')) setRunning(true);
+      if (msg && !msg.includes(NOT_AVAILABLE_MARK)) setRunning(true);
     } catch (e: any) {
       setStatus(`${t('companion.error')}: ${e.message || e}`);
     } finally {
@@ -31,7 +36,7 @@ export function CompanionSettings() {
   const startLoop = async () => {
     const msg = await api.startCompanionLoop();
     setStatus(msg);
-    if (msg && !msg.includes('not available')) setRunning(true);
+    if (msg && !msg.includes(NOT_AVAILABLE_MARK)) setRunning(true);
   };
 
   const stopLoop = () => {
@@ -48,7 +53,7 @@ export function CompanionSettings() {
     } else {
       const msg = await api.startScreenIntel();
       setStatus(msg);
-      if (msg && !msg.includes('not available')) setScreenIntelRunning(true);
+      if (msg && !msg.includes(NOT_AVAILABLE_MARK)) setScreenIntelRunning(true);
     }
   };
 
@@ -57,10 +62,10 @@ export function CompanionSettings() {
       {/* Voice engines */}
       <section className="card">
         <div className="flex items-center gap-4 text-sm">
-          <span className="text-white/50">STT:</span>
+          <span className="text-white/50">{t('voice.sttShort')}:</span>
           <span className="text-white/80 font-mono">{engines.stt}</span>
           <span className="text-white/30 mx-2">|</span>
-          <span className="text-white/50">TTS:</span>
+          <span className="text-white/50">{t('voice.ttsShort')}:</span>
           <span className="text-white/80 font-mono">{engines.tts}</span>
         </div>
       </section>
@@ -72,7 +77,7 @@ export function CompanionSettings() {
 
         <div className="flex flex-wrap gap-2">
           <button onClick={activate} disabled={loading}
-            className="px-4 py-2 bg-ocean-600 hover:bg-ocean-500 disabled:bg-gray-700 disabled:text-white/20 text-white rounded-lg text-sm font-medium transition-colors">
+            className="px-4 py-2 bg-ocean-600 hover:bg-ocean-500 disabled:bg-surface-muted disabled:text-white/20 text-white rounded-lg text-sm font-medium transition-colors">
             {loading ? t('companion.activating') : t('companion.activate')}
           </button>
           {!running ? (
@@ -115,7 +120,7 @@ export function CompanionSettings() {
       </section>
 
       {status && (
-        <p className={`text-xs ${status.includes('not available') || status.includes('Error') ? 'text-coral-400' : 'text-sage-400'}`}>{status}</p>
+        <p className={`text-xs ${status.includes(NOT_AVAILABLE_MARK) || status.includes(ERROR_MARK) ? 'text-coral-400' : 'text-sage-400'}`}>{status}</p>
       )}
 
       {/* Requirements */}

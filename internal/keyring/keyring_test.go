@@ -74,4 +74,3 @@ func TestFileStore_MissingKey(t *testing.T) {
 		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
-

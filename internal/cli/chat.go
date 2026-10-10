@@ -6,12 +6,62 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/simon/mneme/internal/agent"
 	"github.com/simon/mneme/internal/security"
 )
+
+// turnInterrupts tracks whether a streaming turn is currently in flight so a
+// Ctrl-C cancels that turn instead of killing the process. The first SIGINT
+// cancels the running turn; a second one exits, matching the "press again to
+// force quit" convention. Outside a turn a signal exits immediately, which is
+// what the default disposition would do.
+type turnInterrupts struct {
+	mu      sync.Mutex
+	active  bool
+	cancel  func()
+	presses int
+}
+
+// begin marks a turn active and installs its cancel function. It resets the
+// press counter so each turn gets its own first-press/second-press semantics.
+func (t *turnInterrupts) begin(cancel func()) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.active = true
+	t.cancel = cancel
+	t.presses = 0
+}
+
+// end clears the active turn.
+func (t *turnInterrupts) end() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.active = false
+	t.cancel = nil
+}
+
+// signal handles one interrupt. It returns true when the process should exit.
+func (t *turnInterrupts) signal() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.active {
+		return true
+	}
+	t.presses++
+	if t.presses > 1 {
+		return true
+	}
+	fmt.Fprintln(os.Stderr, "\n  cancelling…")
+	if t.cancel != nil {
+		t.cancel()
+	}
+	return false
+}
 
 func runChat(args []string) error {
 	core, err := bootstrapChat()
@@ -44,6 +94,29 @@ func runChat(args []string) error {
 	ctx := context.Background()
 	threadID := "cli-chat"
 	scanner := bufio.NewScanner(os.Stdin)
+
+	// Ctrl-C during a streaming turn must cancel that turn, not kill the
+	// process: the chat service's interrupt channel is the supported path and
+	// is what the GUI's CancelMessage uses. A second Ctrl-C still exits.
+	sigCh := make(chan os.Signal, 4)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+	interrupts := &turnInterrupts{}
+	stopSignals := make(chan struct{})
+	defer close(stopSignals)
+	go func() {
+		for {
+			select {
+			case <-stopSignals:
+				return
+			case sig := <-sigCh:
+				if interrupts.signal() {
+					fmt.Fprintf(os.Stderr, "\nreceived %s, exiting.\n", sig)
+					os.Exit(130)
+				}
+			}
+		}
+	}()
 
 	for {
 		fmt.Print("> ")
@@ -103,17 +176,31 @@ func runChat(args []string) error {
 		// keeps a duplicate terminal event from panicking on a double close.
 		done := make(chan struct{})
 		var closeOnce sync.Once
-		svc.StreamMessage(ctx, threadID, input, func(evt agent.StreamEvent) {
+		turnCtx, turnCancel := context.WithCancel(ctx)
+		// Register the interrupt first: StreamMessage publishes the turn's
+		// interrupt channel synchronously before it returns, so a Ctrl-C that
+		// lands between the two calls is not lost (the context cancel covers it).
+		interrupts.begin(func() {
+			svc.Cancel(threadID)
+			turnCancel()
+		})
+		svc.StreamMessage(turnCtx, threadID, input, func(evt agent.StreamEvent) {
 			switch evt.Type {
-			case "token":
+			case agent.StreamToken:
 				fmt.Print(evt.Content)
-			case "tool_call":
+			case agent.StreamToolCall:
 				fmt.Printf("\n  ⚙ %s", evt.Content)
-			case "tool_result":
-				fmt.Printf(" → %d chars\n", len(evt.Content))
-			case "error":
+			case agent.StreamToolResult:
+				// A tool-level failure is fed back to the model as tool output so
+				// it can correct course; show it as a failure, not a result.
+				if evt.Error != "" {
+					fmt.Printf(" ✗ %s\n", evt.Error)
+				} else {
+					fmt.Printf(" → %d chars\n", len(evt.Content))
+				}
+			case agent.StreamError:
 				fmt.Printf("\n  ✗ %s\n", evt.Content)
-			case "done":
+			case agent.StreamDone:
 				fmt.Println()
 			}
 			if evt.Done {
@@ -121,6 +208,8 @@ func runChat(args []string) error {
 			}
 		})
 		<-done
+		interrupts.end()
+		turnCancel()
 		fmt.Println()
 	}
 	return scanner.Err()

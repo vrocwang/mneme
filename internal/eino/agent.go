@@ -5,6 +5,7 @@ package eino
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/model"
@@ -308,6 +309,10 @@ func buildInstruction(pm *prompts.Manager, name prompts.Name) string {
 // filterAgentTools returns the tools a sub-agent may use: the allowlist
 // selects them and the denylist then removes any of them. An empty allowlist
 // yields no tools; ["*"] admits every tool; the denylist always wins.
+//
+// An allowlist entry that matches no registered tool is reported: a renamed
+// tool would otherwise silently empty part of a sub-agent's toolset, which
+// looks like the agent refusing to work rather than a configuration bug.
 func filterAgentTools(tools []tool.BaseTool, allowlist, denylist []string) []tool.BaseTool {
 	if len(tools) == 0 || len(allowlist) == 0 {
 		return nil
@@ -315,9 +320,21 @@ func filterAgentTools(tools []tool.BaseTool, allowlist, denylist []string) []too
 	if len(allowlist) == 1 && allowlist[0] == "*" {
 		return filterOutTools(tools, denylist)
 	}
+	registered := make(map[string]bool, len(tools))
+	for _, t := range tools {
+		registered[toolName(t)] = true
+	}
 	allowed := make(map[string]bool, len(allowlist))
+	var unknown []string
 	for _, name := range allowlist {
+		if !registered[name] {
+			unknown = append(unknown, name)
+		}
 		allowed[name] = true
+	}
+	if len(unknown) > 0 {
+		slog.Warn("agent tool allowlist names tools that are not registered; they can never be used",
+			"tools", unknown)
 	}
 	out := make([]tool.BaseTool, 0, len(allowed))
 	for _, t := range tools {

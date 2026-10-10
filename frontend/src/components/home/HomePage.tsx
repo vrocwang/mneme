@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useT } from '../../lib/i18n/I18nContext';
 import { getAppStateSnapshot, AppStateSnapshot } from '../../services/wails';
+import { ROUTES } from '../../lib/routes';
+import { BRAND_MARK } from '../../lib/brand';
 
 export function HomePage() {
   const { t } = useT();
@@ -17,21 +19,21 @@ export function HomePage() {
 
   const quickActions = [
     {
-      label: t('home.newChat', 'New Chat'),
-      desc: t('home.newChatDesc', 'Start a new conversation'),
-      path: '/chat', view: 'chat',
+      label: t('home.newChat'),
+      desc: t('home.newChatDesc'),
+      path: ROUTES.chat,
       icon: ChatIcon, color: 'bg-ocean-500/10 text-ocean-400 border-ocean-500/20',
     },
     {
-      label: t('home.searchMemory', 'Search Memory'),
-      desc: t('home.searchMemoryDesc', 'Search past conversations and knowledge'),
-      path: '/memory', view: 'memory',
+      label: t('home.searchMemory'),
+      desc: t('home.searchMemoryDesc'),
+      path: ROUTES.memory,
       icon: MemoryIcon, color: 'bg-sage-500/10 text-sage-400 border-sage-500/20',
     },
     {
-      label: t('home.manageTools', 'Capabilities'),
-      desc: t('home.manageToolsDesc', 'Manage tools, MCP servers, agents, and extensions'),
-      path: '/capabilities', view: 'capabilities',
+      label: t('home.manageTools'),
+      desc: t('home.manageToolsDesc'),
+      path: ROUTES.capabilities,
       icon: ToolsIcon, color: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
     },
   ];
@@ -42,11 +44,11 @@ export function HomePage() {
         {/* Hero */}
         <div className="text-center mb-12">
           <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-ocean-400 to-ocean-600 flex items-center justify-center text-white font-bold text-2xl mx-auto mb-5">
-            OH
+            {BRAND_MARK}
           </div>
-          <h1 className="text-2xl font-bold text-white/90 mb-2">{t('home.welcome', 'Welcome to Mneme')}</h1>
+          <h1 className="text-2xl font-bold text-white/90 mb-2">{t('home.welcome')}</h1>
           <p className="text-sm text-white/40 max-w-md mx-auto">
-            {t('home.tagline', 'Your AI assistant for conversations, tools, and memory — all from your desktop.')}
+            {t('home.tagline')}
           </p>
         </div>
 
@@ -54,7 +56,7 @@ export function HomePage() {
         <div className="grid grid-cols-3 gap-3 mb-8">
           {quickActions.map(action => (
             <button
-              key={action.view}
+              key={action.path}
               onClick={() => {
                 navigate(action.path);
               }}
@@ -74,14 +76,14 @@ export function HomePage() {
           <div className="flex items-center justify-center gap-6 text-xs text-white/30">
             <span className="flex items-center gap-1.5">
               <span className={`w-2 h-2 rounded-full ${snapshot?.provider_ready ? 'bg-sage-400' : 'bg-coral-400'}`} />
-              Provider
+              {t('home.providerConnected')}
             </span>
             <span className="flex items-center gap-1.5">
               <span className={`w-2 h-2 rounded-full ${snapshot?.db_ready ? 'bg-sage-400' : 'bg-coral-400'}`} />
-              Database
+              {t('home.dbStatus')}
             </span>
-            <span>{snapshot?.tool_count ?? 0} tools</span>
-            <span>{snapshot?.agent_count ?? 0} agents</span>
+            <span>{t('capabilities.toolsCount', { count: snapshot?.tool_count ?? 0 })}</span>
+            <span>{t('capabilities.agentsCount', { count: snapshot?.agent_count ?? 0 })}</span>
           </div>
         )}
       </div>

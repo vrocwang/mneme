@@ -47,7 +47,10 @@ model = "coding"
 sandbox_mode = "read_write"
 tool_allowlist = [
   "read_file", "write_file", "list_dir", "shell", "grep", "glob",
-  "run_tests", "read_diff", "lsp", "apply_patch",
+  "run_tests", "read_diff", "apply_patch",
+  # Language-server tools come from the lsp extension; no tool is literally
+  # named "lsp", so list the ones a coder actually needs.
+  "lsp_definition", "lsp_references", "lsp_symbols", "lsp_hover",
 ]
 
 [[agent]]

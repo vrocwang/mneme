@@ -21,11 +21,11 @@ func Bootstrap(cfg *config.Config, provider inference.Provider, bus *events.Bus,
 
 	port := cfg.InferenceHTTP.Port
 	if port <= 0 {
-		port = 8080
+		port = config.DefaultInferenceHTTPPort
 	}
 	bind := cfg.InferenceHTTP.Bind
 	if bind == "" {
-		bind = "127.0.0.1"
+		bind = config.DefaultLoopbackBind
 	}
 
 	srv := NewServer(log, bind, port, provider, bus)

@@ -5,17 +5,11 @@ import { useT } from '../../lib/i18n/I18nContext';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolCallItem } from './ToolTimeline';
 import type { ToolCallEntry } from '../../store/chatRuntimeSlice';
+import { FEEDBACK_RESET_MS } from '../../lib/timing';
 
-const proseClasses = `prose prose-sm prose-invert max-w-none
-  prose-pre:bg-black/40 prose-pre:border prose-pre:border-surface-border
-  prose-code:bg-ocean-500/20 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
-  prose-headings:text-white/90 prose-p:leading-relaxed
-  prose-a:text-ocean-400 prose-a:underline
-  prose-strong:text-white/90
-  prose-ul:my-1 prose-ol:my-1
-  prose-li:my-0.5
-  [&_pre]:overflow-x-auto [&_pre]:rounded-lg
-  [&_code]:text-xs`;
+// Typography comes from the .markdown-body component class in style.css:
+// @tailwindcss/typography is not installed, so the prose* utilities emit no CSS.
+const markdownClasses = 'markdown-body max-w-none overflow-x-auto [&_code]:text-xs';
 
 interface ContentSegment {
   kind: 'text' | 'math_inline' | 'math_block' | 'thinking';
@@ -82,7 +76,7 @@ export function MessageBubble({ message, toolCalls }: { message: MessageRecord; 
     try {
       await navigator.clipboard.writeText(message.content);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setTimeout(() => setCopied(false), FEEDBACK_RESET_MS);
     } catch { /* clipboard API may not be available */ }
   }, [message.content]);
 
@@ -122,10 +116,10 @@ export function MessageBubble({ message, toolCalls }: { message: MessageRecord; 
                 if (seg.kind === 'thinking') return <ThinkingBlock key={i} content={seg.content} />;
                 if (seg.kind === 'math_inline') return <MathDisplay key={i} content={seg.content} />;
                 if (seg.kind === 'math_block') return <MathDisplay key={i} content={seg.content} block />;
-                return <div key={i} className={proseClasses}><ReactMarkdown>{seg.content}</ReactMarkdown></div>;
+                return <div key={i} className={markdownClasses}><ReactMarkdown>{seg.content}</ReactMarkdown></div>;
               })
             ) : (
-              <div className={proseClasses}>
+              <div className={markdownClasses}>
                 <ReactMarkdown>{message.content}</ReactMarkdown>
               </div>
             )

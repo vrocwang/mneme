@@ -1,12 +1,14 @@
-const pt = {
-  app: { title: 'Mneme', tagline: 'Assistente IA para comunidades' },
+import type { EnTranslations } from './en';
+import type { DeepPartial } from './I18nContext';
+
+const pt: DeepPartial<EnTranslations> = {
+  app: { title: 'Mneme' },
 
   nav: {
     home: 'Início',
     chat: 'Chat',
     memory: 'Memória',
     tools: 'Ferramentas',
-    skills: 'Habilidades',
     dashboard: 'Painel',
     notifications: 'Notificações',
     settings: 'Configurações'
@@ -236,58 +238,6 @@ const pt = {
     add: 'Adicionar'
   },
 
-  tools: {
-    title: 'Tools & Agents',
-    toolsTab: 'Tools',
-    agentsTab: 'Agents',
-    mcpTab: 'MCP',
-    pageError: 'Page Error',
-    retry: 'Retry',
-    noTools: 'No tools registered.',
-    noDescription: 'No description',
-    registeredAgents: 'Registered Agents',
-    newAgent: '+ New Agent',
-    editAgent: 'Edit Agent',
-    newAgentTitle: 'New Agent',
-    id: 'ID',
-    name: 'Name',
-    description: 'Description',
-    systemPrompt: 'System Prompt',
-    save: 'Save',
-    saving: 'Saving...',
-    cancel: 'Cancel',
-    edit: 'Edit',
-    delete: 'Delete',
-    noAgents: 'No agents registered.',
-    hidden: 'hidden',
-    fork: 'fork',
-    agentSaved: 'Saved',
-    agentDeleteConfirm: 'Delete agent',
-    mcpUninstallConfirm: 'Uninstall',
-    error: 'Error',
-    mcpServers: 'MCP Servers',
-    installMCP: '+ Install MCP Server',
-    installMCPTitle: 'Install MCP Server',
-    installConnect: 'Install & Connect',
-    noMCPServers: 'No MCP servers installed.',
-    noMCPServersHint: 'Click "+ Install MCP Server" to add one.',
-    selectMCP: 'Select an MCP server to view details.',
-    disconnect: 'Disconnect',
-    connect: 'Connect',
-    uninstall: 'Uninstall',
-    discoveredTools: 'Discovered Tools',
-    testToolCall: 'Test Tool Call',
-    callTool: 'Call Tool',
-    transport: 'Transport',
-    args: 'Args (comma-separated)',
-    command: 'Command',
-    url: 'URL',
-    toolName: 'Tool name',
-    offline: 'offline',
-    loadFailed: 'Failed to load',
-    installedConnected: 'Installed & connected'
-  },
-
   errors: {
     somethingWrong: 'Algo deu errado',
     
@@ -322,27 +272,9 @@ const pt = {
     dbStatus: 'Banco de dados'
   },
 
-  skills: {
-    title: 'Habilidades',
-    installed: 'Habilidades instaladas',
-    install: 'Instalar habilidade',
-    browse: 'Explorar',
-    all: 'Todas',
-    noSkills: 'Nenhuma habilidade instalada',
-    noSkillsHint: 'As habilidades estendem o agente com ferramentas e comportamentos especializados.',
-    running: 'Ativo',
-    loaded: 'Carregado',
-    disabled: 'Desativado',
-    error: 'Erro',
-    enable: 'Ativar',
-    disable: 'Desativar',
-    uninstall: 'Desinstalar'
-  },
-
   extensions: {
     title: 'Extensions',
     install: 'Install',
-    uninstall: 'Uninstall'
   },
 
   webhooks: {
@@ -405,10 +337,6 @@ const pt = {
       memory: {
         title: 'Memory',
         content: "Search and explore your AI's memory. View knowledge graphs, timelines, and entity associations."
-      },
-      tools: {
-        title: 'Tools & Agents',
-        content: 'Manage tools, MCP servers, and agent configurations. Install extensions to add new capabilities.'
       },
       settings: {
         title: 'Settings',

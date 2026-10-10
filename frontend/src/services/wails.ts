@@ -1,7 +1,9 @@
 // Typed wrappers for Go backend Wails bindings.
-// Methods are exposed on window['go']['main']['App'] by the Wails runtime.
+// Methods are exposed under window['go']['<package>']['<Struct>'] by the Wails
+// runtime; rpcRoutes.generated.ts maps each method name to its owner.
 
-const DEFAULT_TIMEOUT_MS = 30_000;  // 30 seconds
+import { rpcRoutes } from './rpcRoutes.generated';
+import { RPC_TIMEOUT_MS, STREAM_TIMEOUT_MS } from '../lib/timing';
 
 export class RpcError extends Error {
   constructor(message: string, public code?: string, public status?: number) {
@@ -12,117 +14,24 @@ export class RpcError extends Error {
 
 function invoke<T>(method: string, ...args: unknown[]): Promise<T> {
   const w = window as any;
-  const configRpcMethods = ['ListProviders', 'AddProvider', 'UpdateProvider', 'RemoveProvider',
-    'TestProviderConnection', 'GetWorkspace', 'SetWorkspace',
-    'GetExtensionConfig', 'SetExtensionConfig',
-    'GetAgentLimits', 'SetAgentLimits', 'GetSecurityCommands', 'SetSecurityCommands',
-    'SetSecurityTier', 'GetShellConfig', 'SetShellConfig',
-    'GetCircuitBreakerConfig', 'SetCircuitBreakerConfig',
-    'GetMemoryPipelineConfig', 'SetMemoryPipelineConfig',
-    'GetRetrievalWeights', 'SetRetrievalWeights',
-    'GetCostConfig', 'SetCostConfig',
-    'GetPrompt', 'GetDefaultPrompt', 'SetPrompt', 'DeletePrompt', 'ListPrompts',
-    'ListModels', 'SetDefaultModel', 'GetModelRoutes', 'SetModelRoute',
-    'GetVoiceConfig', 'SetVoiceConfig',
-  ];
-  const aboutMethods = ['GetCurrentVersion', 'CheckForUpdate'];
-  const costMethods = ['GetCostDashboard', 'GetCostOverview'];
-  const cronMethods = ['GetCronJobs', 'ToggleCronJob', 'TriggerCronJob', 'AddCronJob', 'RemoveCronJob'];
-  const learningMethods = ['GetPreferences'];
-  const memoryMethods = ['SearchMemory', 'ListNamespaces', 'ClearNamespace', 'SetRetrievalProfile'];
-  const companionMethods = ['ActivateCompanion', 'StartCompanionLoop', 'StopCompanionLoop', 'StartScreenIntel', 'StopScreenIntel', 'StartScreenIntelligence', 'GetVoiceEngines'];
-  const threadMethods = ['ListThreads', 'CreateThread', 'DeleteThread', 'GetThreadMessages', 'UpdateThreadTitle'];
-  const webhookMethods = ['ListTunnels', 'CreateTunnel', 'GetTunnel', 'UpdateTunnel',
-    'DeleteTunnel', 'GetTunnelBandwidth', 'ListTunnelActivity', 'ClearTunnelActivity'];
-  const agentMethods = ['ListAgents', 'UpsertAgent', 'RemoveAgent'];
-  const approvalMethods = ['ListPendingApprovals', 'DecideApproval', 'ListApprovalAllowlist'];
-  const keyringMethods = ['KeyringStatus', 'KeyringRetryProbe', 'KeyringConsentDecide'];
-  const healthMethods = ['DoctorReport'];
-  const appStateMethods = ['AppStateSnapshot'];
-	const capabilityMethods = ['ListSets', 'GetSet', 'ListAllTools', 'GetToolSchema', 'GetToolDiagnostics', 'ListAllAgents',
-		'AddMCPServer', 'RemoveMCPServer', 'ConnectMCPServer', 'DisconnectMCPServer',
-		'InstallLegacyExtension', 'InstallSkill', 'ListSkillCatalog', 'RefreshSkillCatalog', 'InstallSkillFromCatalog',
-		'ListExtensions', 'InstallExtension', 'UninstallExtension'];
-  const soulMethods = ["GetSOUL", "SetSOUL", "GetIdentity", "SetIdentity"];
-  const channelMethods = ['ListChannels', 'EnableChannel', 'DisableChannel'];
-  const monitorMethods = ['ListRuns', 'StartRun', 'ReadOutput', 'StopRun'];
-  const notificationMethods = ['ListNotifications', 'ListUnreadNotifications', 'MarkNotificationRead',
-    'MarkAllNotificationsRead', 'UnreadNotificationCount'];
-  const auditMethods = ['ListAuditEvents', 'ListAuditEventsByKind'];
-  const service = soulMethods.includes(method) ? "SoulRPC"
-    : channelMethods.includes(method) ? "ChannelRPC"
-    : configRpcMethods.includes(method) ? "ConfigRPC"
-    : keyringMethods.includes(method) ? 'KeyringRPC'
-    : approvalMethods.includes(method) ? 'ApprovalRPC'
-    : agentMethods.includes(method) ? 'AgentRPC'
-    : aboutMethods.includes(method) ? 'AboutRPC'
-    : costMethods.includes(method) ? 'CostRPC'
-    : cronMethods.includes(method) ? 'CronRPC'
-    : learningMethods.includes(method) ? 'LearningRPC'
-    : memoryMethods.includes(method) ? 'MemoryRPC'
-    : companionMethods.includes(method) ? 'DesktopRPC'
-    : webhookMethods.includes(method) ? 'WebhookRPC'
-    : threadMethods.includes(method) ? 'ThreadsRPC'
-    : healthMethods.includes(method) ? 'HealthRPC'
-    : appStateMethods.includes(method) ? 'AppStateRPC'
-	    : capabilityMethods.includes(method) ? 'CapabilityRPC'
-    : monitorMethods.includes(method) ? 'MonitorRPC'
-    : notificationMethods.includes(method) ? 'NotificationsRPC'
-    : auditMethods.includes(method) ? 'AuditRPC'
-    : 'App';
-
-  // Wails binds structs under go.<package>.<StructName>. Try the main
-  // package path first (for structs defined in main.go), then fall back
-  // to the struct's own package (e.g. config.ConfigRPC → go.config.ConfigRPC).
-  const goMain = w['go']?.['main'];
-  let fn = goMain?.[service]?.[method];
+  // Routing is generated from the Wails bindings (scripts/gen-rpc-routes.mjs),
+  // so it cannot drift from the Go method surface. A method the backend does
+  // not bind rejects with NOT_AVAILABLE (also the browser-mode behaviour).
+  const route = rpcRoutes[method] ?? { pkg: 'main', struct: 'App' };
+  const fn = w['go']?.[route.pkg]?.[route.struct]?.[method];
   if (!fn) {
-    // Map service name → {package, struct}. If struct is empty, the
-    // service name itself is the Wails struct name (default).
-    const svcMap: Record<string, {pkg: string; name?: string}> = {
-      'ConfigRPC':     {pkg: 'config'},
-      'ApprovalRPC':   {pkg: 'approval'},
-      'AgentRPC':      {pkg: 'agent'},
-      'ToolsRPC':      {pkg: 'tools'},
-      'CostRPC':       {pkg: 'cost'},
-      'CronRPC':       {pkg: 'cron'},
-      'LearningRPC':   {pkg: 'learning'},
-      'MemoryRPC':     {pkg: 'memory'},
-      'DesktopRPC':    {pkg: 'desktop'},
-      'KeyringRPC':    {pkg: 'keyring'},
-      'WebhookRPC':    {pkg: 'webhooks'},
-      'ThreadsRPC':    {pkg: 'conversations'},
-      'HealthRPC':     {pkg: 'health'},
-      'AppStateRPC':   {pkg: 'app_state'},
-      'AboutRPC':      {pkg: 'about',   name: 'RPC'},
-            'SoulRPC':      {pkg: 'soul', name: 'RPC'},
-      'MonitorRPC':    {pkg: 'monitor', name: 'RPC'},
-      'NotificationsRPC': {pkg: 'notifications', name: 'RPC'},
-      'AuditRPC':         {pkg: 'security', name: 'AuditRPC'},
-      'CapabilityRPC': {pkg: 'capability'},
-      'ChannelRPC':    {pkg: 'channels', name: 'ChannelRPC'},
-    };
-    const entry = svcMap[service];
-    if (entry) {
-      const structName = entry.name || service;
-      fn = w['go']?.[entry.pkg]?.[structName]?.[method];
-      if (fn) {
-        console.debug(`Wails: ${method} found at go.${entry.pkg}.${structName} (fallback)`);
-      }
-    }
-  }
-  if (!fn) {
-    console.debug(`Wails method ${method} not available — running in browser mode.`);
-    return Promise.reject(new RpcError(`Wails method ${method} not available`, 'NOT_AVAILABLE'));
+    return Promise.reject(
+      new RpcError(`Wails method ${method} not available (looked for go.${route.pkg}.${route.struct}.${method})`, 'NOT_AVAILABLE')
+    );
   }
   return fn(...args) as Promise<T>;
 }
 
 // invokeWithTimeout wraps invoke with a configurable timeout.
-export async function invokeWithTimeout<T>(
+async function invokeWithTimeout<T>(
   method: string,
   args: unknown[],
-  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+  timeoutMs: number = RPC_TIMEOUT_MS,
 ): Promise<T> {
   const timer = new Promise<never>((_, reject) =>
     setTimeout(() => reject(new RpcError(`RPC ${method} timed out after ${timeoutMs}ms`, 'TIMEOUT')), timeoutMs)
@@ -148,7 +57,14 @@ export interface ChatRequest {
 // events: "chat:token", "chat:tool_call", "chat:tool_result", "chat:done", "chat:error".
 // Uses a 120s timeout for long-running agent turns.
 export function streamChatMessage(req: ChatRequest) {
-  return invokeWithTimeout<void>('StreamChatMessage', [req], 120_000);
+  return invokeWithTimeout<void>('StreamChatMessage', [req], STREAM_TIMEOUT_MS);
+}
+
+// Cancel the in-flight turn for a thread. CancelMessage is bound on the main
+// App struct, which is the default route in invoke() — it needs no entry in
+// any of the method routing lists above.
+export function cancelMessage(threadId: string) {
+  return invoke<void>('CancelMessage', threadId);
 }
 
 // ── Threads ───────────────────────────────────────────────────────────
@@ -165,6 +81,8 @@ export interface MessageRecord {
   role: string;
   content: string;
   created_at: string;
+  // Set on the locally committed assistant message of a turn the user stopped.
+  stopped?: boolean;
 }
 export function listThreads() { return invoke<ThreadSummary[]>('ListThreads'); }
 export function createThread(title: string) { return invoke<ThreadSummary>('CreateThread', title); }
@@ -267,11 +185,13 @@ export interface ToolDiagnostics {
   totalTools: number;
   enabledTools: number;
   mcpStdioTools: number;
+  mcpHTTPTools: number;
   jsonRpcTools: number;
   inProcessTools: number;
   writeSurfaces: number;
   bySource: Record<string, number>;
-  recentDenials: Array<{ tool_name: string; reason: string; args_digest: string; time: string }>;
+  // Tool denials are not reported here; read them from the audit trail with
+  // listAuditEventsByKind('tool_blocked', limit).
 }
 export function getToolDiagnostics() { return invoke<ToolDiagnostics>('GetToolDiagnostics'); }
 
@@ -317,7 +237,7 @@ export function triggerCronJob(id: string) { return invoke<{ ok: boolean; error?
 export function addCronJob(name: string, schedule: string, prompt: string) { return invoke<{ ok: boolean; id?: string; error?: string }>('AddCronJob', name, schedule, prompt); }
 export function removeCronJob(id: string) { return invoke<{ ok: boolean; error?: string }>('RemoveCronJob', id); }
 export function getPreferences() { return invoke<unknown[]>('GetPreferences'); }
-export function getReflections(limit: number) { return invoke<unknown[]>('GetReflections', limit).catch(() => []); }
+export function getReflections(limit: number) { return invoke<unknown[]>('GetReflections', limit); }
 
 // ── Monitor ─────────────────────────────────────────────────────────
 
@@ -373,7 +293,6 @@ export function getCurrentVersion() { return invoke<string>('GetCurrentVersion')
 export interface AgentLimitsConfig {
   max_tool_rounds: number;
   default_tool_timeout: number;
-  max_history_messages: number;
 }
 export interface SecurityCommandsConfig {
   block_high_risk: boolean;
@@ -393,7 +312,6 @@ export interface ShellConfig {
 export interface CircuitBreakerConfig {
   max_repeat_failures: number;
   max_no_progress_fails: number;
-  max_hard_rejects: number;
 }
 export interface MemoryPipelineConfig {
   worker_count: number;
@@ -404,11 +322,15 @@ export interface MemoryPipelineConfig {
 export interface RetrievalWeightsConfig {
   fts5: number; vector: number; keyword: number;
   tree: number; graph: number; episodic: number;
+  // Named preset. When non-empty the backend applies the preset and ignores the
+  // numeric weights, so any save path must carry it through unchanged.
+  profile?: string;
 }
 export interface CostConfig { budget_cents: number; }
 
 export function getAgentLimits() { return invoke<AgentLimitsConfig>('GetAgentLimits'); }
 export function setAgentLimits(l: AgentLimitsConfig) { return invoke<void>('SetAgentLimits', l); }
+export function setSecurityTier(tier: string) { return invoke<void>('SetSecurityTier', tier); }
 export function getSecurityCommands() { return invoke<SecurityCommandsConfig>('GetSecurityCommands'); }
 export function setSecurityCommands(c: SecurityCommandsConfig) { return invoke<void>('SetSecurityCommands', c); }
 export function getShellConfig() { return invoke<ShellConfig>('GetShellConfig'); }
@@ -463,10 +385,17 @@ export interface ChannelInfo {
   name: string;
   enabled: boolean;
   type: string;
+  // Live state: whether the channel is actually running right now. An enabled
+  // channel can still be stopped (startup failure, removed at runtime).
+  running: boolean;
 }
 export function listChannels() { return invoke<{ ok: boolean; channels: ChannelInfo[]; available: string[] }>('ListChannels'); }
-export function enableChannel(name: string) { return invoke<{ ok: boolean; error?: string }>('EnableChannel', name); }
-export function disableChannel(name: string) { return invoke<{ ok: boolean; error?: string }>('DisableChannel', name); }
+export function enableChannel(name: string) {
+  return invoke<{ ok: boolean; name?: string; enabled?: boolean; error?: string }>('EnableChannel', name);
+}
+export function disableChannel(name: string) {
+  return invoke<{ ok: boolean; name?: string; enabled?: boolean; error?: string }>('DisableChannel', name);
+}
 
 // ── Webhook Tunnels ───────────────────────────────────────────────────
 

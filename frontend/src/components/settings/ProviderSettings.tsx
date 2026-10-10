@@ -1,9 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import * as api from '../../services/wails';
 import { useT } from '../../lib/i18n/I18nContext';
+import { PROVIDER_TYPE_IDS, PROVIDER_TYPES } from '../../lib/providers';
+import { FLASH_TIMEOUT_MS } from '../../lib/timing';
 import type { ProviderConfig } from '../../services/wails';
 
-const PROVIDER_TYPES = ['openai', 'anthropic', 'ollama'];
+// Example shown in the Base URL field; the OpenAI default is the common case.
+const BASE_URL_EXAMPLE = PROVIDER_TYPES[0].baseUrl;
 
 function maskKey(key: string): string {
   if (!key || key.includes('****')) return key || '—';
@@ -34,7 +37,7 @@ export function ProviderSettings() {
   // Collect all model names from all providers for datalist suggestions.
   const allModels = [...new Set(providers.flatMap(p => p.models || []))];
 
-  const flash = (text: string) => { setMsg(text); setTimeout(() => setMsg(''), 3000); };
+  const flash = (text: string) => { setMsg(text); setTimeout(() => setMsg(''), FLASH_TIMEOUT_MS); };
 
   const load = useCallback(async () => {
     try {
@@ -59,7 +62,7 @@ export function ProviderSettings() {
       if (result.ok) {
         flash(`${t('settings.testConnectionOk')} — ${result.endpoint} (HTTP ${result.status})`);
       } else {
-        flash(`${t('settings.testConnectionFailed')}: ${result.error || result.warning || 'Unknown error'}`);
+        flash(`${t('settings.testConnectionFailed')}: ${result.error || result.warning || t('common.unknownError')}`);
       }
     } catch (e) {
       flash(`${t('settings.testConnectionFailed')}: ${e}`);
@@ -213,32 +216,32 @@ export function ProviderSettings() {
             <div>
               <label className="text-xs text-white/30 block mb-1">{t('settings.name')}</label>
               <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
-                className="input-field !py-1.5 !text-xs" placeholder="e.g. openai" />
+                className="input-field !py-1.5 !text-xs" placeholder={t('settings.providerNamePlaceholder')} />
             </div>
             <div>
               <label className="text-xs text-white/30 block mb-1">{t('settings.type')}</label>
               <select value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}
                 className="input-field !py-1.5 !text-xs">
-                {PROVIDER_TYPES.map(ty => <option key={ty} value={ty}>{ty}</option>)}
+                {PROVIDER_TYPE_IDS.map(ty => <option key={ty} value={ty}>{ty}</option>)}
               </select>
             </div>
           </div>
           <div>
             <label className="text-xs text-white/30 block mb-1">{t('settings.apiKey')}</label>
             <input value={form.api_key} onChange={e => setForm({ ...form, api_key: e.target.value })}
-              className="input-field !py-1.5 !text-xs" type="password" placeholder="sk-..." />
+              className="input-field !py-1.5 !text-xs" type="password" placeholder={t('common.apiKeyPlaceholder')} />
           </div>
           <div>
             <label className="text-xs text-white/30 block mb-1">{t('settings.baseUrl')}</label>
             <input value={form.base_url} onChange={e => setForm({ ...form, base_url: e.target.value })}
-              className="input-field !py-1.5 !text-xs" placeholder="https://api.openai.com/v1" />
+              className="input-field !py-1.5 !text-xs" placeholder={BASE_URL_EXAMPLE} />
           </div>
           <div>
             <label className="text-xs text-white/30 block mb-1">{t('settings.models')}</label>
             <div className="flex gap-2">
               <input value={modelInput} onChange={e => setModelInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addModel(); } }}
-                className="input-field !py-1.5 !text-xs flex-1" placeholder="e.g. gpt-4o" />
+                className="input-field !py-1.5 !text-xs flex-1" placeholder={t('settings.modelPlaceholder')} />
               <button className="btn-ghost !text-xs" onClick={addModel}>{t('settings.addModel')}</button>
             </div>
             {form.models.length > 0 && (

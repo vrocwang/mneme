@@ -41,6 +41,10 @@ func (t *HTTPGet) Schema() Schema {
 					"type":        "string",
 					"description": "URL to fetch",
 				},
+				"headers": map[string]interface{}{
+					"type":        "object",
+					"description": "Optional request headers as key-value pairs",
+				},
 			},
 			"required": []string{"url"},
 		},
@@ -64,6 +68,7 @@ func (t *HTTPGet) Execute(ctx context.Context, args map[string]interface{}) Resu
 	if err != nil {
 		return Result{Error: fmt.Sprintf("create request: %v", err)}
 	}
+	applyRequestHeaders(req, args)
 
 	resp, err := t.client.Do(req)
 	if err != nil {
@@ -104,7 +109,15 @@ func (t *HTTPPost) Schema() Schema {
 				},
 				"body": map[string]interface{}{
 					"type":        "string",
-					"description": "JSON body string",
+					"description": "Request body string",
+				},
+				"method": map[string]interface{}{
+					"type":        "string",
+					"description": "HTTP method to use (default POST; e.g. PUT, PATCH, DELETE)",
+				},
+				"headers": map[string]interface{}{
+					"type":        "object",
+					"description": "Optional request headers as key-value pairs",
 				},
 			},
 			"required": []string{"url", "body"},
@@ -126,11 +139,17 @@ func (t *HTTPPost) Execute(ctx context.Context, args map[string]interface{}) Res
 		return Result{Error: fmt.Sprintf("url rejected: %v", err)}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", rawURL, strings.NewReader(bodyStr))
+	method := "POST"
+	if m, ok := args["method"].(string); ok && m != "" {
+		method = strings.ToUpper(m)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, rawURL, strings.NewReader(bodyStr))
 	if err != nil {
 		return Result{Error: fmt.Sprintf("create request: %v", err)}
 	}
 	req.Header.Set("Content-Type", "application/json")
+	applyRequestHeaders(req, args)
 
 	resp, err := t.client.Do(req)
 	if err != nil {
@@ -145,6 +164,21 @@ func (t *HTTPPost) Execute(ctx context.Context, args map[string]interface{}) Res
 	return Result{
 		Success: true,
 		Output:  fmt.Sprintf("Status: %d\n%s", resp.StatusCode, string(body)),
+	}
+}
+
+// applyRequestHeaders copies the optional `headers` object from the tool
+// arguments onto the request. Non-string values are ignored: a wrong type must
+// not turn a request into a confusing partial one.
+func applyRequestHeaders(req *http.Request, args map[string]interface{}) {
+	raw, ok := args["headers"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	for k, v := range raw {
+		if s, ok := v.(string); ok {
+			req.Header.Set(k, s)
+		}
 	}
 }
 

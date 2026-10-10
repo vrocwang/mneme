@@ -15,6 +15,7 @@ package extsdk
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -23,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -72,6 +74,37 @@ func ScreenshotsDir() string {
 	return dir
 }
 
+// TaskBoardsDir returns the shared per-thread task-board directory
+// (<workspace>/agent_task_boards), where the todos extension persists boards.
+func TaskBoardsDir() string {
+	dir := filepath.Join(WorkspaceDir(), "agent_task_boards")
+	_ = os.MkdirAll(dir, 0o755)
+	return dir
+}
+
+// WorkflowsDir returns the shared user workflows directory
+// (<workspace>/workflows), the same location the core reads WORKFLOW.md from
+// for prompt guidance.
+func WorkflowsDir() string {
+	dir := filepath.Join(WorkspaceDir(), "workflows")
+	_ = os.MkdirAll(dir, 0o755)
+	return dir
+}
+
+// WorkflowLogsDir returns the shared workflow run-log directory
+// (<workspace>/workflow-logs).
+func WorkflowLogsDir() string {
+	dir := filepath.Join(WorkspaceDir(), "workflow-logs")
+	_ = os.MkdirAll(dir, 0o755)
+	return dir
+}
+
+// ProjectWorkflowsDir returns the project-scoped workflow directory
+// (<workspace>/.workflows), the same one the core's prompt layer reads.
+func ProjectWorkflowsDir() string {
+	return filepath.Join(WorkspaceDir(), ".workflows")
+}
+
 // DefaultCallTimeout bounds each tool execution. The previous hand-written
 // loops wrapped every call in context.WithTimeout (typically 30–60s, up to
 // 5m for long-running tools). Since the JSON-RPC transport has no cancellation
@@ -103,6 +136,12 @@ type ToolDef struct {
 	Parameters  map[string]interface{} `json:"parameters"`
 	Permission  string                 `json:"permission,omitempty"`
 	HasEffects  bool                   `json:"has_effects,omitempty"`
+	// ConcurrencySafe declares that this tool may run concurrently with other
+	// tool calls from the same agent; the host maps it onto
+	// tools.ConcurrencySafeTool. Leave false unless the handler is safe to
+	// overlap — it only ever opts a tool in, and the wire field is omitted when
+	// false, so extensions that do not set it are byte-for-byte unchanged.
+	ConcurrencySafe bool `json:"concurrency_safe,omitempty"`
 }
 
 // Result is the outcome of a tool execution.
@@ -194,6 +233,14 @@ type Server struct {
 	agents      []AgentDef
 	config      ConfigHandler
 	callTimeout time.Duration
+
+	// concurrent enables one-goroutine-per-extension.call_tool dispatch. Off by
+	// default so every existing extension keeps the original one-request-at-a-
+	// time semantics.
+	concurrent atomic.Bool
+	// writeMu makes each response a single line on stdout even when calls are
+	// dispatched concurrently.
+	writeMu sync.Mutex
 }
 
 // NewServer creates a Server with the given manifest. tool names in the
@@ -265,32 +312,102 @@ func (s *Server) SetConfigHandler(h ConfigHandler) {
 	s.config = h
 }
 
+// SetConcurrentDispatch controls how extension.call_tool requests are served.
+//
+// With concurrent dispatch enabled, every extension.call_tool runs in its own
+// goroutine while the cheap methods (describe/list_tools/list_agents/configure)
+// keep answering inline. That is what lets an extension serve a second request —
+// for example a cancel tool — while a long-running call is still outstanding;
+// the sequential loop cannot even read the second request until the first
+// returns. Responses are still written one line at a time under a mutex, and on
+// stdin EOF Run waits (bounded by eofDrainGrace) for in-flight calls to finish.
+//
+// The default is off, which preserves the original one-request-at-a-time
+// semantics for every existing extension. Only turn it on when the registered
+// handlers are safe to overlap. Must be called before Run.
+func (s *Server) SetConcurrentDispatch(on bool) {
+	s.concurrent.Store(on)
+}
+
+// eofDrainGrace bounds how long Run waits for in-flight extension.call_tool
+// handlers after stdin reaches EOF. The host closes stdin on shutdown; a
+// multi-minute call should not stall the process, but an almost-finished
+// response should not be dropped either.
+const eofDrainGrace = 10 * time.Second
+
 // Run blocks, reading JSON-RPC requests from stdin and writing responses to
 // stdout until stdin reaches EOF. It returns nil on clean shutdown (EOF).
 func (s *Server) Run() error {
+	return s.run(os.Stdin, os.Stdout)
+}
+
+// run is Run with injectable streams so tests can drive the protocol loop over
+// pipes instead of the process's own stdin/stdout.
+func (s *Server) run(in io.Reader, out io.Writer) error {
 	s.log.Info("extension starting", "name", s.manifest.Name, "version", s.manifest.Version)
-	reader := bufio.NewReader(os.Stdin)
+	reader := bufio.NewReader(in)
+	concurrent := s.concurrent.Load()
+
+	// wg tracks concurrently dispatched call_tool goroutines so EOF can wait
+	// for them. It is empty (and unused) in the sequential default mode.
+	var wg sync.WaitGroup
+
 	for {
 		line, err := reader.ReadBytes('\n')
+		if err == nil && len(bytes.TrimSpace(line)) > 0 {
+			var req rpcRequest
+			if uerr := json.Unmarshal(line, &req); uerr != nil {
+				s.log.Error("unmarshal request", "error", uerr)
+			} else if concurrent && req.Method == "extension.call_tool" {
+				wg.Add(1)
+				go func(req rpcRequest) {
+					defer wg.Done()
+					s.writeResponse(out, s.handle(&req))
+				}(req)
+			} else {
+				s.writeResponse(out, s.handle(&req))
+			}
+		}
 		if err != nil {
 			if err == io.EOF {
 				s.log.Info("stdin closed, exiting")
+				s.waitInFlight(&wg)
 				return nil
 			}
+			s.waitInFlight(&wg)
 			return fmt.Errorf("read request: %w", err)
 		}
-		var req rpcRequest
-		if err := json.Unmarshal(line, &req); err != nil {
-			s.log.Error("unmarshal request", "error", err)
-			continue
-		}
-		resp := s.handle(&req)
-		respBytes, err := json.Marshal(resp)
-		if err != nil {
-			s.log.Error("marshal response", "error", err)
-			continue
-		}
-		fmt.Fprintf(os.Stdout, "%s\n", respBytes)
+	}
+}
+
+// writeResponse frames one response as a single line. The write mutex keeps
+// concurrently dispatched calls from interleaving their bytes on stdout.
+func (s *Server) writeResponse(out io.Writer, resp *rpcResponse) {
+	respBytes, err := json.Marshal(resp)
+	if err != nil {
+		s.log.Error("marshal response", "error", err)
+		return
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	fmt.Fprintf(out, "%s\n", respBytes)
+}
+
+// waitInFlight waits for concurrently dispatched call_tool goroutines, bounded
+// by eofDrainGrace.
+func (s *Server) waitInFlight(wg *sync.WaitGroup) {
+	if !s.concurrent.Load() {
+		return
+	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(eofDrainGrace):
+		s.log.Warn("stdin closed with extension.call_tool calls still in flight", "grace", eofDrainGrace)
 	}
 }
 

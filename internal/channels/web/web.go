@@ -14,11 +14,7 @@ import (
 	"github.com/simon/mneme/internal/channels"
 )
 
-const (
-	writeTimeout = 10 * time.Second
-	pingInterval = 30 * time.Second
-	pongTimeout  = 60 * time.Second
-)
+const writeTimeout = 10 * time.Second
 
 // Channel implements the channels.Channel interface for browser-based chat.
 type Channel struct {

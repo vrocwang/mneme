@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/simon/mneme/internal/config"
 )
 
 type OpenAI struct {
@@ -21,7 +23,7 @@ type OpenAI struct {
 // falls back to the official API; empty model falls back to the default.
 func NewOpenAI(apiKey, baseURL, model string) *OpenAI {
 	if baseURL == "" {
-		baseURL = "https://api.openai.com/v1"
+		baseURL = config.DefaultOpenAIBaseURL
 	}
 	if model == "" {
 		model = defaultOpenAIEmbeddingModel

@@ -7,23 +7,17 @@ export function AddMCPServer(arg1:string,arg2:string,arg3:string,arg4:string,arg
 
 export function ConnectMCPServer(arg1:string):Promise<void>;
 
-export function CreateAgent(arg1:Record<string, any>):Promise<void>;
-
-export function DeleteAgent(arg1:string):Promise<void>;
-
 export function DisconnectMCPServer(arg1:string):Promise<void>;
 
 export function GetSet(arg1:string):Promise<capability.CapabilitySet|boolean>;
+
+export function GetToolDiagnostics():Promise<Record<string, any>>;
 
 export function GetToolSchema(arg1:string):Promise<json.RawMessage>;
 
 export function InstallExtension(arg1:string):Promise<void>;
 
-export function InstallLegacyExtension(arg1:string):Promise<void>;
-
 export function InstallSkill(arg1:string):Promise<void>;
-
-export function InstallSkillFromCatalog(arg1:string):Promise<void>;
 
 export function ListAllAgents():Promise<Array<capability.AgentDescriptor>>;
 
@@ -33,14 +27,12 @@ export function ListExtensions():Promise<Array<capability.ExtensionInfo>>;
 
 export function ListSets():Promise<Array<capability.CapabilitySet>>;
 
-export function ListSkillCatalog():Promise<Array<capability.SkillCatalogEntry>>;
-
-export function RefreshSkillCatalog():Promise<Array<capability.SkillCatalogEntry>>;
-
 export function RemoveMCPServer(arg1:string):Promise<void>;
+
+export function SetCapabilityWorkspace(arg1:string):Promise<void>;
+
+export function SetMCPPersister(arg1:capability.MCPServerPersister):Promise<void>;
 
 export function SetRegistry(arg1:capability.CapabilityRegistry):Promise<void>;
 
 export function UninstallExtension(arg1:string,arg2:string):Promise<void>;
-
-export function UpdateAgent(arg1:string,arg2:Record<string, any>):Promise<void>;

@@ -58,6 +58,18 @@ export namespace app_state {
 
 export namespace approval {
 	
+	export class ApprovalRPC {
+	
+	
+	    static createFrom(source: any = {}) {
+	        return new ApprovalRPC(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	
+	    }
+	}
 	export class Gate {
 	
 	
@@ -169,6 +181,7 @@ export namespace capability {
 	    connected_at?: string;
 	    tool_count: number;
 	    agent_count: number;
+	    channel_count?: number;
 	    config?: number[];
 	
 	    static createFrom(source: any = {}) {
@@ -188,6 +201,7 @@ export namespace capability {
 	        this.connected_at = source["connected_at"];
 	        this.tool_count = source["tool_count"];
 	        this.agent_count = source["agent_count"];
+	        this.channel_count = source["channel_count"];
 	        this.config = source["config"];
 	    }
 	
@@ -239,32 +253,21 @@ export namespace capability {
 	        this.homepage = source["homepage"];
 	    }
 	}
-	export class SkillCatalogEntry {
-	    id: string;
-	    name: string;
-	    description: string;
-	    version?: string;
-	    author?: string;
-	    source: string;
-	    download_url: string;
-	    tags?: string[];
-	    license?: string;
+
+}
+
+export namespace channels {
+	
+	export class ChannelRPC {
+	
 	
 	    static createFrom(source: any = {}) {
-	        return new SkillCatalogEntry(source);
+	        return new ChannelRPC(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.description = source["description"];
-	        this.version = source["version"];
-	        this.author = source["author"];
-	        this.source = source["source"];
-	        this.download_url = source["download_url"];
-	        this.tags = source["tags"];
-	        this.license = source["license"];
+	
 	    }
 	}
 
@@ -273,7 +276,6 @@ export namespace capability {
 export namespace config {
 	
 	export class ActionDirConfig {
-	    path: string;
 	    override?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -282,14 +284,12 @@ export namespace config {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.path = source["path"];
 	        this.override = source["override"];
 	    }
 	}
 	export class AgentLimits {
 	    max_tool_rounds: number;
 	    default_tool_timeout: number;
-	    max_history_messages: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new AgentLimits(source);
@@ -299,7 +299,6 @@ export namespace config {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.max_tool_rounds = source["max_tool_rounds"];
 	        this.default_tool_timeout = source["default_tool_timeout"];
-	        this.max_history_messages = source["max_history_messages"];
 	    }
 	}
 	export class AgentConfig {
@@ -407,32 +406,23 @@ export namespace config {
 		    return a;
 		}
 	}
-	export class BrowserConfig {
-	    Headless: boolean;
-	    TimeoutSecs: number;
+	export class BundleConfig {
+	    disabled: string[];
 	
 	    static createFrom(source: any = {}) {
-	        return new BrowserConfig(source);
+	        return new BundleConfig(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.Headless = source["Headless"];
-	        this.TimeoutSecs = source["TimeoutSecs"];
+	        this.disabled = source["disabled"];
 	    }
 	}
 	export class ChannelConfig {
-	    Enabled: boolean;
+	    Disabled: boolean;
 	    Token: string;
-	    SigningSecret: string;
 	    WebhookURL: string;
-	    PhoneNumberID: string;
-	    SignalHTTPURL: string;
-	    SignalAccount: string;
-	    SignalGroupID: string;
-	    SignalAllowedFrom: string[];
-	    SignalIgnoreAttach: boolean;
-	    SignalIgnoreStories: boolean;
+	    Extra: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChannelConfig(source);
@@ -440,23 +430,15 @@ export namespace config {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.Enabled = source["Enabled"];
+	        this.Disabled = source["Disabled"];
 	        this.Token = source["Token"];
-	        this.SigningSecret = source["SigningSecret"];
 	        this.WebhookURL = source["WebhookURL"];
-	        this.PhoneNumberID = source["PhoneNumberID"];
-	        this.SignalHTTPURL = source["SignalHTTPURL"];
-	        this.SignalAccount = source["SignalAccount"];
-	        this.SignalGroupID = source["SignalGroupID"];
-	        this.SignalAllowedFrom = source["SignalAllowedFrom"];
-	        this.SignalIgnoreAttach = source["SignalIgnoreAttach"];
-	        this.SignalIgnoreStories = source["SignalIgnoreStories"];
+	        this.Extra = source["Extra"];
 	    }
 	}
 	export class CircuitBreakerConfig {
 	    max_repeat_failures: number;
 	    max_no_progress_fails: number;
-	    max_hard_rejects: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new CircuitBreakerConfig(source);
@@ -466,7 +448,6 @@ export namespace config {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.max_repeat_failures = source["max_repeat_failures"];
 	        this.max_no_progress_fails = source["max_no_progress_fails"];
-	        this.max_hard_rejects = source["max_hard_rejects"];
 	    }
 	}
 	export class InferenceHTTPConfig {
@@ -485,90 +466,6 @@ export namespace config {
 	        this.bind = source["bind"];
 	    }
 	}
-	export class TaskSourcesConfig {
-	    enabled: boolean;
-	    poll_minutes: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new TaskSourcesConfig(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.enabled = source["enabled"];
-	        this.poll_minutes = source["poll_minutes"];
-	    }
-	}
-	export class PythonRuntimeConfig {
-	    auto_install: boolean;
-	    version?: string;
-	    install_dir?: string;
-	    venv_path?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new PythonRuntimeConfig(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.auto_install = source["auto_install"];
-	        this.version = source["version"];
-	        this.install_dir = source["install_dir"];
-	        this.venv_path = source["venv_path"];
-	    }
-	}
-	export class NodeRuntimeConfig {
-	    auto_install: boolean;
-	    version?: string;
-	    install_dir?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new NodeRuntimeConfig(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.auto_install = source["auto_install"];
-	        this.version = source["version"];
-	        this.install_dir = source["install_dir"];
-	    }
-	}
-	export class RuntimeConfig {
-	    auto_install: boolean;
-	    version?: string;
-	    node: NodeRuntimeConfig;
-	    python: PythonRuntimeConfig;
-	
-	    static createFrom(source: any = {}) {
-	        return new RuntimeConfig(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.auto_install = source["auto_install"];
-	        this.version = source["version"];
-	        this.node = this.convertValues(source["node"], NodeRuntimeConfig);
-	        this.python = this.convertValues(source["python"], PythonRuntimeConfig);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
 	export class ScreenIntelligenceConfig {
 	    enabled: boolean;
 	    capture_interval_secs: number;
@@ -581,52 +478,6 @@ export namespace config {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.enabled = source["enabled"];
 	        this.capture_interval_secs = source["capture_interval_secs"];
-	    }
-	}
-	export class MeetConfig {
-	    auto_join: boolean;
-	    listen_only: boolean;
-	    wake_phrase: string;
-	    mascot_id: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new MeetConfig(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.auto_join = source["auto_join"];
-	        this.listen_only = source["listen_only"];
-	        this.wake_phrase = source["wake_phrase"];
-	        this.mascot_id = source["mascot_id"];
-	    }
-	}
-	export class UpdateConfig {
-	    check_interval_secs: number;
-	    channel: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new UpdateConfig(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.check_interval_secs = source["check_interval_secs"];
-	        this.channel = source["channel"];
-	    }
-	}
-	export class DashboardConfig {
-	    enabled: boolean;
-	    refresh_interval_secs: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new DashboardConfig(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.enabled = source["enabled"];
-	        this.refresh_interval_secs = source["refresh_interval_secs"];
 	    }
 	}
 	export class ProxyConfig {
@@ -699,6 +550,7 @@ export namespace config {
 	}
 	export class ToolsConfig {
 	    Shell: ToolsShellConfig;
+	    OptionalTools: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new ToolsConfig(source);
@@ -707,6 +559,7 @@ export namespace config {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Shell = this.convertValues(source["Shell"], ToolsShellConfig);
+	        this.OptionalTools = source["OptionalTools"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -751,28 +604,10 @@ export namespace config {
 	        this.Enabled = source["Enabled"];
 	    }
 	}
-	export class ContextConfig {
-	    MaxTokens: number;
-	    CompactionThreshold: number;
-	    KeepRecent: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new ContextConfig(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.MaxTokens = source["MaxTokens"];
-	        this.CompactionThreshold = source["CompactionThreshold"];
-	        this.KeepRecent = source["KeepRecent"];
-	    }
-	}
 	export class WebhookConfig {
 	    Enabled: boolean;
 	    Port: number;
 	    Secret: string;
-	    RelayURL: string;
-	    RelayToken: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new WebhookConfig(source);
@@ -783,8 +618,6 @@ export namespace config {
 	        this.Enabled = source["Enabled"];
 	        this.Port = source["Port"];
 	        this.Secret = source["Secret"];
-	        this.RelayURL = source["RelayURL"];
-	        this.RelayToken = source["RelayToken"];
 	    }
 	}
 	export class VoiceConfig {
@@ -815,6 +648,7 @@ export namespace config {
 	}
 	export class EmbeddingConfig {
 	    Provider: string;
+	    Model: string;
 	    BaseURL: string;
 	    APIKey: string;
 	
@@ -825,6 +659,7 @@ export namespace config {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Provider = source["Provider"];
+	        this.Model = source["Model"];
 	        this.BaseURL = source["BaseURL"];
 	        this.APIKey = source["APIKey"];
 	    }
@@ -976,6 +811,7 @@ export namespace config {
 	    extra_install: string[];
 	    extra_executors: string[];
 	    extra_dangerous_env: string[];
+	    extra_allowed_commands: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new SecurityCommands(source);
@@ -991,6 +827,7 @@ export namespace config {
 	        this.extra_install = source["extra_install"];
 	        this.extra_executors = source["extra_executors"];
 	        this.extra_dangerous_env = source["extra_dangerous_env"];
+	        this.extra_allowed_commands = source["extra_allowed_commands"];
 	    }
 	}
 	export class SecurityConfig {
@@ -1042,10 +879,8 @@ export namespace config {
 	    Search: SearchConfig;
 	    Memory: MemoryConfig;
 	    Embedding: EmbeddingConfig;
-	    Browser: BrowserConfig;
 	    Voice: VoiceConfig;
 	    Webhook: WebhookConfig;
-	    Context: ContextConfig;
 	    Learning: LearningConfig;
 	    Cron: CronConfig;
 	    Tools: ToolsConfig;
@@ -1056,13 +891,9 @@ export namespace config {
 	    ActionDir: ActionDirConfig;
 	    Observability: ObservabilityConfig;
 	    Proxy: ProxyConfig;
-	    Dashboard: DashboardConfig;
-	    Update: UpdateConfig;
-	    Meet: MeetConfig;
 	    ScreenIntelligence: ScreenIntelligenceConfig;
-	    Runtime: RuntimeConfig;
-	    TaskSources: TaskSourcesConfig;
 	    InferenceHTTP: InferenceHTTPConfig;
+	    Bundles: BundleConfig;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -1080,10 +911,8 @@ export namespace config {
 	        this.Search = this.convertValues(source["Search"], SearchConfig);
 	        this.Memory = this.convertValues(source["Memory"], MemoryConfig);
 	        this.Embedding = this.convertValues(source["Embedding"], EmbeddingConfig);
-	        this.Browser = this.convertValues(source["Browser"], BrowserConfig);
 	        this.Voice = this.convertValues(source["Voice"], VoiceConfig);
 	        this.Webhook = this.convertValues(source["Webhook"], WebhookConfig);
-	        this.Context = this.convertValues(source["Context"], ContextConfig);
 	        this.Learning = this.convertValues(source["Learning"], LearningConfig);
 	        this.Cron = this.convertValues(source["Cron"], CronConfig);
 	        this.Tools = this.convertValues(source["Tools"], ToolsConfig);
@@ -1094,13 +923,9 @@ export namespace config {
 	        this.ActionDir = this.convertValues(source["ActionDir"], ActionDirConfig);
 	        this.Observability = this.convertValues(source["Observability"], ObservabilityConfig);
 	        this.Proxy = this.convertValues(source["Proxy"], ProxyConfig);
-	        this.Dashboard = this.convertValues(source["Dashboard"], DashboardConfig);
-	        this.Update = this.convertValues(source["Update"], UpdateConfig);
-	        this.Meet = this.convertValues(source["Meet"], MeetConfig);
 	        this.ScreenIntelligence = this.convertValues(source["ScreenIntelligence"], ScreenIntelligenceConfig);
-	        this.Runtime = this.convertValues(source["Runtime"], RuntimeConfig);
-	        this.TaskSources = this.convertValues(source["TaskSources"], TaskSourcesConfig);
 	        this.InferenceHTTP = this.convertValues(source["InferenceHTTP"], InferenceHTTPConfig);
+	        this.Bundles = this.convertValues(source["Bundles"], BundleConfig);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1133,14 +958,6 @@ export namespace config {
 	
 	    }
 	}
-	
-	
-	
-	
-	
-	
-	
-	
 	
 	
 	
@@ -1242,18 +1059,6 @@ export namespace desktop {
 	
 	    }
 	}
-	export class DesktopRPC {
-	
-	
-	    static createFrom(source: any = {}) {
-	        return new DesktopRPC(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	
-	    }
-	}
 	export class ScreenIntelLoop {
 	
 	
@@ -1334,6 +1139,66 @@ export namespace main {
 	        this.content = source["content"];
 	        this.done = source["done"];
 	    }
+	}
+	export class todoCard {
+	    id: string;
+	    title: string;
+	    status: string;
+	    order: number;
+	    notes?: string;
+	    assignedTo?: string;
+	    createdAt: string;
+	    updatedAt: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new todoCard(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.status = source["status"];
+	        this.order = source["order"];
+	        this.notes = source["notes"];
+	        this.assignedTo = source["assignedTo"];
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	}
+	export class todoSnapshot {
+	    threadId: string;
+	    cards: todoCard[];
+	    markdown: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new todoSnapshot(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.threadId = source["threadId"];
+	        this.cards = this.convertValues(source["cards"], todoCard);
+	        this.markdown = source["markdown"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }
@@ -1425,22 +1290,11 @@ export namespace monitor {
 	
 	    }
 	}
-	export class RPC {
-	
-	
-	    static createFrom(source: any = {}) {
-	        return new RPC(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	
-	    }
-	}
 	
 	export class StartRunRequest {
 	    command: string;
 	    timeout_secs: number;
+	    use_pty: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new StartRunRequest(source);
@@ -1450,6 +1304,7 @@ export namespace monitor {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.command = source["command"];
 	        this.timeout_secs = source["timeout_secs"];
+	        this.use_pty = source["use_pty"];
 	    }
 	}
 	export class StartRunResult {
@@ -1463,6 +1318,68 @@ export namespace monitor {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.run_id = source["run_id"];
 	    }
+	}
+
+}
+
+export namespace notifications {
+	
+	export class Bus {
+	
+	
+	    static createFrom(source: any = {}) {
+	        return new Bus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	
+	    }
+	}
+	export class Notification {
+	    id: string;
+	    kind: string;
+	    title: string;
+	    body: string;
+	    thread_id?: string;
+	    channel?: string;
+	    read: boolean;
+	    // Go type: time
+	    created_at: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new Notification(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.kind = source["kind"];
+	        this.title = source["title"];
+	        this.body = source["body"];
+	        this.thread_id = source["thread_id"];
+	        this.channel = source["channel"];
+	        this.read = source["read"];
+	        this.created_at = this.convertValues(source["created_at"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }
@@ -1494,6 +1411,68 @@ export namespace prompts {
 
 }
 
+export namespace security {
+	
+	export class AuditEvent {
+	    id: string;
+	    kind: string;
+	    tool_name?: string;
+	    command?: string;
+	    args?: string;
+	    decision?: string;
+	    reason?: string;
+	    // Go type: time
+	    created_at: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new AuditEvent(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.kind = source["kind"];
+	        this.tool_name = source["tool_name"];
+	        this.command = source["command"];
+	        this.args = source["args"];
+	        this.decision = source["decision"];
+	        this.reason = source["reason"];
+	        this.created_at = this.convertValues(source["created_at"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class AuditLogger {
+	
+	
+	    static createFrom(source: any = {}) {
+	        return new AuditLogger(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	
+	    }
+	}
+
+}
+
 export namespace slog {
 	
 	export class Logger {
@@ -1518,23 +1497,6 @@ export namespace sql {
 	
 	    static createFrom(source: any = {}) {
 	        return new DB(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	
-	    }
-	}
-
-}
-
-export namespace store {
-	
-	export class Store {
-	
-	
-	    static createFrom(source: any = {}) {
-	        return new Store(source);
 	    }
 	
 	    constructor(source: any = {}) {

@@ -15,7 +15,8 @@ const (
 	DomainApproval Domain = "approval"
 	DomainLearning Domain = "learning"
 	DomainMCP      Domain = "mcp"
-	DomainAgent    Domain = "agent" // reserved for future agent-lifecycle events
+	DomainDesktop  Domain = "desktop" // screen intelligence and companion observations
+	DomainAgent    Domain = "agent"   // reserved for future agent-lifecycle events
 )
 
 // EventKind identifies a specific event within a domain.
@@ -37,6 +38,9 @@ const (
 
 	// Learning domain
 	KindPreferenceLearned EventKind = "learning.preference_learned"
+
+	// Desktop domain
+	KindScreenIntel EventKind = "screen.intel"
 
 	// MCP domain (kinds are emitted as raw strings by the MCP audit hook)
 )
@@ -160,8 +164,6 @@ func (b *Bus) PublishTyped(domain Domain, kind EventKind, data interface{}) {
 		Data:   data,
 	})
 }
-
-
 
 // invokeSafe runs a handler with panic recovery.
 func invokeSafe(h Handler, e Event) {

@@ -5,5 +5,5 @@
   "description": "Skill discovery: browse, search, install, uninstall from registries",
   "binary": "skill-registry",
   "build": "go build -ldflags=\"-s -w\" -o skill-registry .",
-  "tools": ["skill_browse", "skill_search", "skill_install", "skill_uninstall", "skill_sources"]
+  "tools": ["skill_browse", "skill_search", "skill_registry_install", "skill_uninstall", "skill_sources"]
 }

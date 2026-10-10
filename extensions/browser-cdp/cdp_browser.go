@@ -96,14 +96,16 @@ func browserTool(ctx context.Context, args map[string]interface{}) extsdk.Result
 	if t, ok := floatFromArgs(args, "timeout"); ok && t > 0 {
 		timeout = t
 	}
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
-	defer cancel()
-
+	// The tab must descend from the allocator so calls reuse one browser; the
+	// per-call deadline is applied to the run, not to the browser context.
 	tabCtx, tabCancel := chromedp.NewContext(allocCtx)
 	defer tabCancel()
 
+	runCtx, cancel := context.WithTimeout(tabCtx, time.Duration(timeout)*time.Second)
+	defer cancel()
+
 	var title, body string
-	err := chromedp.Run(tabCtx,
+	err := chromedp.Run(runCtx,
 		chromedp.Navigate(rawURL),
 		chromedp.WaitReady("body"),
 		chromedp.Sleep(500*time.Millisecond),

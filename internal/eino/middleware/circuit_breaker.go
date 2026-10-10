@@ -70,7 +70,8 @@ func NewCircuitBreakerWithConfig(maxRepeatFailures, maxConsecutiveFails, maxRepe
 
 // RecordFailure records a tool execution failure. It increments the
 // repeat-failure counter for the specific tool+args combination (keyed
-// by SHA-256 hash) and increments the consecutive-failure counter.
+// by the FNV-1a hash from hashToolCall) and increments the consecutive-failure
+// counter.
 //
 // Returns true if the breaker trips as a result of this failure.
 func (c *CircuitBreakerMiddleware) RecordFailure(toolName, args string) bool {
@@ -185,7 +186,7 @@ func (c *CircuitBreakerMiddleware) Reset() {
 
 // ── helpers ────────────────────────────────────────────────────────────
 
-// hashToolCall produces a stable key for a tool+args pair using SHA-256.
+// hashToolCall produces a stable key for a tool+args pair using FNV-1a.
 func hashToolCall(toolName, args string) string {
 	return hashString(toolName + "\x00" + args)
 }

@@ -13,3 +13,7 @@ export function EnableChannel(arg1) {
 export function ListChannels() {
   return window['go']['channels']['ChannelRPC']['ListChannels']();
 }
+
+export function SetController(arg1) {
+  return window['go']['channels']['ChannelRPC']['SetController'](arg1);
+}

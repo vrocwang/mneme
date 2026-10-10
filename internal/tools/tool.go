@@ -20,10 +20,13 @@ type (
 	Tool            = pkgtools.Tool
 	DescribedTool   = pkgtools.DescribedTool
 	ToolDescriptor  = pkgtools.ToolDescriptor
+	ToolFailure     = pkgtools.ToolFailure
 )
 
 // Re-export constants.
 const (
+	ToolFailurePrefix = pkgtools.ToolFailurePrefix
+
 	PermNone      = pkgtools.PermNone
 	PermReadOnly  = pkgtools.PermReadOnly
 	PermWrite     = pkgtools.PermWrite
@@ -63,9 +66,7 @@ const DefaultMaxIterations = pkgtools.DefaultMaxIterations
 
 // ToolCallOptions carries per-invocation hints from the agent harness.
 type ToolCallOptions struct {
-	PreferMarkdown  bool
 	TimeoutOverride int
-	CallID          string
 }
 
 // BaseTool is a convenience embed for tools that only need Schema + Execute.

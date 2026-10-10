@@ -51,7 +51,10 @@ func (m *memFS) ReadDir(path string) ([]os.DirEntry, error) {
 	return out, nil
 }
 
-type memFile struct{ data []byte; pos int }
+type memFile struct {
+	data []byte
+	pos  int
+}
 
 func (f *memFile) Read(p []byte) (int, error) {
 	if f.pos >= len(f.data) {

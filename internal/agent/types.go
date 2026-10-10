@@ -30,13 +30,29 @@ type TurnResult struct {
 	CostCents     int
 }
 
+// StreamEventType identifies a streamed event's kind. Producers and consumers
+// (CLI and the Wails frontend, which dispatches on the same strings) must agree,
+// so the values live here rather than as literals at each site.
+type StreamEventType string
+
+const (
+	StreamToken      StreamEventType = "token"
+	StreamToolCall   StreamEventType = "tool_call"
+	StreamToolResult StreamEventType = "tool_result"
+	StreamError      StreamEventType = "error"
+	StreamDone       StreamEventType = "done"
+)
+
 // StreamEvent is emitted to the Wails frontend during streaming.
 type StreamEvent struct {
-	ThreadID string `json:"threadId"`
-	Type     string `json:"type"` // "token", "thinking", "tool_call", "tool_result", "done", "error"
-	Content  string `json:"content"`
-	Args     string `json:"args,omitempty"`
-	Done     bool   `json:"done"`
+	ThreadID string          `json:"threadId"`
+	Type     StreamEventType `json:"type"`
+	Content  string          `json:"content"`
+	Args     string          `json:"args,omitempty"`
+	// Error carries a tool or turn failure so the UI can render it instead of
+	// treating every result as a success. Empty means no error.
+	Error string `json:"error,omitempty"`
+	Done  bool   `json:"done"`
 }
 
 // GeneralAgentID is the ID of the top-level orchestrator agent. It is the

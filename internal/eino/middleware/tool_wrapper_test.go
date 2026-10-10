@@ -11,6 +11,7 @@ import (
 
 	"github.com/simon/mneme/internal/approval"
 	"github.com/simon/mneme/internal/security"
+	pkgtools "github.com/simon/mneme/pkg/tools"
 )
 
 // fakeInvokable is a minimal tool.InvokableTool used to observe whether the
@@ -67,9 +68,12 @@ func TestToolWrapper_SecurityDenies_BlocksExecution(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := wrapped.(tool.InvokableTool).InvokableRun(ctx, `{"command":"rm -rf /"}`)
-	if err == nil {
-		t.Fatal("denied tool should return an error")
+	out, err := wrapped.(tool.InvokableTool).InvokableRun(ctx, `{"command":"rm -rf /"}`)
+	if err != nil {
+		t.Fatalf("a refusal is a tool-level result, not a fatal error: %v", err)
+	}
+	if !strings.HasPrefix(out, pkgtools.ToolFailurePrefix) {
+		t.Fatalf("refusal must reach the model as tool output, got %q", out)
 	}
 	if ran {
 		t.Error("inner tool must not execute when approval is denied")
@@ -77,12 +81,68 @@ func TestToolWrapper_SecurityDenies_BlocksExecution(t *testing.T) {
 	// A single denied call records one failure; three identical denials trip
 	// the repeat-failure breaker, proving denials are counted as failures.
 	for i := 0; i < 2; i++ {
-		if _, e := wrapped.(tool.InvokableTool).InvokableRun(ctx, `{"command":"rm -rf /"}`); e == nil {
-			t.Fatal("denied tool should keep returning an error")
+		if _, e := wrapped.(tool.InvokableTool).InvokableRun(ctx, `{"command":"rm -rf /"}`); e != nil {
+			t.Fatalf("repeated refusal should stay a tool result, got %v", e)
 		}
 	}
 	if !cb.IsTripped() {
 		t.Error("breaker should trip after repeated denied calls")
+	}
+}
+
+// TestToolWrapper_ToolFailureFedBack is the contract that lets the model
+// recover from a failed call: a failure the tool reports about its own work
+// becomes visible tool output (prefixed so the stream layer can flag it) rather
+// than an error that aborts the turn.
+func TestToolWrapper_ToolFailureFedBack(t *testing.T) {
+	cb := NewCircuitBreaker()
+	inner := &fakeInvokable{name: "read_file", run: func(context.Context, string) (string, error) {
+		return "", &pkgtools.ToolFailure{Message: "file not found: /nope"}
+	}}
+	wrapped := NewToolWrapper(inner, nil, cb)
+
+	out, err := wrapped.(tool.InvokableTool).InvokableRun(context.Background(), `{}`)
+	if err != nil {
+		t.Fatalf("tool failure must not be fatal: %v", err)
+	}
+	want := pkgtools.ToolFailurePrefix + "file not found: /nope"
+	if out != want {
+		t.Fatalf("output = %q, want %q", out, want)
+	}
+	if cb.IsTripped() {
+		t.Error("one failure must not trip the breaker")
+	}
+}
+
+// TestToolWrapper_ToolFailureKeepsPartialOutput covers a tool that produced
+// output and then failed: the model must see both.
+func TestToolWrapper_ToolFailureKeepsPartialOutput(t *testing.T) {
+	inner := &fakeInvokable{name: "shell", run: func(context.Context, string) (string, error) {
+		return "partial stdout", &pkgtools.ToolFailure{Message: "exit status 1"}
+	}}
+	wrapped := NewToolWrapper(inner, nil, nil)
+
+	out, err := wrapped.(tool.InvokableTool).InvokableRun(context.Background(), `{}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "partial stdout") || !strings.HasPrefix(
+		strings.TrimPrefix(out, "partial stdout\n"), pkgtools.ToolFailurePrefix) {
+		t.Fatalf("output = %q, want partial output followed by the failure marker", out)
+	}
+}
+
+// TestToolWrapper_InfrastructureErrorStillFatal keeps the distinction: errors
+// that are not tool-reported failures (transport, wiring, programming errors)
+// must still abort rather than being laundered into model input.
+func TestToolWrapper_InfrastructureErrorStillFatal(t *testing.T) {
+	inner := &fakeInvokable{name: "broken", run: func(context.Context, string) (string, error) {
+		return "", errors.New("transport reset")
+	}}
+	wrapped := NewToolWrapper(inner, nil, nil)
+
+	if _, err := wrapped.(tool.InvokableTool).InvokableRun(context.Background(), `{}`); err == nil {
+		t.Fatal("infrastructure errors must still propagate")
 	}
 }
 

@@ -1,0 +1,22 @@
+{
+  "name": "workflows",
+  "version": "0.1.0",
+  "category": "tools",
+  "description": "WORKFLOW.md discovery/authoring (workflow_list/read/phase/create/match, describe_workflow) and workflow run execution (run_workflow, complete_workflow, await_workflow, list_workflow_runs, read_workflow_run_log). Also adds workflow_cancel: the host cannot cancel an in-flight extension call (one request/one response, no forwarded context), so await_workflow can be released early by flipping a per-run cancel flag inside this extension. Workflows live in <workspace>/workflows, run logs in <workspace>/workflow-logs; the in-memory run map does not survive an extension restart.",
+  "binary": "workflows",
+  "build": "go build -ldflags=\"-s -w\" -o workflows .",
+  "tools": [
+    "workflow_list",
+    "workflow_read",
+    "workflow_phase",
+    "workflow_create",
+    "workflow_match",
+    "describe_workflow",
+    "run_workflow",
+    "complete_workflow",
+    "await_workflow",
+    "workflow_cancel",
+    "list_workflow_runs",
+    "read_workflow_run_log"
+  ]
+}

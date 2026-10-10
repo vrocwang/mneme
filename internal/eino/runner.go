@@ -18,6 +18,7 @@ import (
 	"github.com/simon/mneme/internal/agent"
 	"github.com/simon/mneme/internal/eino/callbacks"
 	"github.com/simon/mneme/internal/eino/middleware"
+	pkgtools "github.com/simon/mneme/pkg/tools"
 )
 
 // maxIterationsNotice is returned when an agent stops at its configured
@@ -305,7 +306,7 @@ func (r *Runner) StreamQuery(ctx context.Context, threadID, userMessage string, 
 	if r.secMW != nil {
 		if err := r.secMW.FilterInput(ctx, userMessage); err != nil {
 			r.log.Warn("eino runner: input blocked by security", "err", err, "thread", threadID)
-			onEvent(agent.StreamEvent{ThreadID: threadID, Type: "error", Content: "Your message was blocked by security policy.", Done: true})
+			onEvent(agent.StreamEvent{ThreadID: threadID, Type: agent.StreamError, Content: "Your message was blocked by security policy.", Error: "Your message was blocked by security policy.", Done: true})
 			return &agent.TurnResult{
 				ThreadID: threadID,
 				Response: "Your message was blocked by security policy.",
@@ -350,7 +351,7 @@ func (r *Runner) StreamQuery(ctx context.Context, threadID, userMessage string, 
 			}
 			// Fatal errors (network, auth, model) abort the conversation.
 			r.log.Warn("eino runner: agent event error", "agent", event.AgentName, "err", event.Err)
-			onEvent(agent.StreamEvent{ThreadID: threadID, Type: "error", Content: "Agent error: " + errStr, Done: true})
+			onEvent(agent.StreamEvent{ThreadID: threadID, Type: agent.StreamError, Content: "Agent error: " + errStr, Error: "Agent error: " + errStr, Done: true})
 			return &agent.TurnResult{
 				ThreadID: threadID,
 				Response: "Agent error: " + errStr,
@@ -365,7 +366,7 @@ func (r *Runner) StreamQuery(ctx context.Context, threadID, userMessage string, 
 		if r.breakerMW != nil && r.breakerMW.IsTripped() {
 			reason := r.breakerMW.Reason()
 			r.log.Warn("eino runner: circuit breaker tripped during stream", "reason", reason, "thread", threadID)
-			onEvent(agent.StreamEvent{ThreadID: threadID, Type: "error", Content: "Agent loop was interrupted: " + reason, Done: true})
+			onEvent(agent.StreamEvent{ThreadID: threadID, Type: agent.StreamError, Content: "Agent loop was interrupted: " + reason, Error: "Agent loop was interrupted: " + reason, Done: true})
 			return &agent.TurnResult{
 				ThreadID: threadID,
 				Response: "Agent loop was interrupted: " + reason,
@@ -389,7 +390,7 @@ func (r *Runner) StreamQuery(ctx context.Context, threadID, userMessage string, 
 				// Non-streaming: emit the full content as a single token event.
 				if mv.Message.Content != "" {
 					finalContent = mv.Message.Content
-					onEvent(agent.StreamEvent{ThreadID: threadID, Type: "token", Content: finalContent, Done: false})
+					onEvent(agent.StreamEvent{ThreadID: threadID, Type: agent.StreamToken, Content: finalContent, Done: false})
 				}
 			}
 
@@ -415,7 +416,7 @@ func (r *Runner) StreamQuery(ctx context.Context, threadID, userMessage string, 
 				if argsJSON == "" {
 					argsJSON = "{}"
 				}
-				onEvent(agent.StreamEvent{ThreadID: threadID, Type: "tool_call", Content: tc.Function.Name, Args: argsJSON, Done: false})
+				onEvent(agent.StreamEvent{ThreadID: threadID, Type: agent.StreamToolCall, Content: tc.Function.Name, Args: argsJSON, Done: false})
 			}
 			toolCallResults = append(toolCallResults, pendingToolCalls...)
 			pendingToolCalls = nil
@@ -431,23 +432,36 @@ func (r *Runner) StreamQuery(ctx context.Context, threadID, userMessage string, 
 			}
 
 		case schema.Tool:
-			if r.breakerMW != nil {
-				r.breakerMW.RecordSuccess()
-			}
 			// Tool execution result.
 			content := ""
 			if mv.Message != nil {
 				content = mv.Message.Content
 			}
 
+			// A result carrying the failure marker is a tool-level failure the
+			// middleware already fed back to the model. It must not count as a
+			// success for the loop breaker (that would reset the consecutive
+			// failure counter the middleware just incremented), and the UI needs
+			// to see it as an error rather than a normal result.
+			toolFailure := ""
+			if rest, ok := strings.CutPrefix(content, pkgtools.ToolFailurePrefix); ok {
+				toolFailure = rest
+			} else if r.breakerMW != nil {
+				r.breakerMW.RecordSuccess()
+			}
+
 			toolName := mv.ToolName
 			for i := len(toolCallResults) - 1; i >= 0; i-- {
 				if toolCallResults[i].Name == toolName && toolCallResults[i].Output == "" {
 					toolCallResults[i].Output = content
+					toolCallResults[i].Error = toolFailure
 					break
 				}
 			}
-			onEvent(agent.StreamEvent{ThreadID: threadID, Type: "tool_result", Content: content, Done: false})
+			onEvent(agent.StreamEvent{
+				ThreadID: threadID, Type: agent.StreamToolResult,
+				Content: content, Error: toolFailure, Done: false,
+			})
 		}
 	}
 
@@ -471,7 +485,7 @@ func (r *Runner) StreamQuery(ctx context.Context, threadID, userMessage string, 
 
 	// -- 8. Emit done event ---------------------------------------------
 	finalContent = finishContent(finalContent, limitReached)
-	onEvent(agent.StreamEvent{ThreadID: threadID, Type: "done", Content: finalContent, Done: true})
+	onEvent(agent.StreamEvent{ThreadID: threadID, Type: agent.StreamDone, Content: finalContent, Done: true})
 
 	return &agent.TurnResult{
 		ThreadID:     threadID,
@@ -507,7 +521,7 @@ func (r *Runner) consumeStream(threadID string, stream *schema.StreamReader[*sch
 		}
 		if chunk.Content != "" {
 			fullContent += chunk.Content
-			onEvent(agent.StreamEvent{ThreadID: threadID, Type: "token", Content: chunk.Content, Done: false})
+			onEvent(agent.StreamEvent{ThreadID: threadID, Type: agent.StreamToken, Content: chunk.Content, Done: false})
 		}
 		// Accumulate tool calls across chunks. Name may arrive in the first
 		// chunk, Arguments may arrive incrementally. Merge non-empty fields.

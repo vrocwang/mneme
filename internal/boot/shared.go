@@ -91,9 +91,10 @@ func NewCapRegistry(cfg *config.Config, db *sql.DB, audit *security.AuditLogger,
 	return reg, mcpStore
 }
 
-// NewPipeline creates the memory pipeline with embedder, archivist, entity
-// enricher, and registers late tools (threads, memory, smart_walk, council).
-func NewPipeline(db *sql.DB, provider inference.Provider, cfg *config.Config, capReg *capability.CapabilityRegistry, log *slog.Logger) (*memory.Pipeline, *conversations.Store) {
+// NewPipeline creates the memory pipeline with embedder, archivist, and entity
+// enricher. Late tools that depend on the pipeline (threads, memory, smart_walk)
+// are registered by the caller via RegisterLateTools once the registry exists.
+func NewPipeline(db *sql.DB, provider inference.Provider, cfg *config.Config, log *slog.Logger) (*memory.Pipeline, *conversations.Store) {
 	if db == nil {
 		log.Warn("NewPipeline called with nil db, skipping initialization")
 		return nil, nil
@@ -166,11 +167,6 @@ func NewPipeline(db *sql.DB, provider inference.Provider, cfg *config.Config, ca
 		})
 	}
 
-	if capReg != nil {
-		br := bundle.NewRegistry(cfg.Bundles.Disabled)
-		RegisterLateTools(capReg, convStore, pipeline, provider, cfg.ModelForRoute(config.RouteSummary), br)
-	}
-
 	return pipeline, convStore
 }
 
@@ -231,7 +227,7 @@ func NewMemoryPrefetcher(pipeline *memory.Pipeline) *agent.MemoryPrefetcher {
 }
 
 // ProviderDiagnostics returns provider status fields for Health() endpoint.
-func ProviderDiagnostics(cfg *config.Config, provider inference.Provider, companionLoop interface{}) map[string]interface{} {
+func ProviderDiagnostics(cfg *config.Config, provider inference.Provider) map[string]interface{} {
 	out := map[string]interface{}{}
 	if provider != nil {
 		out["provider"] = provider.Name()
@@ -240,7 +236,6 @@ func ProviderDiagnostics(cfg *config.Config, provider inference.Provider, compan
 	}
 	out["default_model"] = cfg.Agent.DefaultModel
 	out["providers_configured"] = len(cfg.Providers)
-	out["companion_available"] = companionLoop != nil
 	return out
 }
 

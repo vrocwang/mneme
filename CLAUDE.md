@@ -20,9 +20,10 @@ go run cmd/build-extensions/main.go
 ## Extensions
 
 Optional features (channels, integrations, and non-core tools such as audio,
-presentation, LSP, and desktop automation) are loaded as runtime extensions
-via the CapabilityRegistry - no feature build tags required. The core build
-includes only web + CLI channels and the essential tool set. Platform-specific
+presentation, LSP, desktop automation, file-state, todos, and workflow
+execution) are loaded as runtime extensions via the CapabilityRegistry - no
+feature build tags required. The core build includes only web + CLI channels
+and the essential tool set. Platform-specific
 code (PTY, keyring, sandbox) still uses OS build tags internally.
 
 Composio is loaded as an extension (`extensions/composio/`), not a build tag.
@@ -57,7 +58,7 @@ internal/
   security/         — Injection detection, tier gate, approval, audit, sandbox
   capability/       — Tool + agent registry (Go + MCP + extensions)
   webhooks/         — Webhook triage + dispatch
-  workflows/        — Workflow runner + tools
+  workflow_doc/     — Read-only WORKFLOW.md discovery + phase guidance (prompt)
   prompts/          — Embedded prompt templates (defaults/*.txt)
 ```
 

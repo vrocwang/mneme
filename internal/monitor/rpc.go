@@ -16,6 +16,21 @@ type RPC struct {
 	mgrFn func() *Manager
 }
 
+// DefaultRunTimeout is the monitor run timeout applied when the caller does not
+// specify one. It is the single source of truth for both entry points: the
+// monitor_start tool (internal/monitor/tools.go) and the RPC (StartRun here),
+// which previously wrote 300*time.Second and 5*time.Minute respectively.
+const DefaultRunTimeout = 5 * time.Minute
+
+// runTimeout resolves a requested timeout in seconds, falling back to
+// DefaultRunTimeout for a zero or negative request.
+func runTimeout(secs int) time.Duration {
+	if secs <= 0 {
+		return DefaultRunTimeout
+	}
+	return time.Duration(secs) * time.Second
+}
+
 // NewRPC creates a monitor RPC handler. mgrFn is evaluated per call.
 func NewRPC(mgrFn func() *Manager) *RPC {
 	return &RPC{mgrFn: mgrFn}
@@ -92,10 +107,7 @@ func (r *RPC) StartRun(req StartRunRequest) *StartRunResult {
 	if m == nil {
 		return &StartRunResult{}
 	}
-	timeout := time.Duration(req.Timeout) * time.Second
-	if timeout <= 0 {
-		timeout = 5 * time.Minute
-	}
+	timeout := runTimeout(req.Timeout)
 	ctx := context.Background()
 	id, err := m.Start(ctx, req.Command, timeout, req.UsePTY)
 	if err != nil {

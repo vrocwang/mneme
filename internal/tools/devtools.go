@@ -353,7 +353,7 @@ func (t *runLinterTool) Execute(ctx context.Context, args map[string]interface{}
 		cmdArgs = append(cmdArgs, target)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, ToolTimeoutDuration())
 	defer cancel()
 	cmd, err := sandboxCmd(ctx, t.workspaceRoot, cmdArgs[0], cmdArgs[1:]...)
 	if err != nil {

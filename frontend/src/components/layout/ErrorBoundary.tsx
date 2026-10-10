@@ -23,7 +23,7 @@ function ErrorFallback({ error, onRetry }: { error: Error; onRetry: () => void }
         </div>
         <h2 className="text-lg font-semibold text-white/80">{t('errors.somethingWrong')}</h2>
         <p className="text-sm text-white/40 max-w-sm">
-          {error.message || 'An unexpected error occurred.'}
+          {error.message || t('errors.unexpected')}
         </p>
         <button className="btn-primary" onClick={onRetry}>
           {t('errors.tryAgain')}

@@ -2,7 +2,6 @@ package capability
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -25,14 +24,18 @@ import (
 // extension.configure protocol. A nil loader disables config delivery.
 type ExtensionConfigLoader func(name string) (map[string]interface{}, error)
 
-// discoverExtensions scans one or more extensions directories for subdirectories
-// containing a manifest.json, optionally builds each one, launches it as an extension
-// subprocess, and registers its tools and agents into the registry.
+// discoverExtensions scans one or more extensions directories for extensions,
+// optionally builds each one, launches it as an extension subprocess, and
+// registers its tools and agents into the registry.
 //
 // Directories are tried in order. If a directory doesn't exist, it is silently
 // skipped. This allows the same code to work in development (project-root
 // extensions/) and production (workspace extensions/). Per-extension failures
 // are logged and skipped: one broken extension must not abort discovery.
+//
+// The traversal is tools.FindExtensionDirs, the same one the UI's extension
+// list uses, so bundled (<root>/<name>) and UI-installed
+// (<root>/<category>/<name>) extensions are both found.
 func discoverExtensions(reg *CapabilityRegistry, dirs []string, loadCfg ExtensionConfigLoader, log *slog.Logger) {
 	for _, dir := range dirs {
 		if dir == "" {
@@ -42,30 +45,9 @@ func discoverExtensions(reg *CapabilityRegistry, dirs []string, loadCfg Extensio
 			continue
 		}
 
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			log.Warn("extensions directory read failed", "dir", dir, "error", err)
-			continue
-		}
-
-		for _, entry := range entries {
-			if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
-				continue
-			}
-			extDir := filepath.Join(dir, entry.Name())
-			mfPath := filepath.Join(extDir, tools.ExtensionManifestFile)
-
-			mfData, err := os.ReadFile(mfPath)
+		for _, extDir := range tools.FindExtensionDirs(dir) {
+			mf, err := tools.ParseManifest(filepath.Join(extDir, tools.ExtensionManifestFile))
 			if err != nil {
-				continue // no manifest, not an extension
-			}
-
-			var mf tools.ExtensionManifest
-			if err := json.Unmarshal(mfData, &mf); err != nil {
-				log.Warn("extension manifest parse failed", "dir", extDir, "error", err)
-				continue
-			}
-			if err := mf.Validate(); err != nil {
 				log.Warn("extension manifest invalid", "dir", extDir, "error", err)
 				continue
 			}
@@ -107,7 +89,7 @@ func discoverExtensions(reg *CapabilityRegistry, dirs []string, loadCfg Extensio
 			// Launch and register through the single shared loading path.
 			// StartProtoFromCommand handles native binaries, scripts with
 			// shebangs, and interpreter invocations.
-			if _, err := launchExtensionProc(reg, binaryPath, &mf, loadCfg, log); err != nil {
+			if _, err := launchExtensionProc(reg, binaryPath, mf, loadCfg, log); err != nil {
 				errStr := err.Error()
 				// Windows UAC elevation requests and missing interpreters are
 				// expected for some extensions — log at info level.
@@ -337,20 +319,8 @@ func DefaultExtensionDirs(workspace string) []string {
 	return existing
 }
 
-// dirHasExtensionManifest reports whether dir contains at least one
-// subdirectory with a manifest.json.
+// dirHasExtensionManifest reports whether dir contains at least one extension
+// (a subdirectory at any depth with a manifest.json).
 func dirHasExtensionManifest(dir string) bool {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return false
-	}
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		if _, err := os.Stat(filepath.Join(dir, e.Name(), tools.ExtensionManifestFile)); err == nil {
-			return true
-		}
-	}
-	return false
+	return len(tools.FindExtensionDirs(dir)) > 0
 }

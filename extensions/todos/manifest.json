@@ -1,0 +1,9 @@
+{
+  "name": "todos",
+  "version": "0.1.0",
+  "category": "tools",
+  "description": "Workspace-file task board (kanban) for agent task tracking.",
+  "binary": "todos",
+  "build": "go build -ldflags=\"-s -w\" -o todos .",
+  "tools": ["todo_list", "todo_add", "todo_edit", "todo_update_status", "todo_remove", "todo_clear"]
+}

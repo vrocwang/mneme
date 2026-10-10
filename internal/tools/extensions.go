@@ -3,13 +3,13 @@ package tools
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/simon/mneme/internal/workspace"
 )
@@ -103,7 +103,6 @@ type DiscoveredExtension struct {
 	BinaryPath  string            `json:"binary_path,omitempty"`
 	Enabled     bool              `json:"enabled"`
 	Health      string            `json:"health"`
-	LoadedAt    *time.Time        `json:"loaded_at,omitempty"`
 }
 
 // ExtensionDiscovery scans the extensions directory and discovers installed
@@ -126,6 +125,41 @@ func (d *ExtensionDiscovery) ExtensionsDir() string {
 	return filepath.Join(d.baseDir, ExtensionsDirName)
 }
 
+// FindExtensionDirs returns, in lexical order, every directory under root that
+// holds a manifest.json. The walk does not descend into an extension's own
+// subtree and skips hidden directories.
+//
+// It is the single traversal shared by startup discovery
+// (capability.Bootstrap) and the UI-facing extension list
+// (ExtensionDiscovery.Discover). Installed extensions live at
+// <root>/<category>/<name> while bundled ones live at <root>/<name>, so a flat
+// scan would make a UI-installed extension visible in the list but invisible to
+// the loader (or vice versa) — the two paths must agree on depth.
+func FindExtensionDirs(root string) []string {
+	var out []string
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // unreadable branch: skip it, never abort the whole scan
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		if path == root {
+			return nil
+		}
+		if strings.HasPrefix(d.Name(), ".") {
+			return fs.SkipDir
+		}
+		if _, statErr := os.Stat(filepath.Join(path, ExtensionManifestFile)); statErr == nil {
+			out = append(out, path)
+			return fs.SkipDir
+		}
+		return nil
+	})
+	sort.Strings(out)
+	return out
+}
+
 // Discover scans and returns all discovered extensions sorted by name.
 func (d *ExtensionDiscovery) Discover() ([]DiscoveredExtension, error) {
 	extDir := d.ExtensionsDir()
@@ -134,40 +168,22 @@ func (d *ExtensionDiscovery) Discover() ([]DiscoveredExtension, error) {
 	}
 
 	var result []DiscoveredExtension
-
-	err := filepath.Walk(extDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		if !info.IsDir() || path == extDir {
-			return nil
-		}
-
-		manifestPath := filepath.Join(path, ExtensionManifestFile)
-		if _, mfErr := os.Stat(manifestPath); os.IsNotExist(mfErr) {
-			return nil
-		}
-
-		m, parseErr := ParseManifest(manifestPath)
+	for _, dir := range FindExtensionDirs(extDir) {
+		m, parseErr := ParseManifest(filepath.Join(dir, ExtensionManifestFile))
 		if parseErr != nil {
-			return nil
+			continue
 		}
 
 		ext := DiscoveredExtension{
 			Manifest:    *m,
-			InstallPath: path,
+			InstallPath: dir,
 			Enabled:     true,
 			Health:      "unknown",
 		}
 		if m.Binary != "" {
-			ext.BinaryPath = filepath.Join(path, m.Binary)
+			ext.BinaryPath = filepath.Join(dir, m.Binary)
 		}
 		result = append(result, ext)
-		return filepath.SkipDir
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("extension discovery: %w", err)
 	}
 
 	sort.Slice(result, func(i, j int) bool {

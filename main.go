@@ -131,12 +131,6 @@ func main() {
 		return health.CheckResult{Status: "ok", Message: fmt.Sprintf("%d agents defined", count)}
 	})
 
-	// Register Wails RPCs contributed by core optional features (connectivity,
-	// devices, http host) BEFORE the Bind list is assembled.
-	// Wails evaluates Bind once, before OnStartup, so registration performed
-	// during AppCore.Init would never be bound.
-	boot.RegisterWailsRPCs(cfg, log)
-
 	err = wails.Run(&options.App{
 		Title:  "Mneme",
 		Width:  1024,
@@ -148,14 +142,14 @@ func main() {
 		EnableDefaultContextMenu: true,
 		OnStartup:                app.startup,
 		OnShutdown:               app.shutdown,
-		Bind: append([]interface{}{
+		Bind: []interface{}{
 			app,
 			func() *config.ConfigRPC {
 				rpc := config.NewConfigRPC(cfg, configPath).WithLogger(log)
 				rpc.OnConfigChange(func() { app.onConfigReload() })
 				return rpc
 			}(),
-			about.NewRPC(),
+			func() *about.RPC { rpc := about.NewRPC(); app.SetAboutRPC(rpc); return rpc }(),
 			keyring.NewKeyringRPC(),
 			func() *approval.ApprovalRPC { rpc := approval.NewApprovalRPC(nil); app.SetApprovalRPC(rpc); return rpc }(),
 			func() *capability.CapabilityRPC {
@@ -179,17 +173,21 @@ func main() {
 			}(),
 			monitor.NewRPC(app.GetMonitorManager),
 			webhooks.NewWebhookRPC(app.GetWebhookTM),
-			channels.NewChannelRPC(cfg, configPath, func() []string {
-				if reg := app.GetCapReg(); reg != nil {
-					return reg.ListChannels()
-				}
-				return nil
-			}),
+			func() *channels.ChannelRPC {
+				rpc := channels.NewChannelRPC(cfg, configPath, func() []string {
+					if reg := app.GetCapReg(); reg != nil {
+						return reg.ListChannels()
+					}
+					return nil
+				})
+				app.SetChannelRPC(rpc)
+				return rpc
+			}(),
 			soul.NewRPC(workspace),
 			notifications.NewRPC(app.GetNotifBus),
 			security.NewAuditRPC(app.GetAuditLogger),
 			cost.NewCostRPC(app.GetCostTracker),
-		}, capability.CollectWailsRPCBindings()...),
+		},
 	})
 	if err != nil {
 		log.Error("app failed", "error", err)

@@ -83,7 +83,7 @@ func briefingGenerate(ctx context.Context, args map[string]interface{}) extsdk.R
 
 	var out strings.Builder
 	out.WriteString(fmt.Sprintf("☀️  Morning Briefing — %s\n", dateDisplay))
-	out.WriteString(fmt.Sprintf("══════════════════════════════════════\n\n"))
+	out.WriteString("══════════════════════════════════════\n\n")
 
 	// Date & Time
 	out.WriteString(fmt.Sprintf("📅  %s  |  %s\n\n", dayName, dateDisplay))

@@ -186,4 +186,3 @@ func TestValidatePath_WorkspaceInternalDirBlocked(t *testing.T) {
 		t.Error("ValidatePath should block workspace-internal 'memory' dir")
 	}
 }
-
