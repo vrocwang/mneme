@@ -40,7 +40,13 @@ type ExtensionManifest struct {
 	// Build is an optional shell command to compile the extension before
 	// loading. Run from the extension's directory. If empty, the binary
 	// is assumed to be pre-built or a script that needs no compilation.
-	Build    string `json:"build,omitempty"`
+	Build string `json:"build,omitempty"`
+	// Eager forces this extension to start during discovery even when
+	// `[extensions] lazy` is enabled. Declare it for an extension that does
+	// work outside of tool calls — a listener, a poller, a service it must keep
+	// running — because a lazily declared extension has no process until one of
+	// its tools is called.
+	Eager    bool   `json:"eager,omitempty"`
 	Author   string `json:"author,omitempty"`
 	Homepage string `json:"homepage,omitempty"`
 	License  string `json:"license,omitempty"`

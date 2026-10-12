@@ -70,6 +70,15 @@ type CapabilitySet struct {
 	AgentCount   int               `json:"agent_count"`
 	ChannelCount int               `json:"channel_count,omitempty"`
 	Config       json.RawMessage   `json:"config,omitempty"`
+
+	// Started and Lazy describe a runtime extension's process lifetime. They are
+	// only meaningful for KindExtension: an eager extension is Started=true,
+	// while a lazily declared one is Lazy=true, Started=false until its first
+	// tool call, and Started=false again after the idle reaper stops it. A
+	// declared-but-idle extension is healthy (Health=="ok"), which is how the UI
+	// distinguishes "starts on demand" from "running" and from "down".
+	Started bool `json:"started"`
+	Lazy    bool `json:"lazy,omitempty"`
 }
 
 // ServerEntry is the config for an MCP server, stored in CapabilitySet.Config.

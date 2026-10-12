@@ -122,6 +122,16 @@ type protoConfigureResult struct {
 	Error    string `json:"error,omitempty"`
 }
 
+// StartExtensionProcess launches one extension process for an already resolved
+// command string (a binary path or an interpreter invocation).
+//
+// It is the single spawn point shared by the eager loader
+// (internal/capability) and by LazyProcess, and it is a variable so a test can
+// count spawns — including "was any process started at all for this lazily
+// declared extension?" — without depending on timing. Production code never
+// reassigns it.
+var StartExtensionProcess = StartProtoFromCommand
+
 // StartProtoFromCommand parses a command string that may be a simple
 // binary path or an interpreter invocation. When the path points to a
 // script file (no execute bit), it reads the shebang line to find the
@@ -470,6 +480,13 @@ type ProtoProcess struct {
 	// fatal, SIGSEGV). Cleared on successful restart.
 	crashed    bool
 	stderrTail string // last ~1KB of stderr for diagnostics
+
+	// toolDefs/agentDefs keep the raw wire definitions the last
+	// extension.list_tools/extension.list_agents call returned. They exist so a
+	// running extension's handshake result can be written to the handshake cache
+	// (CacheRecord) without exposing the wire types outside this package.
+	toolDefs  []protoToolDef
+	agentDefs []AgentDef
 }
 
 // StartProto launches a extension and performs the handshake. extensionPath is
@@ -772,6 +789,11 @@ func (pp *ProtoProcess) ListTools(ctx context.Context) ([]Tool, error) {
 		tools = append(tools, pt)
 		pp.toolList = append(pp.toolList, td.Name)
 	}
+	// Keep the wire definitions so a successful eager launch can write the
+	// handshake cache (CacheRecord) for the next boot's lazy declaration.
+	pp.mu.Lock()
+	pp.toolDefs = append([]protoToolDef(nil), result.Tools...)
+	pp.mu.Unlock()
 	return tools, nil
 }
 
@@ -839,6 +861,9 @@ func (pp *ProtoProcess) ListAgents(ctx context.Context) ([]AgentDef, error) {
 		pp.log.Debug("extension.list_agents parse failed", "extension", pp.Manifest.Name, "error", err)
 		return nil, nil
 	}
+	pp.mu.Lock()
+	pp.agentDefs = append([]AgentDef(nil), result.Agents...)
+	pp.mu.Unlock()
 	return result.Agents, nil
 }
 
@@ -955,6 +980,51 @@ func (pp *ProtoProcess) IsCrashed() bool {
 	return pp.crashed
 }
 
+// transportManifest returns the manifest of the current process generation. It
+// is the transport half of the extensionTransport seam (see protoTool): a tool
+// reads its descriptor version from whichever process — or lazy declaration —
+// is behind it.
+func (pp *ProtoProcess) transportManifest() ProtoManifest {
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+	return pp.Manifest
+}
+
+// ManifestName returns the extension's manifest name, for logging. An eager
+// process always has one: the handshake rejects a manifest without a name.
+func (pp *ProtoProcess) ManifestName() string {
+	return pp.transportManifest().Name
+}
+
+// Started reports whether the registry should watch this extension as a running
+// process. An eager extension is started by construction, so this is always
+// true: unlike a lazily declared extension there is no "declared but idle"
+// state, and a crashed eager process must still be restarted by the health
+// monitor rather than treated as intentionally stopped.
+func (pp *ProtoProcess) Started() bool { return true }
+
+// CacheRecord builds the handshake cache record for this running process: the
+// manifest plus the definitions the last ListTools/ListAgents calls fetched.
+// key is the caller's ExtensionCacheKey. Returns nil when the process has no
+// manifest name (nothing worth replaying).
+func (pp *ProtoProcess) CacheRecord(key string) *CachedExtension {
+	pp.mu.Lock()
+	manifest := pp.Manifest
+	tools := append([]protoToolDef(nil), pp.toolDefs...)
+	agents := append([]AgentDef(nil), pp.agentDefs...)
+	pp.mu.Unlock()
+	if manifest.Name == "" {
+		return nil
+	}
+	return &CachedExtension{
+		Key:      key,
+		Manifest: manifest,
+		Tools:    tools,
+		Agents:   agents,
+		CachedAt: time.Now(),
+	}
+}
+
 // Ping sends a lightweight liveness probe (extension.describe) to verify the
 // extension is truly responsive, not just alive at the process level.
 // Used by the health monitor to detect hung extensions.
@@ -1021,8 +1091,20 @@ func truncate(s string, maxLen int) string {
 
 // ── protoTool — Tool implementation that delegates to a extension subprocess ────
 
+// extensionTransport is what a protoTool needs from whatever is behind it: a
+// process that is already running (*ProtoProcess) or one that starts on first
+// use (*LazyProcess). Because the seam is this narrow, a tool's schema,
+// permission, side effects, concurrency and timeout hint are decided entirely
+// by its cached definition and the transport's manifest, never by process
+// lifetime — the same tool behaves identically whether its process was started
+// at boot or by the call that is using it.
+type extensionTransport interface {
+	call(ctx context.Context, method string, params interface{}) (*protoResponse, error)
+	transportManifest() ProtoManifest
+}
+
 type protoTool struct {
-	proc *ProtoProcess
+	proc extensionTransport
 	def  protoToolDef
 }
 
@@ -1089,10 +1171,16 @@ func (pt *protoTool) Descriptor() ToolDescriptor {
 		Scope:       ScopeAll,
 		Category:    CategorySkill,
 		Permission:  pt.PermissionLevel(),
-		Version:     pt.proc.Manifest.Version,
+		Version:     pt.proc.transportManifest().Version,
 		Enabled:     true,
 	}
 }
+
+// Compile-time checks: both transports satisfy the seam protoTool is built on.
+var (
+	_ extensionTransport = (*ProtoProcess)(nil)
+	_ extensionTransport = (*LazyProcess)(nil)
+)
 
 // Compile-time check: protoTool implements extended interfaces.
 var (

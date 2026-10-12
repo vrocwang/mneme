@@ -97,9 +97,15 @@ export function ExtensionSettings() {
                         <a href={ext.homepage} target="_blank" rel="noopener noreferrer"
                           className="text-ocean-400/70 hover:text-ocean-300 transition-colors">{t('extensions.homepage')}</a>
                       )}
-                      <span className={ext.loaded ? 'text-sage-400/70' : 'text-amber-400/70'}>
-                        {ext.loaded ? t('extensions.loaded') : t('extensions.notLoaded')}
-                      </span>
+                      {ext.lazy && !ext.started ? (
+                        <span className="text-ocean-400/70" title={t('extensions.lazyHint')}>
+                          {t('extensions.lazy')}
+                        </span>
+                      ) : (
+                        <span className={ext.loaded ? 'text-sage-400/70' : 'text-amber-400/70'}>
+                          {ext.loaded ? t('extensions.loaded') : t('extensions.notLoaded')}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <button

@@ -44,6 +44,11 @@ const (
 	// DefaultOpenAIBaseURL is the default endpoint for the OpenAI API and for
 	// every OpenAI-compatible client (LLM providers, embeddings, TTS, STT).
 	DefaultOpenAIBaseURL = "https://api.openai.com/v1"
+
+	// DefaultExtensionIdleTimeoutSecs is how long a lazily started extension
+	// process may sit unused before the capability registry stops it. A later
+	// tool call starts a fresh process. 0 disables reaping.
+	DefaultExtensionIdleTimeoutSecs = 600
 )
 
 // ProviderConfig defines an LLM provider in the config file.
@@ -101,6 +106,25 @@ type Config struct {
 	ScreenIntelligence ScreenIntelligenceConfig `toml:"screen_intelligence"`
 	InferenceHTTP      InferenceHTTPConfig      `toml:"inference_http"`
 	Bundles            BundleConfig             `toml:"bundles"`
+	Extensions         ExtensionsConfig         `toml:"extensions"`
+}
+
+// ExtensionsConfig controls how runtime extension processes are loaded.
+//
+// Runtime extensions are process-isolated JSON-RPC services. Declaring them
+// lazily keeps the tool surface complete and immediately visible while paying
+// for a process only when one of its tools is actually used.
+type ExtensionsConfig struct {
+	// Lazy declares every extension with a valid handshake cache entry without
+	// starting it; the process starts on first tool use and is stopped again
+	// when idle. Extensions with no valid cache entry are started eagerly, so
+	// the first boot after an install still warms the cache. Default true.
+	Lazy bool `toml:"lazy"`
+
+	// IdleTimeoutSecs is how long a lazily started extension process may sit
+	// unused before it is stopped (a later call starts a fresh one).
+	// 0 means never reap: lazily started processes then live until shutdown.
+	IdleTimeoutSecs int `toml:"idle_timeout_secs"`
 }
 
 // BundleConfig controls which capability bundles are enabled at boot. Bundles
@@ -272,6 +296,10 @@ func DefaultConfig() *Config {
 		Webhook: WebhookConfig{
 			Port:    DefaultWebhookPort,
 			Enabled: false,
+		},
+		Extensions: ExtensionsConfig{
+			Lazy:            true,
+			IdleTimeoutSecs: DefaultExtensionIdleTimeoutSecs,
 		},
 	}
 }

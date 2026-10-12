@@ -594,6 +594,8 @@ const en = {
     installed: 'Installed Extensions',
     noExtensions: 'No extensions installed. Install one using the path input above.',
     remove: 'Remove',
+    lazy: 'Starts on demand',
+    lazyHint: 'Declared from a cached handshake; the process starts the first time one of its tools is used.',
     loaded: 'Loaded',
     notLoaded: 'Not loaded',
     formatHint: 'Each extension is a directory with a manifest.json and a binary (or script) that speaks JSON-RPC 2.0 over stdin/stdout.',

@@ -326,8 +326,14 @@ type ExtensionInfo struct {
 	Enabled     bool   `json:"enabled"`
 	Loaded      bool   `json:"loaded"`
 	Health      string `json:"health"`
-	Author      string `json:"author,omitempty"`
-	Homepage    string `json:"homepage,omitempty"`
+	// Started is true while the extension's process is running. Lazy marks an
+	// extension declared from the handshake cache: it has a complete tool
+	// surface but no process until a tool is used, and its process is stopped
+	// again when idle. A lazy, not-started extension is healthy, not down.
+	Started  bool   `json:"started"`
+	Lazy     bool   `json:"lazy,omitempty"`
+	Author   string `json:"author,omitempty"`
+	Homepage string `json:"homepage,omitempty"`
 }
 
 // ListExtensions returns all extensions — both loaded (from registry) and
@@ -347,6 +353,8 @@ func (r *CapabilityRPC) ListExtensions() []ExtensionInfo {
 			Enabled:     set.Enabled,
 			Loaded:      true,
 			Health:      string(set.Health),
+			Started:     set.Started,
+			Lazy:        set.Lazy,
 		})
 	}
 

@@ -120,7 +120,7 @@ func TestDiscoverExtensionsSkipsDisabled(t *testing.T) {
 
 	filter := NewExtensionFilter([]string{"todos"})
 	reg.SetExtensionFilter(filter)
-	discoverExtensions(reg, []string{root}, nil, filter, log)
+	discoverExtensions(reg, []string{root}, nil, filter, ExtensionLoadOptions{}, log)
 
 	requireExtensionSet(t, reg, "todos", false)
 	if !strings.Contains(buf.String(), "extension disabled by config") {
@@ -146,7 +146,7 @@ func TestDiscoverExtensionsLoadsWhenEnabled(t *testing.T) {
 		defer reg.Shutdown()
 		log, buf := testLogger()
 
-		discoverExtensions(reg, []string{root}, nil, NewExtensionFilter(nil), log)
+		discoverExtensions(reg, []string{root}, nil, NewExtensionFilter(nil), ExtensionLoadOptions{}, log)
 		requireExtensionSet(t, reg, "todos", true)
 		if !strings.Contains(buf.String(), "extension loaded") {
 			t.Errorf("expected the extension to load, got:\n%s", buf.String())
@@ -159,7 +159,7 @@ func TestDiscoverExtensionsLoadsWhenEnabled(t *testing.T) {
 		log, buf := testLogger()
 
 		filter := NewExtensionFilter([]string{"some-other-extension"})
-		discoverExtensions(reg, []string{root}, nil, filter, log)
+		discoverExtensions(reg, []string{root}, nil, filter, ExtensionLoadOptions{}, log)
 		requireExtensionSet(t, reg, "todos", true)
 		if !strings.Contains(buf.String(), "extension loaded") {
 			t.Errorf("unknown disabled id must not block loading, got:\n%s", buf.String())
@@ -172,7 +172,7 @@ func TestDiscoverExtensionsLoadsWhenEnabled(t *testing.T) {
 		log, _ := testLogger()
 
 		filter := NewExtensionFilter([]string{ExtensionSetID("todos")})
-		discoverExtensions(reg, []string{root}, nil, filter, log)
+		discoverExtensions(reg, []string{root}, nil, filter, ExtensionLoadOptions{}, log)
 		requireExtensionSet(t, reg, "todos", false)
 	})
 }
@@ -192,7 +192,7 @@ func TestBootstrapSkipsDisabledExtension(t *testing.T) {
 		defer reg.Shutdown()
 		log, buf := testLogger()
 
-		Bootstrap(reg, workspace, nil, nil, []string{"todos"}, log)
+		Bootstrap(reg, workspace, nil, nil, []string{"todos"}, ExtensionLoadOptions{}, log)
 
 		requireExtensionSet(t, reg, "todos", false)
 		if !strings.Contains(buf.String(), "extension disabled by config") {
@@ -205,7 +205,7 @@ func TestBootstrapSkipsDisabledExtension(t *testing.T) {
 		defer reg.Shutdown()
 		log, _ := testLogger()
 
-		Bootstrap(reg, workspace, nil, nil, nil, log)
+		Bootstrap(reg, workspace, nil, nil, nil, ExtensionLoadOptions{}, log)
 
 		requireExtensionSet(t, reg, "todos", true)
 	})

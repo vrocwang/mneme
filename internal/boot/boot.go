@@ -33,6 +33,17 @@ import (
 	ws "github.com/simon/mneme/internal/workspace"
 )
 
+// extensionCacheDir is where runtime extensions' handshake records live: a
+// private subdirectory of the workspace data dir, so the cache is per-workspace,
+// survives restarts, and never mixes with the extension directories it
+// describes. An empty workspace disables the cache (every extension is eager).
+func extensionCacheDir(workspace string) string {
+	if workspace == "" {
+		return ""
+	}
+	return filepath.Join(ws.DataDir(workspace), "extension-cache")
+}
+
 // BootstrapAll calls capability.Bootstrap then registers all tools that can be
 // wired statically (no runtime dependencies like DB connections or pipelines).
 // Tools needing runtime deps (threads, memory) are registered in app.go.
@@ -62,7 +73,18 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 	// and bundle.RegisterBuiltin) and the runtime extensions: the same list is
 	// handed to capability.Bootstrap so `disabled = ["todos"]` skips the todos
 	// extension too, not just in-process bundle ids.
-	capability.Bootstrap(reg, workspace, mcpServers, cfg.LoadExtensionConfig, cfg.Bundles.Disabled, log)
+	//
+	// The [extensions] section decides whether an extension with a warm
+	// handshake cache is declared (process starts on first use) or started
+	// eagerly, and how long an idle lazy process may live. The cache directory
+	// is derived here from the workspace's data dir: the layout is owned by
+	// internal/workspace, and capability never guesses at it.
+	capability.Bootstrap(reg, workspace, mcpServers, cfg.LoadExtensionConfig, cfg.Bundles.Disabled,
+		capability.ExtensionLoadOptions{
+			Lazy:        cfg.Extensions.Lazy,
+			IdleTimeout: time.Duration(cfg.Extensions.IdleTimeoutSecs) * time.Second,
+			CacheDir:    extensionCacheDir(workspace),
+		}, log)
 
 	// Skill installation tool (agent-callable, from chat).
 	if br.IsEnabled(bundle.BundleSkills) {

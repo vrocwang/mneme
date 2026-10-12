@@ -18,7 +18,11 @@ import (
 // strings so this package does not import internal/bundle. It gates process
 // extensions only; internal/bundle.Registry remains the single reader of that
 // list for in-process bundles.
-func Bootstrap(reg *CapabilityRegistry, workspace string, mcpServers []ServerEntry, loadCfg ExtensionConfigLoader, disabled []string, log *slog.Logger) {
+//
+// opts carries the extension loading policy (lazy declaration, idle reaping,
+// cache directory); see ExtensionLoadOptions. When opts.Lazy is set, the idle
+// reaper starts here and is owned by the registry (cancelled by Shutdown).
+func Bootstrap(reg *CapabilityRegistry, workspace string, mcpServers []ServerEntry, loadCfg ExtensionConfigLoader, disabled []string, opts ExtensionLoadOptions, log *slog.Logger) {
 	// 1. Installed skills from skills/ directory.
 	skillsDir := ws.SkillsDir(workspace)
 	DiscoverSkills(reg, skillsDir, log)
@@ -31,9 +35,15 @@ func Bootstrap(reg *CapabilityRegistry, workspace string, mcpServers []ServerEnt
 	extensionDirs := DefaultExtensionDirs(workspace)
 	filter := NewExtensionFilter(disabled)
 	reg.SetExtensionFilter(filter)
-	discoverExtensions(reg, extensionDirs, loadCfg, filter, log)
+	discoverExtensions(reg, extensionDirs, loadCfg, filter, opts, log)
 
-	// 3. MCP servers from config
+	// 3. Idle reaper for lazily started extensions. Only lazy loading creates
+	//    reaped processes, so a non-lazy boot starts no goroutine.
+	if opts.Lazy {
+		reg.startIdleReaper(opts.IdleTimeout)
+	}
+
+	// 4. MCP servers from config
 	for _, srv := range mcpServers {
 		connectMCPServer(reg, srv, log)
 	}

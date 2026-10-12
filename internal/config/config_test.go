@@ -92,3 +92,55 @@ func TestConfig_SaveAndReload(t *testing.T) {
 		t.Errorf("round-trip failed: got %s", loaded.Agent.DefaultModel)
 	}
 }
+
+// TestExtensionsConfigDefaults pins the [extensions] defaults: lazy loading is
+// on and an idle process lives ten minutes. The zero value of IdleTimeoutSecs
+// means "never reap", so the default must be an explicit number, and a config
+// file that omits the section must keep both defaults.
+func TestExtensionsConfigDefaults(t *testing.T) {
+	cfg := DefaultConfig()
+	if !cfg.Extensions.Lazy {
+		t.Error("lazy extension loading must default to true")
+	}
+	if cfg.Extensions.IdleTimeoutSecs != DefaultExtensionIdleTimeoutSecs {
+		t.Errorf("default idle timeout = %d, want %d",
+			cfg.Extensions.IdleTimeoutSecs, DefaultExtensionIdleTimeoutSecs)
+	}
+	if DefaultExtensionIdleTimeoutSecs == 0 {
+		t.Fatal("the default idle timeout must not be 0 (0 means never reap)")
+	}
+
+	// A file without [extensions] keeps the defaults.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("[agent]\ndefault_model = \"m\"\n"), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !loaded.Extensions.Lazy || loaded.Extensions.IdleTimeoutSecs != DefaultExtensionIdleTimeoutSecs {
+		t.Errorf("missing [extensions] section changed the defaults: %+v", loaded.Extensions)
+	}
+}
+
+// A [extensions] section overrides both knobs; 0 means never reap.
+func TestExtensionsConfigFromTOML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := "[extensions]\nlazy = false\nidle_timeout_secs = 0\n"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Extensions.Lazy {
+		t.Error("lazy = false in the file must disable lazy loading")
+	}
+	if cfg.Extensions.IdleTimeoutSecs != 0 {
+		t.Errorf("idle_timeout_secs = 0 must be honoured as never-reap, got %d", cfg.Extensions.IdleTimeoutSecs)
+	}
+}

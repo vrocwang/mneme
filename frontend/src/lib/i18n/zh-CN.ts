@@ -550,6 +550,8 @@ const zhCN: EnTranslations = {
   extensions: {
     title: '扩展', install: '安装', installing: '安装中...',
     installed: '已安装扩展', remove: '移除',
+    lazy: '按需启动',
+    lazyHint: '由缓存的握手结果声明；首次调用其工具时才启动进程。',
     loaded: '已加载', notLoaded: '未加载',
     noExtensions: '未安装扩展。使用上方路径输入安装。',
     installPlaceholder: '扩展目录路径 (包含 manifest.json)',

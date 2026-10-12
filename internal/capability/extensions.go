@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/simon/mneme/internal/tools"
@@ -28,6 +29,26 @@ type ExtensionConfigLoader func(name string) (map[string]interface{}, error)
 // disabled by config and must be skipped. A nil filter enables every
 // extension.
 type ExtensionFilter func(name string) bool
+
+// ExtensionLoadOptions is the single value Bootstrap uses to configure how
+// runtime extensions are loaded: whether a warm handshake cache lets an
+// extension be declared without a process, how long an idle process may live,
+// and where the cache lives.
+//
+// CacheDir is computed by the caller (internal/boot derives it from the
+// workspace data dir) so this package never guesses at the workspace layout. An
+// empty CacheDir disables the cache, which makes every extension eager.
+type ExtensionLoadOptions struct {
+	// Lazy declares extensions with a valid cache entry without starting them;
+	// the process starts on first tool use. False keeps the eager path: every
+	// discovered extension is started at boot.
+	Lazy bool
+	// IdleTimeout is how long a lazily started extension may sit unused before
+	// the registry stops it. Zero disables reaping.
+	IdleTimeout time.Duration
+	// CacheDir is the handshake cache directory. Empty disables the cache.
+	CacheDir string
+}
 
 // NewExtensionFilter builds an ExtensionFilter from the configured
 // [bundles] disabled id list. An extension matches when either its manifest
@@ -96,7 +117,14 @@ func (r *CapabilityRegistry) ExtensionFilter() ExtensionFilter {
 // built or launched: a disabled extension must not run, and building an
 // artifact that will never load would only waste time (and could fail the
 // boot).
-func discoverExtensions(reg *CapabilityRegistry, dirs []string, loadCfg ExtensionConfigLoader, filter ExtensionFilter, log *slog.Logger) {
+//
+// Discovery runs in two phases: this serial pass resolves manifests, applies the
+// filter and auto-builds missing binaries (builds are heavy, so they are not
+// overlapped), decides lazy versus eager from the handshake cache, and the
+// second phase starts every remaining eager extension with bounded concurrency
+// (see launchExtensions).
+func discoverExtensions(reg *CapabilityRegistry, dirs []string, loadCfg ExtensionConfigLoader, filter ExtensionFilter, opts ExtensionLoadOptions, log *slog.Logger) {
+	var pending []pendingExtension
 	for _, dir := range dirs {
 		if dir == "" {
 			continue
@@ -106,7 +134,8 @@ func discoverExtensions(reg *CapabilityRegistry, dirs []string, loadCfg Extensio
 		}
 
 		for _, extDir := range tools.FindExtensionDirs(dir) {
-			mf, err := tools.ParseManifest(filepath.Join(extDir, tools.ExtensionManifestFile))
+			manifestPath := filepath.Join(extDir, tools.ExtensionManifestFile)
+			mf, err := tools.ParseManifest(manifestPath)
 			if err != nil {
 				log.Warn("extension manifest invalid", "dir", extDir, "error", err)
 				continue
@@ -154,24 +183,165 @@ func discoverExtensions(reg *CapabilityRegistry, dirs []string, loadCfg Extensio
 				continue
 			}
 
-			// Launch and register through the single shared loading path.
-			// StartProtoFromCommand handles native binaries, scripts with
-			// shebangs, and interpreter invocations.
-			if _, err := launchExtensionProc(reg, binaryPath, mf, loadCfg, log); err != nil {
-				errStr := err.Error()
-				// Windows UAC elevation requests and missing interpreters are
-				// expected for some extensions — log at info level.
-				if strings.Contains(errStr, "requires elevation") ||
-					strings.Contains(errStr, "exec format error") ||
-					strings.Contains(errStr, "no such file") {
-					log.Info("extension skipped", "name", mf.Name, "reason", errStr)
-				} else {
-					log.Warn("extension start failed", "name", mf.Name, "binary", binaryPath, "error", err)
+			// The cache key covers the extension's own bytes (manifest plus the
+			// binary, or every file for an interpreted extension). It is computed
+			// for both paths: to look for a lazy declaration, and so a successful
+			// eager launch can record one for the next boot.
+			var cacheKey string
+			if opts.CacheDir != "" {
+				if key, ok := tools.ExtensionCacheKey(extDir, manifestPath, binaryPath); ok {
+					cacheKey = key
 				}
-				continue
 			}
+
+			// `eager: true` in the manifest opts an extension out of lazy
+			// activation: it needs its process running for work that is not a
+			// tool call.
+			if opts.Lazy && cacheKey != "" && !mf.Eager {
+				if rec, hit := tools.LoadExtensionCache(opts.CacheDir, cacheKey); hit {
+					declareLazyExtension(reg, mf, binaryPath, cacheKey, rec, opts, loadCfg, log)
+					continue
+				}
+			}
+
+			pending = append(pending, pendingExtension{
+				name:     mf.Name,
+				binary:   binaryPath,
+				manifest: mf,
+				cacheKey: cacheKey,
+			})
 		}
 	}
+
+	launchExtensions(reg, pending, loadCfg, opts, log)
+}
+
+// pendingExtension is an extension that passed discovery and is ready to start.
+type pendingExtension struct {
+	name     string
+	binary   string
+	manifest *tools.ExtensionManifest
+	// cacheKey is the handshake cache key computed during discovery, or "" when
+	// no cache is configured. A successful launch writes the record under it.
+	cacheKey string
+}
+
+// launchConcurrency bounds how many extension processes are started at once.
+// Every extension is an independent process that only handshakes at startup, so
+// overlapping them turns the boot cost from the sum of all handshakes into
+// roughly one batch. It is bounded because each start is a process spawn plus a
+// short read of its binary, and a machine with dozens of extensions should not
+// fork them all at once.
+const launchConcurrency = 8
+
+// launchExtensionFn starts one extension. It is a variable so tests can observe
+// scheduling without spawning processes.
+var launchExtensionFn = launchExtensionProc
+
+// launchExtensions starts every discovered extension with bounded concurrency
+// and waits for all of them. One extension failing never prevents the others
+// from loading; each failure is logged with the same info/warn split as before.
+//
+// Each successful launch is recorded in the handshake cache, so the next boot
+// can declare that extension lazily even when this one was eager. A cache write
+// failure is logged and never fails the launch.
+func launchExtensions(reg *CapabilityRegistry, pending []pendingExtension, loadCfg ExtensionConfigLoader, opts ExtensionLoadOptions, log *slog.Logger) {
+	if len(pending) == 0 {
+		return
+	}
+	sem := make(chan struct{}, launchConcurrency)
+	var wg sync.WaitGroup
+	for _, p := range pending {
+		wg.Add(1)
+		go func(p pendingExtension) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			proc, err := launchExtensionFn(reg, p.binary, p.manifest, loadCfg, log)
+			if err != nil {
+				logExtensionLaunchFailure(log, p, err)
+				return
+			}
+			cacheExtensionHandshake(proc, p, opts, log)
+		}(p)
+	}
+	wg.Wait()
+}
+
+// cacheExtensionHandshake records a successful eager launch so the next boot can
+// declare the extension from the cache instead of starting it. proc is nil for
+// the test seam that stubs the launch.
+func cacheExtensionHandshake(proc *tools.ProtoProcess, p pendingExtension, opts ExtensionLoadOptions, log *slog.Logger) {
+	if proc == nil || opts.CacheDir == "" || p.cacheKey == "" {
+		return
+	}
+	rec := proc.CacheRecord(p.cacheKey)
+	if rec == nil {
+		return
+	}
+	if err := tools.SaveExtensionCache(opts.CacheDir, rec); err != nil {
+		log.Warn("extension handshake cache write failed", "name", p.name, "error", err)
+	}
+}
+
+// declareLazyExtension registers an extension without starting its process: the
+// cached handshake supplies the tool and agent surface, and the first call
+// through the returned transport starts the process. OnStarted/OnStopped keep
+// the capability set's Started flag (and the health monitor) in step with the
+// process as it starts and stops on demand.
+func declareLazyExtension(reg *CapabilityRegistry, mf *tools.ExtensionManifest, binaryPath, cacheKey string, rec *tools.CachedExtension, opts ExtensionLoadOptions, loadCfg ExtensionConfigLoader, log *slog.Logger) {
+	loadConfig := func() (map[string]interface{}, error) {
+		if loadCfg == nil {
+			return nil, nil
+		}
+		return loadCfg(mf.Name)
+	}
+	lp := tools.NewLazyProcess(tools.LazyProcessConfig{
+		Name:       mf.Name,
+		Command:    binaryPath,
+		Manifest:   rec.Manifest,
+		Tools:      rec.Tools,
+		Agents:     rec.Agents,
+		Log:        log,
+		LoadConfig: loadConfig,
+		CacheDir:   opts.CacheDir,
+		CacheKey:   cacheKey,
+	})
+	set := &CapabilitySet{
+		ID:          ExtensionSetID(mf.Name),
+		Name:        mf.Name,
+		Kind:        KindExtension,
+		Description: mf.Description,
+		Health:      HealthOK,
+		Enabled:     true,
+		// Declared, no process yet: the UI shows "starts on demand" rather than
+		// "running" or "down".
+		Lazy:    true,
+		Started: false,
+	}
+	if _, err := reg.RegisterExtension(set.ID, set, lp, lp.Tools(), lp.Agents()); err != nil {
+		log.Warn("lazy extension registration failed", "name", mf.Name, "error", err)
+		_ = lp.Stop()
+		return
+	}
+	lp.SetOnStarted(func() { reg.markExtensionStarted(set.ID) })
+	lp.SetOnStopped(func() { reg.markExtensionStopped(set.ID) })
+	log.Info("extension declared lazily",
+		"name", mf.Name, "tools", len(rec.Tools), "agents", len(rec.Agents), "cache_key", cacheKey)
+}
+
+// logExtensionLaunchFailure keeps the original severity split: elevation
+// requests and missing interpreters are expected on some platforms, everything
+// else is a warning worth investigating.
+func logExtensionLaunchFailure(log *slog.Logger, p pendingExtension, err error) {
+	errStr := err.Error()
+	if strings.Contains(errStr, "requires elevation") ||
+		strings.Contains(errStr, "exec format error") ||
+		strings.Contains(errStr, "no such file") {
+		log.Info("extension skipped", "name", p.name, "reason", errStr)
+		return
+	}
+	log.Warn("extension start failed", "name", p.name, "binary", p.binary, "error", err)
 }
 
 // launchExtensionProc starts one extension binary via the JSON-RPC protocol,
@@ -181,7 +351,9 @@ func discoverExtensions(reg *CapabilityRegistry, dirs []string, loadCfg Extensio
 // manifest when the caller discovered one on disk; nil means the manifest
 // comes from the process handshake.
 func launchExtensionProc(reg *CapabilityRegistry, binaryPath string, mf *tools.ExtensionManifest, loadCfg ExtensionConfigLoader, log *slog.Logger) (*tools.ProtoProcess, error) {
-	proc, err := tools.StartProtoFromCommand(context.Background(), binaryPath, log)
+	// The spawn goes through the shared seam, so tests in either package can
+	// count spawns (eager and lazy alike) without starting a process.
+	proc, err := tools.StartExtensionProcess(context.Background(), binaryPath, log)
 	if err != nil {
 		return nil, err
 	}
@@ -251,6 +423,8 @@ func launchExtensionProc(reg *CapabilityRegistry, binaryPath string, mf *tools.E
 		Description: mf.Description,
 		Health:      HealthOK,
 		Enabled:     true,
+		// The eager path has a live process from this moment.
+		Started: true,
 	}
 	if _, err := reg.RegisterExtension(set.ID, set, proc, extTools, extAgents); err != nil {
 		proc.Stop()

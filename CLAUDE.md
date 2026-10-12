@@ -32,6 +32,23 @@ Extensions are loaded at runtime via manifest.json and JSON-RPC: each
 extension subdirectory in `extensions/` or `extensions-dist/` is discovered
 and registered through the CapabilityRegistry. No recompilation needed.
 
+Startup is cheap by default. Discovery runs in two phases — resolve/filter/build
+serially, then start with a bounded pool (`launchConcurrency = 8`) — and with
+`[extensions] lazy = true` (the default) an extension is declared from a cached
+handshake without starting its process; the process starts the first time one of
+its tools is called and is stopped again after `idle_timeout_secs` (default 600,
+`0` = never). The tool surface is identical either way: the cache is keyed by the
+manifest and binary bytes, so an upgraded extension falls back to an eager start
+and rewrites it, and the first boot after an install is always eager. An
+extension whose value is its running process declares `"eager": true` in its
+manifest to opt out (see `extensions/MANIFEST.md`).
+
+```toml
+[extensions]
+lazy = true              # false starts every extension at boot
+idle_timeout_secs = 600  # stop an unused extension; 0 disables reaping
+```
+
 ## Frontend
 
 ```bash

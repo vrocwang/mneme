@@ -12,6 +12,7 @@ extensions at startup and auto-builds them if a build command is present.
 | `category` | yes | `skills`, `channels`, `integrations`, `agents`, `desktop`, etc. |
 | `binary` | yes | Executable path or interpreter command (see below) |
 | `build` | no | Shell command to compile before loading. Run from extension dir. |
+| `eager` | no | `true` forces this extension to start at boot even when `[extensions] lazy` is on. Declare it for an extension whose value is its running process (listener, poller, service) rather than its tool calls. |
 | `description` | no | Human-readable description |
 | `tools` | no | Tool names provided by this extension |
 | `author` | no | Author name |
@@ -102,3 +103,17 @@ the extension's directory. Only runs if the binary doesn't already exist.
   "tools": ["node_tool"]
 }
 ```
+
+## Startup: lazy vs eager
+
+By default (`[extensions] lazy = true`) the host declares every extension from a
+cached handshake and starts its process only when one of its tools is first
+called; an extension idle for `[extensions] idle_timeout_secs` (default 600,
+`0` = never) is stopped again. The tool surface is identical either way — the
+cache is keyed by the manifest and binary bytes, so an upgraded extension falls
+back to an eager start and rewrites the cache.
+
+The first boot after installing or upgrading extensions is eager (no valid
+cache yet); every following boot is lazy. Set `eager: true` here when the
+extension must run without being called, and `[extensions] lazy = false` to
+start everything up front.

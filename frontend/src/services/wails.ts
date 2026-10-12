@@ -435,6 +435,10 @@ export interface ExtensionInfo {
   health: string;
   author: string;
   homepage: string;
+  /** Declared from a cached handshake: its process starts on first tool use. */
+  lazy: boolean;
+  /** False for a lazily declared extension that has not been called yet. */
+  started: boolean;
 }
 
 export function listExtensions() { return invoke<ExtensionInfo[]>('ListExtensions'); }
@@ -452,6 +456,10 @@ export interface CapabilitySet {
   agents: AgentDescriptor[];
   health: string;
   enabled: boolean;
+  /** Declared from a cached handshake: its process starts on first tool use. */
+  lazy?: boolean;
+  /** False for a lazily declared extension that has not been called yet. */
+  started?: boolean;
   connected_at?: string;
   tool_count: number;
   agent_count: number;

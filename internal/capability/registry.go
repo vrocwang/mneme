@@ -30,8 +30,9 @@ type CapabilityRegistry struct {
 	agents            map[string]*tools.AgentDef
 	agentOwner        map[string]string
 	mcpClients        map[string]*mcpclient.Client
-	extensionProcs    map[string]*tools.ProtoProcess
-	extensionMonitors map[string]context.CancelFunc // cancels health monitor goroutine per extension
+	extensionProcs    map[string]ExtensionProcess
+	extensionMonitors map[string]*extensionMonitor // health monitor per started extension
+	idleReaperCancel  context.CancelFunc           // stops the lazy idle reaper
 	mcpAudit          MCPAuditLogger
 	channels          map[string]*channelEntry // registered channel providers
 	disposes          map[string]dispose.Func  // setID → teardown (effect-style unwind)
@@ -53,8 +54,8 @@ func NewCapabilityRegistry() *CapabilityRegistry {
 		agents:            make(map[string]*tools.AgentDef),
 		agentOwner:        make(map[string]string),
 		mcpClients:        make(map[string]*mcpclient.Client),
-		extensionProcs:    make(map[string]*tools.ProtoProcess),
-		extensionMonitors: make(map[string]context.CancelFunc),
+		extensionProcs:    make(map[string]ExtensionProcess),
+		extensionMonitors: make(map[string]*extensionMonitor),
 		channels:          make(map[string]*channelEntry),
 		disposes:          make(map[string]dispose.Func),
 	}
@@ -532,12 +533,14 @@ func (r *CapabilityRegistry) DisconnectSet(id string) error {
 // not yet tracked via RegisterExtension.
 func (r *CapabilityRegistry) Shutdown() {
 	r.mu.Lock()
+	reaperCancel := r.idleReaperCancel
+	r.idleReaperCancel = nil
 	disposes := make([]dispose.Func, 0, len(r.disposes))
 	for _, d := range r.disposes {
 		disposes = append(disposes, d)
 	}
 	// Copy maps to avoid holding the lock during slow Stop/Close calls.
-	extProcs := make(map[string]*tools.ProtoProcess, len(r.extensionProcs))
+	extProcs := make(map[string]ExtensionProcess, len(r.extensionProcs))
 	mcpClients := make(map[string]*mcpclient.Client, len(r.mcpClients))
 	for id, proc := range r.extensionProcs {
 		extProcs[id] = proc
@@ -547,6 +550,11 @@ func (r *CapabilityRegistry) Shutdown() {
 	}
 	r.mu.Unlock()
 
+	// Stop the reaper first: it must not start or stop anything while teardown
+	// is unwinding the processes.
+	if reaperCancel != nil {
+		reaperCancel()
+	}
 	// Unwind effect-style registrations first (they stop their own processes).
 	for _, d := range disposes {
 		d()
@@ -569,7 +577,7 @@ func (r *CapabilityRegistry) Shutdown() {
 // and adds the capability set. It returns a DisposeFunc that unwinds all of
 // these in reverse order. On a registration conflict it rolls back any partial
 // state and returns an error.
-func (r *CapabilityRegistry) RegisterExtension(setID string, set *CapabilitySet, proc *tools.ProtoProcess, extTools []tools.Tool, extAgents []*tools.AgentDef) (dispose.Func, error) {
+func (r *CapabilityRegistry) RegisterExtension(setID string, set *CapabilitySet, proc ExtensionProcess, extTools []tools.Tool, extAgents []*tools.AgentDef) (dispose.Func, error) {
 	// Reserve the set ID first. If it is already taken, return before mutating
 	// any tool/agent/process state — this avoids the ownership-overwrite bug
 	// where a losing registrar would clobber the winner's tools/agents/process
@@ -631,15 +639,13 @@ func (r *CapabilityRegistry) removeSetInternal(id string) error {
 	delete(r.mcpClients, id)
 	extensionProc := r.extensionProcs[id]
 	delete(r.extensionProcs, id)
-	extensionCancel := r.extensionMonitors[id]
-	delete(r.extensionMonitors, id)
 	delete(r.sets, id)
 	delete(r.disposes, id)
 	r.mu.Unlock()
 
-	if extensionCancel != nil {
-		extensionCancel()
-	}
+	// Cancel the health monitor before stopping the process, so a monitor tick
+	// cannot restart what teardown is about to unload.
+	r.stopExtensionMonitor(id)
 	if mcpClient != nil {
 		mcpClient.Close()
 	}
@@ -651,85 +657,282 @@ func (r *CapabilityRegistry) removeSetInternal(id string) error {
 
 // ── Extension process tracking ───────────────────────────────────
 
-func (r *CapabilityRegistry) TrackExtension(setID string, proc *tools.ProtoProcess) {
-	healthCtx, healthCancel := context.WithCancel(context.Background())
+// ExtensionProcess is the process-lifetime surface the registry needs from an
+// extension: health probing, restart, teardown, and an identity for logs. It is
+// satisfied by an eager *tools.ProtoProcess and by a lazily declared
+// *tools.LazyProcess, so the health monitor, teardown path and diagnostics do
+// not care which kind an extension is.
+type ExtensionProcess interface {
+	// Started reports whether a process generation exists. A lazily declared
+	// extension reports false until its first use and again after the idle
+	// reaper stops it; an eager one is always true.
+	Started() bool
+	IsAlive() bool
+	IsCrashed() bool
+	Ping(ctx context.Context) error
+	Restart(ctx context.Context) error
+	Stop() error
+	// ManifestName is the extension's name for log messages.
+	ManifestName() string
+}
+
+// idleReapable is the extra surface a lazily declared extension exposes to the
+// registry's idle reaper. Eager *tools.ProtoProcess deliberately does not
+// implement it: an eager extension is never reaped.
+type idleReapable interface {
+	ExtensionProcess
+	IsLazy() bool
+	// ReapIfIdle atomically decides whether the process is idle and stops it if
+	// so; see tools.LazyProcess.ReapIfIdle for the concurrency contract.
+	ReapIfIdle(now time.Time, timeout time.Duration) (bool, error)
+}
+
+// extensionMonitor owns the health goroutine of one extension generation. Its
+// pointer identity lets a goroutine retire its own map entry without racing a
+// replacement monitor installed by a later start.
+type extensionMonitor struct {
+	cancel context.CancelFunc
+}
+
+// The health-monitor cadence is a variable pair (rather than constants) so tests
+// can watch a monitor tick without sleeping for two minutes. Production never
+// reassigns them.
+var (
+	extensionHealthInterval         = 30 * time.Second
+	extensionHealthLivenessInterval = 120 * time.Second
+)
+
+// TrackExtension records an extension's process and starts its health monitor
+// when there is a process to monitor.
+//
+// A declared-but-never-started lazy extension gets no monitor at all: there is
+// nothing to probe, and a monitor would see IsAlive()==false and spawn the
+// process in a restart loop. Such an extension starts its monitor from the lazy
+// transport's OnStarted hook (see markExtensionStarted).
+func (r *CapabilityRegistry) TrackExtension(setID string, proc ExtensionProcess) {
 	r.mu.Lock()
 	r.extensionProcs[setID] = proc
-	r.extensionMonitors[setID] = healthCancel
+	r.mu.Unlock()
+	r.startExtensionMonitor(setID, proc)
+}
+
+// startExtensionMonitor launches the health goroutine for an extension that has
+// a running process. It is a no-op when setID already has a monitor (a restart
+// keeps the existing one) or when the process is not started.
+func (r *CapabilityRegistry) startExtensionMonitor(setID string, proc ExtensionProcess) {
+	if proc == nil || !proc.Started() {
+		return
+	}
+	r.mu.Lock()
+	if _, exists := r.extensionMonitors[setID]; exists {
+		r.mu.Unlock()
+		return
+	}
+	healthCtx, healthCancel := context.WithCancel(context.Background())
+	m := &extensionMonitor{cancel: healthCancel}
+	r.extensionMonitors[setID] = m
 	r.mu.Unlock()
 
-	// Start a background health monitor that auto-restarts the extension on crash.
-	// Uses exponential backoff (5s → 10s → 20s → 40s → 80s), max 5 restarts,
-	// and liveness probes (extension.describe) to detect hung processes.
-	// The goroutine exits when healthCtx is cancelled (extension removed from registry).
-	const (
-		maxRestarts      = 5
-		baseDelay        = 5 * time.Second
-		maxDelay         = 80 * time.Second
-		livenessInterval = 120 * time.Second // full liveness probe every 2 min
-	)
 	go func() {
-		ticker := time.NewTicker(30 * time.Second)
-		lastLiveness := time.Now()
-		consecutiveFailures := 0
-		defer ticker.Stop()
-		for {
-			select {
-			case <-healthCtx.Done():
-				return
-			case <-ticker.C:
-				alive := proc.IsAlive()
-				crashed := proc.IsCrashed()
+		r.runExtensionHealthMonitor(healthCtx, setID, proc)
+		r.mu.Lock()
+		if r.extensionMonitors[setID] == m {
+			delete(r.extensionMonitors, setID)
+		}
+		r.mu.Unlock()
+	}()
+}
 
-				// Liveness probe: periodically send extension.describe to
-				// verify the extension is truly responsive (not hung).
-				if alive && !crashed && time.Since(lastLiveness) > livenessInterval {
-					if err := proc.Ping(context.Background()); err != nil {
-						slog.Warn("extension liveness probe failed",
-							"set_id", setID, "extension", proc.Manifest.Name, "error", err)
-						crashed = true
-					}
-					lastLiveness = time.Now()
+// stopExtensionMonitor cancels and forgets the health monitor for setID. It is
+// idempotent and is the teardown half of the monitor lifecycle.
+func (r *CapabilityRegistry) stopExtensionMonitor(setID string) {
+	r.mu.Lock()
+	m := r.extensionMonitors[setID]
+	delete(r.extensionMonitors, setID)
+	r.mu.Unlock()
+	if m != nil {
+		m.cancel()
+	}
+}
+
+// markExtensionStarted records that a lazily declared extension now has a
+// running process: its set reports Started, its health is OK again (a previous
+// generation may have been declared down), and its health monitor is started
+// if it has none.
+func (r *CapabilityRegistry) markExtensionStarted(setID string) {
+	r.mu.Lock()
+	set := r.sets[setID]
+	if set != nil {
+		set.Started = true
+		set.Health = HealthOK
+	}
+	proc := r.extensionProcs[setID]
+	r.mu.Unlock()
+	r.startExtensionMonitor(setID, proc)
+}
+
+// markExtensionStopped records that a lazily started extension's process is
+// gone (reaped or stopped). The health monitor is left running on purpose: it
+// skips any extension whose process is not started, so an idle extension is
+// never pinged or restarted, and a later start reuses the same monitor.
+func (r *CapabilityRegistry) markExtensionStopped(setID string) {
+	r.mu.Lock()
+	if set := r.sets[setID]; set != nil {
+		set.Started = false
+	}
+	r.mu.Unlock()
+}
+
+// runExtensionHealthMonitor probes and auto-restarts one extension process. It
+// uses exponential backoff (5s → 10s → 20s → 40s → 80s), max 5 restarts, and
+// liveness probes (extension.describe) to detect hung processes. It returns
+// when healthCtx is cancelled (teardown) or the restart limit is reached.
+func (r *CapabilityRegistry) runExtensionHealthMonitor(healthCtx context.Context, setID string, proc ExtensionProcess) {
+	const (
+		maxRestarts = 5
+		baseDelay   = 5 * time.Second
+		maxDelay    = 80 * time.Second
+	)
+	ticker := time.NewTicker(extensionHealthInterval)
+	lastLiveness := time.Now()
+	consecutiveFailures := 0
+	defer ticker.Stop()
+	for {
+		select {
+		case <-healthCtx.Done():
+			return
+		case <-ticker.C:
+			// A lazily started extension has no process between uses. It is idle
+			// by design — not dead — so an unstarted generation must produce no
+			// ping, no failure and no restart. The reaper clears Started before
+			// it stops the process, so an intentional stop can never be seen
+			// here as a crash.
+			if !proc.Started() {
+				consecutiveFailures = 0
+				lastLiveness = time.Now()
+				continue
+			}
+
+			alive := proc.IsAlive()
+			crashed := proc.IsCrashed()
+
+			// Liveness probe: periodically send extension.describe to
+			// verify the extension is truly responsive (not hung).
+			if alive && !crashed && time.Since(lastLiveness) > extensionHealthLivenessInterval {
+				if err := proc.Ping(context.Background()); err != nil {
+					slog.Warn("extension liveness probe failed",
+						"set_id", setID, "extension", proc.ManifestName(), "error", err)
+					crashed = true
 				}
+				lastLiveness = time.Now()
+			}
 
-				if !alive || crashed {
-					consecutiveFailures++
-					if consecutiveFailures > maxRestarts {
-						slog.Error("extension restart limit reached, giving up",
-							"set_id", setID, "extension", proc.Manifest.Name, "failures", consecutiveFailures)
-						r.UpdateSetHealth(setID, HealthDown)
-						return
-					}
-					delay := baseDelay * time.Duration(1<<(consecutiveFailures-1))
-					if delay > maxDelay {
-						delay = maxDelay
-					}
-					slog.Warn("extension health check failed, attempting restart",
-						"set_id", setID, "extension", proc.Manifest.Name,
-						"attempt", consecutiveFailures, "delay", delay)
-					// Sleep interruptibly: teardown (removeSetInternal) cancels
-					// healthCtx and must be able to stop this goroutine before it
-					// calls Restart and resurrects an already-unloaded process.
-					select {
-					case <-healthCtx.Done():
-						return
-					case <-time.After(delay):
-					}
-					if err := proc.Restart(healthCtx); err != nil {
-						slog.Error("extension auto-restart failed",
-							"set_id", setID, "extension", proc.Manifest.Name, "error", err)
-						r.UpdateSetHealth(setID, HealthDown)
-					} else {
-						slog.Info("extension auto-restarted successfully",
-							"set_id", setID, "extension", proc.Manifest.Name)
-						r.UpdateSetHealth(setID, HealthOK)
-						consecutiveFailures = 0
-						lastLiveness = time.Now()
-					}
+			if !alive || crashed {
+				consecutiveFailures++
+				if consecutiveFailures > maxRestarts {
+					slog.Error("extension restart limit reached, giving up",
+						"set_id", setID, "extension", proc.ManifestName(), "failures", consecutiveFailures)
+					r.UpdateSetHealth(setID, HealthDown)
+					return
+				}
+				delay := baseDelay * time.Duration(1<<(consecutiveFailures-1))
+				if delay > maxDelay {
+					delay = maxDelay
+				}
+				slog.Warn("extension health check failed, attempting restart",
+					"set_id", setID, "extension", proc.ManifestName(),
+					"attempt", consecutiveFailures, "delay", delay)
+				// Sleep interruptibly: teardown (removeSetInternal) cancels
+				// healthCtx and must be able to stop this goroutine before it
+				// calls Restart and resurrects an already-unloaded process.
+				select {
+				case <-healthCtx.Done():
+					return
+				case <-time.After(delay):
+				}
+				if err := proc.Restart(healthCtx); err != nil {
+					slog.Error("extension auto-restart failed",
+						"set_id", setID, "extension", proc.ManifestName(), "error", err)
+					r.UpdateSetHealth(setID, HealthDown)
+				} else {
+					slog.Info("extension auto-restarted successfully",
+						"set_id", setID, "extension", proc.ManifestName())
+					r.UpdateSetHealth(setID, HealthOK)
+					consecutiveFailures = 0
+					lastLiveness = time.Now()
 				}
 			}
 		}
+	}
+}
+
+// ── Lazy idle reaper ────────────────────────────────────────────
+
+// extensionIdleReapInterval is how often the idle reaper scans for lazy
+// processes to stop. It is a variable so tests can reap without waiting 30s.
+var extensionIdleReapInterval = 30 * time.Second
+
+// startIdleReaper starts the registry-owned goroutine that stops lazily started
+// extensions which have been unused for longer than timeout. A non-positive
+// timeout disables reaping entirely. The goroutine is cancelled by Shutdown.
+func (r *CapabilityRegistry) startIdleReaper(timeout time.Duration) {
+	if timeout <= 0 {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	r.mu.Lock()
+	prev := r.idleReaperCancel
+	r.idleReaperCancel = cancel
+	r.mu.Unlock()
+	if prev != nil {
+		prev()
+	}
+	go func() {
+		ticker := time.NewTicker(extensionIdleReapInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-ticker.C:
+				r.reapIdleExtensions(now, timeout)
+			}
+		}
 	}()
+}
+
+// reapIdleExtensions stops every lazily started extension that has no call in
+// flight and has been unused for at least timeout. Stopping leaves the
+// declaration intact: the next call starts a fresh process. The idle decision
+// and the stop are atomic with respect to call admission (see
+// tools.LazyProcess.ReapIfIdle), so a process with an in-flight call — or one
+// that just received a call — is never stopped.
+func (r *CapabilityRegistry) reapIdleExtensions(now time.Time, timeout time.Duration) {
+	if timeout <= 0 {
+		return
+	}
+	type candidate struct {
+		id   string
+		proc idleReapable
+	}
+	r.mu.RLock()
+	candidates := make([]candidate, 0, len(r.extensionProcs))
+	for id, proc := range r.extensionProcs {
+		if reapable, ok := proc.(idleReapable); ok {
+			candidates = append(candidates, candidate{id: id, proc: reapable})
+		}
+	}
+	r.mu.RUnlock()
+
+	for _, c := range candidates {
+		if !c.proc.IsLazy() || !c.proc.Started() {
+			continue
+		}
+		// ReapIfIdle logs the stop at info with the extension and idle time.
+		if _, err := c.proc.ReapIfIdle(now, timeout); err != nil {
+			slog.Warn("idle extension stop failed", "set_id", c.id, "error", err)
+		}
+	}
 }
 
 // ── Helpers ───────────────────────────────────────────
