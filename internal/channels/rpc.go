@@ -1,10 +1,7 @@
 package channels
 
 import (
-	"bytes"
-	"errors"
-	"io/fs"
-	"os"
+	"log/slog"
 	"sort"
 
 	"github.com/simon/mneme/internal/config"
@@ -89,32 +86,33 @@ func (r *ChannelRPC) ListChannels() map[string]interface{} {
 // (creating the config entry when it does not exist yet), persists the change,
 // then starts the channel in the running process. If the runtime start fails
 // (e.g. missing credentials) the persisted change is rolled back so the config
-// never claims a channel is on that could not actually start.
+// never claims a channel is on that could not actually start. The rollback
+// rewrites only this channel's entry through the shared in-memory config, so a
+// concurrent write to another field (e.g. security.tier) is preserved.
 func (r *ChannelRPC) EnableChannel(name string) map[string]interface{} {
 	if r.cfg == nil {
 		return map[string]interface{}{"ok": false, "error": "config not available"}
+	}
+	if r.confPath == "" {
+		return map[string]interface{}{"ok": false, "error": "config path not set"}
 	}
 	if !r.knownChannel(name) {
 		return map[string]interface{}{"ok": false, "error": "channel not found: " + name}
 	}
 
-	before, existed, err := r.snapshotConfigFile()
-	if err != nil {
-		return map[string]interface{}{"ok": false, "error": err.Error()}
-	}
 	prev, hadPrev := r.cfg.Channels[name]
 
 	ch := prev // zero value when the channel was not configured yet
 	ch.Disabled = false
 	r.cfg.Channels[name] = ch
 	if err := r.cfg.Save(r.confPath); err != nil {
-		r.rollbackChannel(name, prev, hadPrev, before, existed)
+		r.rollbackChannel(name, prev, hadPrev)
 		return map[string]interface{}{"ok": false, "error": err.Error()}
 	}
 
 	if r.controller != nil {
 		if err := r.controller.StartChannel(name); err != nil {
-			r.rollbackChannel(name, prev, hadPrev, before, existed)
+			r.rollbackChannel(name, prev, hadPrev)
 			return map[string]interface{}{"ok": false, "error": err.Error()}
 		}
 	}
@@ -186,39 +184,25 @@ func (r *ChannelRPC) availableChannelTypes() []string {
 	return []string{ChannelWeb, ChannelCLI}
 }
 
-// snapshotConfigFile reads the current config file so a failed enable can be
-// rolled back byte-for-byte. existed reports whether the file was present at
-// all (a missing file means rollback deletes it again).
-func (r *ChannelRPC) snapshotConfigFile() (data []byte, existed bool, err error) {
-	if r.confPath == "" {
-		return nil, false, errors.New("config path not set")
-	}
-	data, err = os.ReadFile(r.confPath)
-	if err == nil {
-		return data, true, nil
-	}
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, false, nil
-	}
-	return nil, false, err
-}
-
-// rollbackChannel restores one channel's in-memory entry, re-saves the config,
-// and finally restores the exact previous file bytes so the rollback is
-// byte-for-byte even if the TOML encoder is not order-stable.
-func (r *ChannelRPC) rollbackChannel(name string, prev config.ChannelConfig, hadPrev bool, before []byte, existed bool) {
+// rollbackChannel restores one channel's in-memory entry and re-saves the
+// config, so the file never claims an enabled channel that could not start.
+//
+// It deliberately does NOT restore a snapshot of the whole file: the
+// *config.Config is shared with the other RPCs, so a field written after the
+// snapshot (e.g. security.tier) is already in memory, and re-saving the whole
+// config preserves it. Overwriting the file with stale bytes would silently
+// revert that concurrent write (a lost update).
+func (r *ChannelRPC) rollbackChannel(name string, prev config.ChannelConfig, hadPrev bool) {
 	if hadPrev {
 		r.cfg.Channels[name] = prev
 	} else {
 		delete(r.cfg.Channels, name)
 	}
-	_ = r.cfg.Save(r.confPath) // best effort; the byte restore below is authoritative
-
-	if existed {
-		if cur, err := os.ReadFile(r.confPath); err == nil && !bytes.Equal(cur, before) {
-			_ = os.WriteFile(r.confPath, before, 0o600)
-		}
-		return
+	if err := r.cfg.Save(r.confPath); err != nil {
+		// Best effort: the in-memory entry is already restored, so the next
+		// Save (from any RPC) converges the file. Log instead of failing the
+		// RPC a second time with a misleading error.
+		slog.Warn("channel rollback: saving restored config failed",
+			"channel", name, "path", r.confPath, "error", err)
 	}
-	_ = os.Remove(r.confPath)
 }

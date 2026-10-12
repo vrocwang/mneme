@@ -235,6 +235,9 @@ func ProviderDiagnostics(cfg *config.Config, provider inference.Provider) map[st
 		out["provider"] = "none"
 	}
 	out["default_model"] = cfg.Agent.DefaultModel
+	// Some UI paths read a bare "model" key when listModels fails; report the
+	// effective model instead of leaving them with an empty string.
+	out["model"] = cfg.EffectiveModel()
 	out["providers_configured"] = len(cfg.Providers)
 	return out
 }

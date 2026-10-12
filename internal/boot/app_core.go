@@ -225,6 +225,8 @@ func (a *AppCore) Init(headless bool) {
 	// ── Capability registry ──────────────────────────────────────────
 	a.CapReg, a.McpStore = NewCapRegistry(a.Cfg, a.DB, a.AuditLogger, a.Log)
 
+	a.wireApprovalToolResolver()
+
 	// Register late tools now that capReg is available.
 	if a.Pipeline != nil && a.CapReg != nil && a.ConvStore != nil {
 		RegisterLateTools(a.CapReg, a.ConvStore, a.Pipeline, a.Provider, a.Cfg.ModelForRoute(config.RouteSummary), bundle.NewRegistry(a.Cfg.Bundles.Disabled))
@@ -782,4 +784,31 @@ func (a *agentRegistryAdapter) AgentDefs() []eino.AgentDef {
 		})
 	}
 	return defs
+}
+
+// wireApprovalToolResolver makes declared tool permissions authoritative for the
+// approval gate. Without it the gate falls back to name heuristics, so an
+// extension's declared permission/effects are inert and a destructive call whose
+// name matches no heuristic prefix (e.g. todo_clear) is not recognised as having
+// external effects. The resolver is a live closure, so tools registered later
+// (late tools, MCP, extensions) are covered too.
+func (a *AppCore) wireApprovalToolResolver() {
+	if a.ApprovalGate == nil || a.CapReg == nil {
+		return
+	}
+	a.ApprovalGate.SetToolResolver(func(name string) (string, bool) {
+		t, ok := a.CapReg.GetTool(name)
+		if !ok {
+			return "", false
+		}
+		perm := ""
+		if p, ok := t.(tools.PermissionedTool); ok {
+			perm = p.PermissionLevel().String()
+		}
+		external := false
+		if se, ok := t.(tools.SideEffectTool); ok {
+			external = se.SideEffects()
+		}
+		return perm, external
+	})
 }

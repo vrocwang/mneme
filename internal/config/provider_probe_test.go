@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -98,5 +99,41 @@ func TestProbeProviderOllamaListsTags(t *testing.T) {
 
 	if _, err := probeProvider(ProviderConfig{Type: "ollama", BaseURL: srv.URL}, ""); err != nil {
 		t.Fatalf("probe returned error: %v", err)
+	}
+}
+
+// TestProbeProviderUsesConfiguredProxy is the regression for a connection test
+// that ignored [proxy] http_proxy from config.toml (a bare http.Client only
+// honours the process environment) and therefore reported a false failure
+// behind a proxy. The proxy here records the request; the target must never be
+// contacted directly.
+func TestProbeProviderUsesConfiguredProxy(t *testing.T) {
+	var proxyHits int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&proxyHits, 1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer proxy.Close()
+
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("probe bypassed the configured proxy and contacted the target directly")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	status, err := probeProvider(
+		ProviderConfig{Type: "openai", APIKey: "k", BaseURL: target.URL},
+		"m",
+		// A non-empty no_proxy keeps the ambient NO_PROXY env out of the test.
+		ProxyConfig{HTTPProxy: proxy.URL, NoProxy: "example.invalid"},
+	)
+	if err != nil {
+		t.Fatalf("probe returned error: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want 200", status)
+	}
+	if atomic.LoadInt32(&proxyHits) == 0 {
+		t.Fatal("configured proxy did not receive the probe request")
 	}
 }

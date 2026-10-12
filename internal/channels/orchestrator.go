@@ -2,6 +2,7 @@ package channels
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -9,6 +10,12 @@ import (
 	"sync"
 	"time"
 )
+
+// ErrOrchestratorStopped is returned by start operations after StopAll has run.
+// Shutdown is terminal for an orchestrator: its root context is cancelled and
+// its consume goroutines have exited, so silently accepting a new start would
+// resurrect a channel whose events nobody can legally stop any more.
+var ErrOrchestratorStopped = errors.New("channel orchestrator is stopped")
 
 // channelRun tracks one started channel: the context derived for it (so it can
 // be cancelled in isolation), its cancel func, and the done channel closed by
@@ -37,6 +44,11 @@ type Orchestrator struct {
 	wg         sync.WaitGroup
 	rootCtx    context.Context    // set by StartAll, shared by its derived runs
 	rootCancel context.CancelFunc // cancels the consume-loop context on StopAll
+	// stopped is set by StopAll and never cleared: shutdown is terminal, so a
+	// late start (e.g. an RPC arriving after Shutdown) is refused instead of
+	// creating a consumer goroutine outside the stopped orchestrator's wait
+	// group. Guarded by mu.
+	stopped bool
 	// lifecycle serializes start/stop transitions. Holding it across a
 	// channel's Start/Stop call means two concurrent operations cannot
 	// interleave (and cannot both decide a channel is "not running").
@@ -64,6 +76,8 @@ func (o *Orchestrator) Register(name string, ch Channel) {
 // Each channel's Events() channel is consumed in its own goroutine. The
 // provided context controls the lifetime of all consumers; StopAll cancels it.
 // Idempotent per channel: a channel that is already running is left untouched.
+// After StopAll it refuses to start anything (shutdown is terminal) and logs
+// the refusal, because there is no error return to report it to the caller.
 func (o *Orchestrator) StartAll(ctx context.Context) {
 	o.lifecycle.Lock()
 	defer o.lifecycle.Unlock()
@@ -75,6 +89,11 @@ func (o *Orchestrator) StartAll(ctx context.Context) {
 	// A second StartAll reuses the existing root so an earlier caller's context
 	// keeps governing the channels it already started.
 	o.mu.Lock()
+	if o.stopped {
+		o.mu.Unlock()
+		o.log.Error("channel orchestrator is stopped; ignoring StartAll")
+		return
+	}
 	if o.rootCancel == nil {
 		rootCtx, cancel := context.WithCancel(ctx)
 		o.rootCtx = rootCtx
@@ -98,7 +117,8 @@ func (o *Orchestrator) StartAll(ctx context.Context) {
 // StartChannel starts a single registered channel and begins consuming its
 // events. It is idempotent: starting an already-running channel is a no-op.
 // The derived context is owned by the channel, so stopping it later does not
-// affect any other channel.
+// affect any other channel. After StopAll it returns ErrOrchestratorStopped
+// rather than resurrecting a channel outside the torn-down lifecycle.
 func (o *Orchestrator) StartChannel(ctx context.Context, name string) error {
 	o.lifecycle.Lock()
 	defer o.lifecycle.Unlock()
@@ -137,7 +157,9 @@ func (o *Orchestrator) IsRunning(name string) bool {
 
 // StopAll stops all running channels and waits for their event consumers to
 // finish. Channels that were never started are not stopped, so a second
-// StopAll is a no-op rather than a double Stop.
+// StopAll is a no-op rather than a double Stop. Shutdown is terminal: once it
+// has run, StartAll/StartChannel refuse to start anything, so a late caller
+// cannot resurrect a channel whose consumer context has already been cancelled.
 func (o *Orchestrator) StopAll() {
 	o.lifecycle.Lock()
 	defer o.lifecycle.Unlock()
@@ -146,6 +168,11 @@ func (o *Orchestrator) StopAll() {
 	// <-ctx.Done() branch fires and exits, even for channels whose Stop()
 	// does not close their Events() channel (e.g. web).
 	o.mu.Lock()
+	if o.stopped {
+		o.mu.Unlock()
+		return // idempotent: the orchestrator is already shut down
+	}
+	o.stopped = true
 	cancel := o.rootCancel
 	o.rootCancel = nil
 	o.rootCtx = nil
@@ -184,6 +211,10 @@ func (o *Orchestrator) StopAll() {
 // startChannelLocked starts one channel. Callers must hold o.lifecycle.
 func (o *Orchestrator) startChannelLocked(parent context.Context, name string) error {
 	o.mu.Lock()
+	if o.stopped {
+		o.mu.Unlock()
+		return ErrOrchestratorStopped
+	}
 	if _, running := o.runs[name]; running {
 		o.mu.Unlock()
 		return nil // idempotent: already running

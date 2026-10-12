@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/simon/mneme/internal/desktop"
 	"github.com/simon/mneme/internal/memory"
@@ -16,6 +17,18 @@ import (
 // ScreenIntelFileName is the append-only observation log written under the
 // workspace data directory.
 const ScreenIntelFileName = "screen_intel.jsonl"
+
+// ScreenIntelMaxBytes bounds the observation log. The capture loop can run
+// every few seconds for weeks, so an unbounded append would quietly fill the
+// disk; once the file would exceed this size it is rotated to
+// "<name>.1" (replacing any previous backup) and started fresh, so at most
+// 2×ScreenIntelMaxBytes is ever held on disk.
+const ScreenIntelMaxBytes = 5 << 20 // 5 MiB
+
+// screenIntelMaxIngestBytes bounds a single memory ingest. A vision model that
+// answers with a wall of text must not be able to push an unbounded blob into
+// the memory pipeline.
+const screenIntelMaxIngestBytes = 8 << 10 // 8 KiB
 
 // MemoryIngester is the slice of memory.Pipeline the screen-intel sink needs.
 // Keeping it an interface lets the sink be tested without a database.
@@ -77,6 +90,15 @@ func (s *ScreenIntelSink) Handle(result desktop.ScreenCaptureResult) {
 		s.log.Warn("screen intel observation failed",
 			"error", result.Error, "active_window", result.ActiveWindow)
 	} else if summary := strings.TrimSpace(result.Summary); summary != "" {
+		if len(summary) > screenIntelMaxIngestBytes {
+			s.log.Warn("screen intel summary truncated before memory ingest",
+				"bytes", len(summary), "limit", screenIntelMaxIngestBytes)
+			summary = summary[:screenIntelMaxIngestBytes]
+			// Do not hand a half-encoded rune to the pipeline.
+			for len(summary) > 0 && !utf8.ValidString(summary) {
+				summary = summary[:len(summary)-1]
+			}
+		}
 		if s.pipeline != nil {
 			// Untrusted source: taint "external" keeps screen text out of the
 			// trusted memory tier (prompt-injection surface).
@@ -109,6 +131,8 @@ func (s *ScreenIntelSink) appendLine(result desktop.ScreenCaptureResult) {
 			return
 		}
 	}
+	s.rotateIfNeeded(len(line) + 1)
+
 	f, err := os.OpenFile(s.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		s.log.Error("screen intel log open failed", "path", s.path, "error", err)
@@ -118,6 +142,25 @@ func (s *ScreenIntelSink) appendLine(result desktop.ScreenCaptureResult) {
 	if _, err := f.Write(append(line, '\n')); err != nil {
 		s.log.Error("screen intel log write failed", "path", s.path, "error", err)
 	}
+}
+
+// rotateIfNeeded moves the log aside once it would exceed ScreenIntelMaxBytes.
+// The caller holds s.mu. A rotation failure is logged and the write proceeds:
+// losing the rotation is better than losing the observation.
+func (s *ScreenIntelSink) rotateIfNeeded(incoming int) {
+	info, err := os.Stat(s.path)
+	if err != nil || info.Size()+int64(incoming) <= ScreenIntelMaxBytes {
+		return
+	}
+	backup := s.path + ".1"
+	if err := os.Remove(backup); err != nil && !os.IsNotExist(err) {
+		s.log.Warn("screen intel log backup remove failed", "path", backup, "error", err)
+	}
+	if err := os.Rename(s.path, backup); err != nil {
+		s.log.Error("screen intel log rotate failed", "path", s.path, "error", err)
+		return
+	}
+	s.log.Info("screen intel log rotated", "path", s.path, "backup", backup, "bytes", info.Size())
 }
 
 // screenIntelIngester adapts a possibly-nil *memory.Pipeline to MemoryIngester.

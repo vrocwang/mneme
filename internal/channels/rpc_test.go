@@ -21,6 +21,9 @@ type fakeController struct {
 	stops    []string
 	startErr error
 	stopErr  error
+	// onStart runs before StartChannel returns, letting a test simulate a
+	// concurrent config write landing between the enable save and the rollback.
+	onStart func()
 }
 
 func newFakeController() *fakeController {
@@ -28,6 +31,13 @@ func newFakeController() *fakeController {
 }
 
 func (f *fakeController) StartChannel(name string) error {
+	f.mu.Lock()
+	onStart := f.onStart
+	f.mu.Unlock()
+	if onStart != nil {
+		onStart()
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.startErr != nil {
@@ -246,9 +256,10 @@ func TestChannelRPC_DisableStopErrorKeepsDisabledFlag(t *testing.T) {
 	}
 }
 
-// TestChannelRPC_EnableRollsBackOnControllerError is the byte-for-byte rollback
-// regression: a controller failure must leave both memory and the config file
-// exactly as they were.
+// TestChannelRPC_EnableRollsBackOnControllerError is the rollback regression: a
+// controller failure must leave both memory and the config file exactly as they
+// were for the channel entry (the file is rewritten by the same encoder, so the
+// bytes are identical for an otherwise-unchanged config).
 func TestChannelRPC_EnableRollsBackOnControllerError(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -291,6 +302,49 @@ func TestChannelRPC_EnableRollsBackOnControllerError(t *testing.T) {
 				t.Errorf("in-memory entry for %q exists=%v, want %v", tc.enable, exists, tc.wantHad)
 			}
 		})
+	}
+}
+
+// TestChannelRPC_EnableRollbackPreservesOtherWrites is the lost-update
+// regression for the enable rollback. A config write to an unrelated field that
+// lands after the enable (simulated by the controller, which runs between the
+// enable save and the rollback) must survive. The old code restored whole-file
+// snapshot bytes and silently reverted it.
+func TestChannelRPC_EnableRollbackPreservesOtherWrites(t *testing.T) {
+	rpc, cfg, path := newTestRPC(t, map[string]config.ChannelConfig{
+		"web": {Disabled: true},
+	}, []string{"web"})
+
+	ctrl := newFakeController()
+	ctrl.onStart = func() {
+		// A concurrent RPC updates an unrelated field through the shared config.
+		cfg.Security.Tier = "full"
+		if err := cfg.Save(path); err != nil {
+			t.Errorf("concurrent config save: %v", err)
+		}
+	}
+	ctrl.startErr = errors.New("missing credentials")
+	rpc.SetController(ctrl)
+
+	res := rpc.EnableChannel("web")
+	if ok, _ := res["ok"].(bool); ok {
+		t.Fatalf("expected ok=false when the controller fails, got %v", res)
+	}
+
+	if cfg.Security.Tier != "full" {
+		t.Errorf("in-memory security.tier = %q, want full", cfg.Security.Tier)
+	}
+	body := string(readFile(t, path))
+	if !strings.Contains(body, `tier = "full"`) {
+		t.Errorf("the rollback reverted a concurrent write to security.tier:\n%s", body)
+	}
+	// The rollback's own guarantee still holds: the config must not claim an
+	// enabled channel that could not start.
+	if entry, ok := cfg.Channels["web"]; !ok || !entry.Disabled {
+		t.Errorf("in-memory channel entry = %+v, want disabled", entry)
+	}
+	if !strings.Contains(body, "disabled = true") {
+		t.Errorf("persisted channel entry is not disabled after rollback:\n%s", body)
 	}
 }
 

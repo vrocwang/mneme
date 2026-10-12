@@ -319,9 +319,67 @@ func newSSRFSafeHTTPClient() *http.Client {
 			if err := validateURLFn(req.URL.String()); err != nil {
 				return fmt.Errorf("redirect blocked: %w", err)
 			}
+			// net/http re-copies the caller's original headers onto every
+			// redirect hop and strips only Authorization/Cookie, so a custom
+			// credential header (e.g. X-Api-Key) would otherwise reach a
+			// different host. Drop the copied caller headers on a host change.
+			// via[0] is the original request, which is what net/http copies from.
+			if len(via) > 0 && !sameHost(via[0].URL, req.URL) {
+				stripCrossHostHeaders(req.Header)
+			}
 			return nil
 		},
 	}
+}
+
+// headersKeptAcrossRedirects are the headers net/http itself maintains on a
+// redirected request (and which carry no caller secret). Everything else in the
+// copied header map is treated as caller-supplied and dropped on a host change.
+var headersKeptAcrossRedirects = map[string]bool{
+	"Referer":    true,
+	"User-Agent": true,
+}
+
+// sameHost reports whether two URLs address the same host:port.
+func sameHost(a, b *url.URL) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	return strings.EqualFold(a.Host, b.Host)
+}
+
+// stripCrossHostHeaders removes caller-supplied headers from a redirect
+// request, leaving only the ones net/http manages itself.
+func stripCrossHostHeaders(h http.Header) {
+	for key := range h {
+		if !headersKeptAcrossRedirects[http.CanonicalHeaderKey(key)] {
+			h.Del(key)
+		}
+	}
+}
+
+// ssrfProxyGuardTransport validates the request's target host before a proxied
+// request is sent. With a proxy configured, the transport's DialContext only
+// sees the proxy's address, so the anti-DNS-rebinding IP check would otherwise
+// apply to the proxy instead of the target and a rebound private host would stay
+// reachable through the proxy.
+type ssrfProxyGuardTransport struct {
+	base  *http.Transport
+	proxy func(*http.Request) (*url.URL, error)
+}
+
+func (t *ssrfProxyGuardTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	proxyURL, err := t.proxy(req)
+	if err != nil {
+		return nil, err
+	}
+	if proxyURL != nil {
+		host := req.URL.Hostname()
+		if err := ssrfDialGuardFn(req.Context(), host); err != nil {
+			return nil, fmt.Errorf("proxied request to %q rejected: %w", host, err)
+		}
+	}
+	return t.base.RoundTrip(req)
 }
 
 // buildHTTPClient creates an SSRF-safe HTTP client with proxy settings applied
@@ -335,6 +393,9 @@ func buildHTTPClient(proxyConfig config.ProxyConfig) *http.Client {
 	}
 
 	transport.Proxy = proxyFunc(proxyConfig)
+	// With a proxy configured, DialContext dials the proxy, so the target host
+	// must be validated before the request is handed to it.
+	client.Transport = &ssrfProxyGuardTransport{base: transport, proxy: transport.Proxy}
 	return client
 }
 

@@ -19,8 +19,9 @@ import (
 )
 
 // Permission strings accepted by the host (internal/tools.ParsePermissionLevel).
+// There is no "none" constant: no ported tool is ungated. An omitted
+// `permission` field parses as execute, so every tool must state its level.
 const (
-	permNone     = "none"
 	permReadOnly = "read_only"
 	permWrite    = "write"
 	permExecute  = "execute"

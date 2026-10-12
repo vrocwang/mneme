@@ -22,7 +22,7 @@ export function ChatView() {
 
   const { threads, activeThreadId, createNewThread, deleteSelectedThread, selectThread } = useThreads();
   const { pendingApprovals, decideApproval } = useApprovals();
-  const { messages, streamingContent, isStreaming, isCancelling, cancelTurn, sendMessage } = useChatMessages();
+  const { messages, streamingContent, isStreaming, turnInFlight, isCancelling, cancelTurn, sendMessage } = useChatMessages();
   const toolCallsByMsg = useSelector((s: RootState) => s.chatRuntime.toolCallsByMsg, shallowEqual);
   const pendingToolCalls = useSelector((s: RootState) => s.chatRuntime.toolCalls[activeThreadId || ''] || [], shallowEqual);
 
@@ -152,7 +152,9 @@ export function ChatView() {
               </button>
             </div>
           )}
-          <Composer key={activeThreadId} onSend={sendMessage} disabled={isStreaming} />
+          {/* Disabled while any turn for this thread is in flight, including
+              across the Composer's own remount (key={activeThreadId}). */}
+          <Composer key={activeThreadId} onSend={sendMessage} disabled={isStreaming || turnInFlight} />
         </>
       )}
     </div>

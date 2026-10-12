@@ -1,4 +1,5 @@
-// Generate the Wails RPC route table from the generated bindings.
+// Generate the Wails RPC route table from the generated bindings, and check the
+// frontend against it.
 //
 // `wails generate module` writes one .d.ts per bound struct under
 // frontend/wailsjs/go/<package>/<Struct>.d.ts, listing every method the struct
@@ -10,8 +11,10 @@
 // This script derives the mapping from the bindings instead, so the table is
 // always a projection of the Go surface:
 //
-//   npm run gen:rpc-routes          # rewrite src/services/rpcRoutes.generated.ts
-//   npm run gen:rpc-routes -- --check   # fail if the file is stale (CI)
+//   npm run gen:rpc-routes             # rewrite src/services/rpcRoutes.generated.ts
+//   npm run check:rpc-routes           # fail if the file is stale, if a method is
+//                                      # ambiguous, or if the frontend calls a
+//                                      # name that is not an RPC surface
 //
 // Run it after every `wails generate module`.
 
@@ -20,35 +23,107 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const bindingsDir = resolve(here, '..', 'wailsjs', 'go');
-const outFile = resolve(here, '..', 'src', 'services', 'rpcRoutes.generated.ts');
+const root = resolve(here, '..');
+const bindingsDir = join(root, 'wailsjs', 'go');
+const srcDir = join(root, 'src');
+const outFile = join(srcDir, 'services', 'rpcRoutes.generated.ts');
 
 const METHOD_RE = /^export function ([A-Za-z0-9_]+)\(/;
+const INVOKE_RE = /invoke\s*(?:<[^(]*?>)?\s*\(\s*['"]([A-Za-z0-9_]+)['"]/gs;
+
+// Bound methods that exist for wiring, not for the UI. invoke() can reach them
+// (Wails binds every exported method), so the check below refuses a call site
+// that names one: lifecycle methods would restart or shut the app down, and the
+// DI setters would swap the objects the RPCs depend on.
+const NON_RPC = new Set([
+  'Init',
+  'Shutdown',
+  'SetController',
+  'SetAgentRPC',
+  'SetAppStateRPC',
+  'SetApprovalRPC',
+  'SetCapRPC',
+  'SetChannelRPC',
+  'SetAboutRPC',
+  'SetDB',
+  'SetProvider',
+  'SetRegistry',
+  'SetAgentRegistry',
+  'SetCapabilityWorkspace',
+  'SetMCPPersister',
+  'SetGate',
+  'WithChatSender',
+  'GetCapReg',
+  'GetDB',
+  'GetSessionDB',
+  'GetContext',
+  'GetChatService',
+  'GetCronScheduler',
+  'GetMemoryPipeline',
+  'GetLearningEngine',
+  'GetMonitorManager',
+  'GetNotifier',
+  'GetWebhookTM',
+  'GetAuditLogger',
+  'GetNotifBus',
+  'GetCostTracker',
+  'GetApprovalGate',
+  'GetScreenIntelLoop',
+  'GetCompanionLoop',
+]);
 
 function collect() {
-  const routes = new Map(); // method -> { pkg, struct }
-  const duplicates = [];
-  for (const pkg of readdirSync(bindingsDir)) {
+  const owners = new Map(); // method -> Set<"pkg.struct">
+  for (const pkg of readdirSync(bindingsDir).sort()) {
     const pkgDir = join(bindingsDir, pkg);
     if (!statSync(pkgDir).isDirectory()) continue;
-    for (const file of readdirSync(pkgDir)) {
+    for (const file of readdirSync(pkgDir).sort()) {
       if (!file.endsWith('.d.ts')) continue;
       const struct = file.slice(0, -'.d.ts'.length);
       const text = readFileSync(join(pkgDir, file), 'utf8');
       for (const line of text.split('\n')) {
         const m = METHOD_RE.exec(line.trim());
         if (!m) continue;
-        const method = m[1];
-        const prev = routes.get(method);
-        if (prev && (prev.pkg !== pkg || prev.struct !== struct)) {
-          duplicates.push(`${method} (${prev.pkg}.${prev.struct} vs ${pkg}.${struct})`);
-          continue;
-        }
-        routes.set(method, { pkg, struct });
+        const set = owners.get(m[1]) ?? new Set();
+        set.add(`${pkg}.${struct}`);
+        owners.set(m[1], set);
       }
     }
   }
-  return { routes, duplicates };
+  return owners;
+}
+
+// reduceOwners picks the owner of a method and reports genuine ambiguity. A name
+// bound on main.App plus exactly one specific struct is the documented
+// jsonrpc.AppMethods case (the headless HTTP surface mirrors a few RPC methods);
+// the specific struct wins. Anything else is ambiguous and fails the build.
+function reduceOwners(name, set) {
+  if (set.size === 1) return { route: [...set][0], note: null };
+  const specific = [...set].filter((s) => s !== 'main.App');
+  if (set.has('main.App') && specific.length === 1) {
+    return { route: specific[0], note: `${name} -> ${specific[0]} (App keeps a copy for the HTTP surface)` };
+  }
+  return { route: null, notes: [...set].sort() };
+}
+
+function frontendInvokes() {
+  const found = new Map(); // method -> first file that calls it
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir).sort()) {
+      const path = join(dir, entry);
+      if (statSync(path).isDirectory()) {
+        walk(path);
+        continue;
+      }
+      if (!/\.tsx?$/.test(entry)) continue;
+      const text = readFileSync(path, 'utf8');
+      for (const m of text.matchAll(INVOKE_RE)) {
+        if (!found.has(m[1])) found.set(m[1], path.slice(root.length + 1));
+      }
+    }
+  };
+  walk(srcDir);
+  return found;
 }
 
 function render(routes) {
@@ -58,14 +133,15 @@ function render(routes) {
   );
   return `// Code generated by scripts/gen-rpc-routes.mjs from frontend/wailsjs/go. DO NOT EDIT.
 //
-// Projection of the bound Go methods onto their Wails package/struct. Regenerate
-// after every \`wails generate module\`:
+// Projection of the bound Go methods onto their Wails package/struct, so
+// invoke() routes by name without a hand-maintained table. Regenerate after
+// every \`wails generate module\`:
 //
 //   npm run gen:rpc-routes
 //
-// A method missing from this map is a bug in the bindings, not a routing
-// decision: invoke() falls back to main/App and rejects with NOT_AVAILABLE when
-// the runtime lookup fails.
+// \`npm run check:rpc-routes\` also fails when a method name is bound on two
+// structs (ambiguous routing) or when the frontend calls a name that is not in
+// this table. See the script for the wiring-only names invoke() must not use.
 
 export interface RpcRoute {
   pkg: string;
@@ -78,52 +154,66 @@ ${lines.join('\n')}
 `;
 }
 
-// main.App also satisfies internal/jsonrpc.AppMethods (the headless HTTP
-// JSON-RPC surface), so a few names are deliberately bound twice: once on the
-// specific *RPC struct and once on App. invoke() must prefer the specific
-// struct — App's copies exist for non-UI clients. Any other collision (two
-// non-main structs) is a real ambiguity and fails the build.
-const { routes, duplicates } = collect();
-const unresolved = [];
+const owners = collect();
+const routes = new Map();
+const ambiguous = [];
 const sharedWithApp = [];
-for (const d of duplicates) {
-  const [name, pair] = [d.slice(0, d.indexOf(' (')), d.slice(d.indexOf('(') + 1, -1)];
-  const [a, b] = pair.split(' vs ').map((x) => x.trim());
-  const appSide = [a, b].find((x) => x === 'main.App');
-  const other = [a, b].find((x) => x !== 'main.App');
-  if (appSide && other) {
-    const [pkg, struct] = other.split('.');
-    routes.set(name, { pkg, struct });
-    sharedWithApp.push(`${name} -> ${other} (App keeps a copy for the HTTP surface)`);
-  } else {
-    unresolved.push(d);
+for (const [name, set] of owners) {
+  const { route, note, notes } = reduceOwners(name, set);
+  if (!route) {
+    ambiguous.push(`${name} (${notes.join(', ')})`);
+    continue;
   }
+  const [pkg, struct] = route.split('.');
+  routes.set(name, { pkg, struct });
+  if (note) sharedWithApp.push(`gen-rpc-routes: ${note}`);
 }
-if (unresolved.length > 0) {
-  console.error('gen-rpc-routes: the same method name is bound on two non-App structs:');
-  for (const d of unresolved) console.error(`  - ${d}`);
+
+if (ambiguous.length > 0) {
+  console.error('gen-rpc-routes: the same method name is bound on more than one non-App struct:');
+  for (const a of ambiguous) console.error(`  - ${a}`);
   console.error('invoke() routes by method name, so this is ambiguous. Rename one of them.');
   process.exit(1);
 }
-for (const line of sharedWithApp) console.log(`gen-rpc-routes: name bound twice — ${line}`);
 
 const output = render(routes);
 const check = process.argv.includes('--check');
 
-if (check) {
-  let current = '';
-  try {
-    current = readFileSync(outFile, 'utf8');
-  } catch {
-    console.error(`gen-rpc-routes: ${outFile} is missing; run "npm run gen:rpc-routes".`);
-    process.exit(1);
-  }
-  if (current !== output) {
-    console.error('gen-rpc-routes: rpcRoutes.generated.ts is stale; run "npm run gen:rpc-routes".');
-    process.exit(1);
-  }
-  console.log(`gen-rpc-routes: up to date (${routes.size} methods).`);
-} else {
+if (!check) {
   writeFileSync(outFile, output);
+  for (const line of sharedWithApp) console.log(line);
   console.log(`gen-rpc-routes: wrote ${routes.size} methods to ${outFile}`);
+  process.exit(0);
 }
+
+// --check: the committed table must be current AND the frontend must only call
+// names that resolve.
+let current = '';
+try {
+  current = readFileSync(outFile, 'utf8');
+} catch {
+  console.error(`gen-rpc-routes: ${outFile} is missing; run "npm run gen:rpc-routes".`);
+  process.exit(1);
+}
+if (current !== output) {
+  console.error('gen-rpc-routes: rpcRoutes.generated.ts is stale; run "npm run gen:rpc-routes".');
+  process.exit(1);
+}
+
+const invokes = frontendInvokes();
+const problems = [];
+for (const [method, where] of invokes) {
+  if (!routes.has(method)) {
+    problems.push(`${where}: invoke('${method}') has no bound Go method`);
+  } else if (NON_RPC.has(method)) {
+    problems.push(`${where}: invoke('${method}') targets a wiring/lifecycle method, not an RPC`);
+  }
+}
+if (problems.length > 0) {
+  console.error('gen-rpc-routes: frontend call sites do not match the RPC surface:');
+  for (const p of problems) console.error(`  - ${p}`);
+  process.exit(1);
+}
+
+for (const line of sharedWithApp) console.log(line);
+console.log(`gen-rpc-routes: up to date (${routes.size} methods, ${invokes.size} called from the frontend).`);

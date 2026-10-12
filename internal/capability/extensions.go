@@ -24,6 +24,61 @@ import (
 // extension.configure protocol. A nil loader disables config delivery.
 type ExtensionConfigLoader func(name string) (map[string]interface{}, error)
 
+// ExtensionFilter reports whether the extension whose manifest name is name is
+// disabled by config and must be skipped. A nil filter enables every
+// extension.
+type ExtensionFilter func(name string) bool
+
+// NewExtensionFilter builds an ExtensionFilter from the configured
+// [bundles] disabled id list. An extension matches when either its manifest
+// name or its capability-set id (ExtensionSetID(name)) is listed, so both
+// `disabled = ["todos"]` and `disabled = ["extension:todos"]` work. Entries
+// that match nothing are harmless: a stale id in config must never fail boot.
+//
+// The filter is built here from plain strings rather than from
+// bundle/config types because internal/bundle imports this package, so the
+// dependency must not point the other way.
+func NewExtensionFilter(disabled []string) ExtensionFilter {
+	if len(disabled) == 0 {
+		return nil
+	}
+	ids := make(map[string]bool, len(disabled))
+	for _, id := range disabled {
+		if id = strings.TrimSpace(id); id != "" {
+			ids[id] = true
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	return func(name string) bool {
+		return ids[name] || ids[ExtensionSetID(name)]
+	}
+}
+
+// SetExtensionFilter records the configured disabled-extension filter so the
+// install-time load path can warn about an extension that will not start at
+// the next boot. Passing nil clears it. Safe on a nil receiver.
+func (r *CapabilityRegistry) SetExtensionFilter(f ExtensionFilter) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.extensionFilter = f
+}
+
+// ExtensionFilter returns the configured disabled-extension filter, or nil
+// when every extension is enabled. Safe on a nil receiver.
+func (r *CapabilityRegistry) ExtensionFilter() ExtensionFilter {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.extensionFilter
+}
+
 // discoverExtensions scans one or more extensions directories for extensions,
 // optionally builds each one, launches it as an extension subprocess, and
 // registers its tools and agents into the registry.
@@ -36,7 +91,12 @@ type ExtensionConfigLoader func(name string) (map[string]interface{}, error)
 // The traversal is tools.FindExtensionDirs, the same one the UI's extension
 // list uses, so bundled (<root>/<name>) and UI-installed
 // (<root>/<category>/<name>) extensions are both found.
-func discoverExtensions(reg *CapabilityRegistry, dirs []string, loadCfg ExtensionConfigLoader, log *slog.Logger) {
+//
+// Extensions the configured filter rejects are skipped before anything is
+// built or launched: a disabled extension must not run, and building an
+// artifact that will never load would only waste time (and could fail the
+// boot).
+func discoverExtensions(reg *CapabilityRegistry, dirs []string, loadCfg ExtensionConfigLoader, filter ExtensionFilter, log *slog.Logger) {
 	for _, dir := range dirs {
 		if dir == "" {
 			continue
@@ -49,6 +109,14 @@ func discoverExtensions(reg *CapabilityRegistry, dirs []string, loadCfg Extensio
 			mf, err := tools.ParseManifest(filepath.Join(extDir, tools.ExtensionManifestFile))
 			if err != nil {
 				log.Warn("extension manifest invalid", "dir", extDir, "error", err)
+				continue
+			}
+
+			// A disabled extension is skipped before its binary is resolved,
+			// so its auto-build never runs either.
+			if filter != nil && filter(mf.Name) {
+				log.Info("extension disabled by config, skipping",
+					"name", mf.Name, "set_id", ExtensionSetID(mf.Name), "dir", extDir)
 				continue
 			}
 
@@ -125,6 +193,18 @@ func launchExtensionProc(reg *CapabilityRegistry, binaryPath string, mf *tools.E
 			Version:     proc.Manifest.Version,
 			Description: proc.Manifest.Description,
 		}
+	}
+
+	// Install-time path: the user just installed an extension that config
+	// disables. Refusing to load it would look like a failed install, so load
+	// it for this session and say plainly that it will not start again after a
+	// restart (discovery skips it, and its auto-build is skipped too).
+	//
+	// Discovery never reaches this branch for a disabled extension: it skips
+	// before resolving or building the binary.
+	if f := reg.ExtensionFilter(); f != nil && f(mf.Name) {
+		log.Warn("extension is disabled by config; loaded for this session but will not run at the next start",
+			"name", mf.Name, "set_id", ExtensionSetID(mf.Name))
 	}
 
 	// Deliver the extension's saved configuration. This is the host half of the

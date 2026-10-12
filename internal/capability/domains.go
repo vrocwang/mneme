@@ -9,10 +9,14 @@ package capability
 //
 // Domain packages import capability already, and internal/bundle aliases these
 // constants, so neither has to repeat the literal.
+//
+// Tool groups that moved out into process extensions (todos, file-state,
+// workflows, ...) have no constant here: they are not registered in-process, so
+// their disable switch is the extension manifest name, honored by the extension
+// loader (see NewExtensionFilter in extensions.go).
 const (
 	SetMCP     = "mcp"
 	SetConfig  = "config"
-	SetTodos   = "todos"
 	SetSkills  = "skills"
 	SetThreads = "threads"
 	SetMemory  = "memory"

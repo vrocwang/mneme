@@ -35,6 +35,13 @@ type CapabilityRegistry struct {
 	mcpAudit          MCPAuditLogger
 	channels          map[string]*channelEntry // registered channel providers
 	disposes          map[string]dispose.Func  // setID → teardown (effect-style unwind)
+
+	// extensionFilter, when non-nil, reports whether an extension is disabled by
+	// config and must be skipped at discovery. Bootstrap installs it from the
+	// [bundles] disabled id list; the install-time load path (loadExtension)
+	// consults it to warn that a just-installed extension will not start at the
+	// next boot. The type and its accessors live in extensions.go.
+	extensionFilter ExtensionFilter
 }
 
 func NewCapabilityRegistry() *CapabilityRegistry {

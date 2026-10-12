@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect } from 'react';
+import { useCallback, useState, useEffect, useRef } from 'react';
 import * as api from '../../services/wails';
 import { useT } from '../../lib/i18n/I18nContext';
 
@@ -8,26 +8,36 @@ export function ChannelSettings() {
   const [available, setAvailable] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  // Channel name with a mutation in flight (enable/disable/add).
+  // Channel name with a mutation in flight. Mutations are serialised: while one
+  // is pending every row is disabled, so completions cannot interleave the
+  // busy/error state.
   const [busy, setBusy] = useState('');
+  const mutatingRef = useRef(false);
 
-  const refresh = useCallback(async () => {
-    const r = await api.listChannels();
-    if (r?.ok) {
+  // Reload the channel list; returns a failure message (empty on success) so
+  // the caller reports it instead of rendering the empty state as the truth.
+  const refresh = useCallback(async (): Promise<string> => {
+    try {
+      const r = await api.listChannels();
+      if (!r?.ok) return t('errors.loadChannels');
       setChannels(r.channels || []);
       setAvailable(r.available || []);
+      return '';
+    } catch (e) {
+      return String(e);
     }
-    return r;
-  }, []);
+  }, [t]);
 
   useEffect(() => {
-    refresh().catch(e => setError(String(e))).finally(() => setLoading(false));
+    refresh().then(failure => { if (failure) setError(failure); }).finally(() => setLoading(false));
   }, [refresh]);
 
   // Enable/disable a channel, then always reload: on failure the backend rolls
   // back, so the reloaded list is the truth either way. Backend errors are
   // surfaced instead of being swallowed.
   const mutate = useCallback(async (name: string, enable: boolean) => {
+    if (mutatingRef.current) return;
+    mutatingRef.current = true;
     setError('');
     setBusy(name);
     let failure = '';
@@ -40,12 +50,12 @@ export function ChannelSettings() {
       failure = String(e);
     }
     try {
-      await refresh();
-    } catch (e) {
-      if (!failure) failure = String(e);
+      const refreshFailure = await refresh();
+      setError(failure || refreshFailure);
+    } finally {
+      setBusy('');
+      mutatingRef.current = false;
     }
-    setError(failure);
-    setBusy('');
   }, [refresh, t]);
 
   // Available types not configured yet — these can now be added at runtime.
@@ -64,7 +74,9 @@ export function ChannelSettings() {
             <div className="w-4 h-4 border-2 border-ocean-400/30 border-t-ocean-400 rounded-full animate-spin" />
           </div>
         ) : channels.length === 0 ? (
-          <div className="card text-xs text-white/30 py-6 text-center">{t('channels.noChannels')}</div>
+          // A failed load must not read as "nothing configured"; the error line
+          // below carries the reason.
+          error ? null : <div className="card text-xs text-white/30 py-6 text-center">{t('channels.noChannels')}</div>
         ) : (
           <div className="space-y-2">
             {channels.map(ch => (
@@ -81,7 +93,7 @@ export function ChannelSettings() {
                 </div>
                 <button
                   onClick={() => mutate(ch.name, !ch.enabled)}
-                  disabled={busy === ch.name}
+                  disabled={busy !== ''}
                   className={`px-3 py-1 rounded text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                     ch.enabled ? 'bg-coral-500/20 text-coral-400 hover:bg-coral-500/30' : 'bg-sage-500/20 text-sage-400 hover:bg-sage-500/30'
                   }`}
@@ -103,7 +115,7 @@ export function ChannelSettings() {
                 {name}
                 <button
                   onClick={() => mutate(name, true)}
-                  disabled={busy === name}
+                  disabled={busy !== ''}
                   className="text-white/40 hover:text-white/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {busy === name ? '…' : t('channels.add')}

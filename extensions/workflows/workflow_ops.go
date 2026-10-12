@@ -270,21 +270,60 @@ func EffectiveToolScope(w *Workflow, phaseName string) ToolScope {
 // BestMatch finds the workflow whose when_to_use field has the highest
 // word-overlap with the task description.
 func BestMatch(task string, workflows []*Workflow) *Workflow {
-	var best *Workflow
-	bestScore := 0
+	matches := MatchWorkflows(task, workflows)
+	if len(matches) == 0 {
+		return nil
+	}
+	return matches[0]
+}
+
+// MatchWorkflows ranks workflows for a task, best first.
+//
+// This MUST stay behaviourally identical to the core prompt injector
+// (internal/agent/workflow_inject.go Match): it scores word overlap against
+// when_to_use, the name and the description, drops zero scores and keeps the top
+// three. The core decides which workflows the model is told about while this
+// decides which one workflow_match names, so a divergence would have the tool
+// recommend a workflow the prompt never injected (or vice versa). The shared
+// fixture in testdata/workflow_match is asserted by both sides to keep them
+// together.
+func MatchWorkflows(task string, workflows []*Workflow) []*Workflow {
+	type scored struct {
+		wf    *Workflow
+		score int
+	}
 	taskLower := strings.ToLower(task)
+
+	var results []scored
 	for _, w := range workflows {
-		whenToUse := strings.ToLower(w.Frontmatter["when_to_use"])
-		if whenToUse == "" {
-			continue
+		score := 0
+		if whenToUse := w.Frontmatter["when_to_use"]; whenToUse != "" {
+			score += WordOverlap(taskLower, strings.ToLower(whenToUse))
 		}
-		score := WordOverlap(taskLower, whenToUse)
-		if score > bestScore {
-			bestScore = score
-			best = w
+		score += WordOverlap(taskLower, strings.ToLower(w.Name))
+		score += WordOverlap(taskLower, strings.ToLower(w.Description))
+		if score > 0 {
+			results = append(results, scored{wf: w, score: score})
 		}
 	}
-	return best
+
+	// Sort by score descending (selection sort, mirroring the core).
+	for i := 0; i < len(results)-1; i++ {
+		for j := i + 1; j < len(results); j++ {
+			if results[j].score > results[i].score {
+				results[i], results[j] = results[j], results[i]
+			}
+		}
+	}
+	if len(results) > 3 {
+		results = results[:3]
+	}
+
+	out := make([]*Workflow, len(results))
+	for i, r := range results {
+		out[i] = r.wf
+	}
+	return out
 }
 
 // WordOverlap counts how many words from a appear in b.

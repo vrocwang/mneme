@@ -41,8 +41,11 @@ func (t *configSnapshotTool) Execute(ctx context.Context, args map[string]interf
 			"temperature":       t.cfg.Agent.Temperature,
 		},
 		"security": map[string]interface{}{
-			"tier":           t.cfg.Security.Tier,
-			"workspace_only": t.cfg.Security.WorkspaceOnly,
+			"tier": t.cfg.Security.Tier,
+			// Report the enforced policy, not the raw config field: a readonly
+			// tier implies workspace-only, so the field alone would tell the
+			// model it is unsandboxed when it is not (and vice versa).
+			"workspace_only": t.cfg.BuildSecurityPolicy().WorkspaceOnly,
 		},
 		"workspace": t.cfg.Workspace,
 		"memory": map[string]interface{}{
@@ -75,8 +78,11 @@ func (t *configAutonomyTool) Schema() tools.Schema {
 func (t *configAutonomyTool) Execute(ctx context.Context, args map[string]interface{}) tools.Result {
 	ac := t.cfg.Autonomy
 	snapshot := map[string]interface{}{
-		"level":                      ac.Level,
-		"workspace_only":             ac.WorkspaceOnly,
+		"level": ac.Level,
+		// [autonomy] is deprecated and not wired to anything (see the struct's
+		// doc comment); report the live security policy instead of a value no
+		// consumer honours, so the model is not told something untrue.
+		"workspace_only":             t.cfg.BuildSecurityPolicy().WorkspaceOnly,
 		"allowed_commands":           ac.AllowedCommands,
 		"forbidden_paths":            ac.ForbiddenPaths,
 		"max_actions_per_hour":       ac.MaxActionsPerHour,

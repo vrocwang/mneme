@@ -486,6 +486,14 @@ func (g *Gate) toolRiskAtOrBelow(toolName string, threshold string) bool {
 	return toolLevel <= thresholdLevel
 }
 
+// ToolRisk exposes the risk level the gate would apply to a tool (0 none,
+// 1 read_only, 2 write, 3 execute, 4 dangerous). It exists so callers outside
+// this package — and the wiring test that proves the registry-backed resolver
+// is actually installed — can assert the classification without duplicating it.
+func (g *Gate) ToolRisk(toolName string) int {
+	return g.resolveToolRisk(toolName)
+}
+
 // resolveToolRisk maps a tool name to a risk level integer. Prefers the
 // registry-backed resolver when available; falls back to naming heuristics.
 func (g *Gate) resolveToolRisk(toolName string) int {

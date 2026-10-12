@@ -248,11 +248,20 @@ func (t *awaitWorkflowTool) def() extsdk.ToolDef {
 			},
 			"required": []string{"run_id"},
 		},
-		// Core: no PermissionLevel method at all → zero value PermNone.
-		Permission: permNone,
+		// Core implemented no PermissionLevel() method, so nothing reached the
+		// resolver and the host's name heuristic gave await_workflow
+		// execute-level risk. On the wire, omitting `permission` parses as
+		// execute — and a call that can block for minutes must not be the
+		// least-gated tier — so declare execute explicitly instead of the
+		// (false) `none` mapping.
+		Permission: permExecute,
 		HasEffects: false,
 		// Core: true (concurrent reads/writes are guarded by the runner).
 		ConcurrencySafe: true,
+		// A run can legitimately take minutes; without this the host's global
+		// tool timeout (120s by default) would cut the await before the
+		// extension's own 5-minute per-call budget could ever matter.
+		TimeoutSecs: 300,
 	}
 }
 

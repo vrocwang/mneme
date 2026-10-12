@@ -21,6 +21,50 @@ import (
 	pkgtools "github.com/simon/mneme/pkg/tools"
 )
 
+// auditArgs renders a tool call's arguments for the audit trail. It used to be
+// the tool's output, which put a refusal's text (or a file's contents) in the
+// args column and made a blocked call look like an execution.
+func auditArgs(tc agent.ToolCallResult) string {
+	if len(tc.Args) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(tc.Args)
+	if err != nil {
+		return "<unmarshalable args>"
+	}
+	return string(raw)
+}
+
+// toolResultContent classifies one tool message and keeps the loop breaker
+// honest. A tool-level failure arrives as content carrying
+// tools.ToolFailureMarker (the middleware already recorded the failure); it must
+// NOT then be recorded as a success, because that would reset the
+// consecutive-failure counter the middleware just incremented. The marker is
+// stripped so the model sees plain text. On success the breaker is reset as
+// before. Every tool-event loop in this file must go through here — the
+// streaming path is not the only one that runs turns.
+func toolResultContent(cb *middleware.CircuitBreakerMiddleware, content string) (string, string) {
+	if pkgtools.IsToolFailure(content) {
+		stripped := pkgtools.StripToolFailureMarker(content)
+		return stripped, stripped
+	}
+	if cb != nil {
+		cb.RecordSuccess()
+	}
+	return content, ""
+}
+
+// resetBreakerForTurn clears any trip from a previous turn. The breaker is built
+// once and shared by every thread, so without this a single trip would leave
+// every later turn reporting the stale interruption reason until restart. The
+// trade-off is deliberate: a concurrent turn starting can clear another turn's
+// trip, which fails open and is bounded by the agent's max iterations.
+func (r *Runner) resetBreakerForTurn() {
+	if r.breakerMW != nil {
+		r.breakerMW.Reset()
+	}
+}
+
 // maxIterationsNotice is returned when an agent stops at its configured
 // iteration bound without producing any final text. Hitting the bound is a
 // normal stop, not a fault, so the turn completes successfully with this note
@@ -117,6 +161,7 @@ func NewRunner(ctx context.Context, cfg RunnerConfig) (*Runner, error) {
 //  5. Returns a TurnResult compatible with the existing ChatService
 //     contract
 func (r *Runner) Query(ctx context.Context, threadID, userMessage string) (*agent.TurnResult, error) {
+	r.resetBreakerForTurn()
 	// -- 1. Security check ----------------------------------------------
 	if r.secMW != nil {
 		if err := r.secMW.FilterInput(ctx, userMessage); err != nil {
@@ -245,12 +290,11 @@ func (r *Runner) processEvents(ctx context.Context, threadID, userMessage string
 			// Tool execution result -- find the matching tool call and
 			// attach the output. We match by scanning backwards for the
 			// most recent tool call with the same name that has no output.
-			if r.breakerMW != nil {
-				r.breakerMW.RecordSuccess()
-			}
+			content, toolFailure := toolResultContent(r.breakerMW, msg.Content)
 			for i := len(toolCalls) - 1; i >= 0; i-- {
 				if toolCalls[i].Name == mv.ToolName && toolCalls[i].Output == "" {
-					toolCalls[i].Output = msg.Content
+					toolCalls[i].Output = content
+					toolCalls[i].Error = toolFailure
 					break
 				}
 			}
@@ -261,7 +305,7 @@ func (r *Runner) processEvents(ctx context.Context, threadID, userMessage string
 	if r.callbacks != nil && r.callbacks.Audit != nil {
 		r.callbacks.Audit.OnModelCall("default", threadID)
 		for _, tc := range toolCalls {
-			r.callbacks.Audit.OnToolCall(tc.Name, tc.Output, threadID)
+			r.callbacks.Audit.OnToolCall(tc.Name, auditArgs(tc), threadID)
 		}
 	}
 
@@ -296,6 +340,7 @@ func (r *Runner) processEvents(ctx context.Context, threadID, userMessage string
 // counts) for post-turn persistence and metrics. The "done" streaming event
 // is emitted before the TurnResult is returned.
 func (r *Runner) StreamQuery(ctx context.Context, threadID, userMessage string, onEvent func(agent.StreamEvent)) (*agent.TurnResult, error) {
+	r.resetBreakerForTurn()
 	// Global timeout for the entire agent turn (LLM calls + tool executions).
 	// Prevents indefinite hangs from interactive commands or slow APIs.
 	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
@@ -439,16 +484,9 @@ func (r *Runner) StreamQuery(ctx context.Context, threadID, userMessage string, 
 			}
 
 			// A result carrying the failure marker is a tool-level failure the
-			// middleware already fed back to the model. It must not count as a
-			// success for the loop breaker (that would reset the consecutive
-			// failure counter the middleware just incremented), and the UI needs
-			// to see it as an error rather than a normal result.
-			toolFailure := ""
-			if rest, ok := strings.CutPrefix(content, pkgtools.ToolFailurePrefix); ok {
-				toolFailure = rest
-			} else if r.breakerMW != nil {
-				r.breakerMW.RecordSuccess()
-			}
+			// middleware already fed back to the model: it must not count as a
+			// success for the loop breaker, and the UI must see it as an error.
+			content, toolFailure := toolResultContent(r.breakerMW, content)
 
 			toolName := mv.ToolName
 			for i := len(toolCallResults) - 1; i >= 0; i-- {
@@ -469,7 +507,7 @@ func (r *Runner) StreamQuery(ctx context.Context, threadID, userMessage string, 
 	if r.callbacks != nil && r.callbacks.Audit != nil {
 		r.callbacks.Audit.OnModelCall("default", threadID)
 		for _, tc := range toolCallResults {
-			r.callbacks.Audit.OnToolCall(tc.Name, tc.Output, threadID)
+			r.callbacks.Audit.OnToolCall(tc.Name, auditArgs(tc), threadID)
 		}
 	}
 
@@ -549,6 +587,7 @@ func (r *Runner) consumeStream(threadID string, stream *schema.StreamReader[*sch
 // The threadID is used for post-turn hook attribution, not for checkpoint
 // lookup — the checkPointID is the key used to load the checkpoint.
 func (r *Runner) Resume(ctx context.Context, threadID, checkPointID string) (*agent.TurnResult, error) {
+	r.resetBreakerForTurn()
 	// Apply security filter before resuming (consistent with Query/StreamQuery).
 	if r.secMW != nil {
 		if err := r.secMW.FilterResume(ctx, checkPointID, threadID); err != nil {
@@ -630,12 +669,11 @@ func (r *Runner) Resume(ctx context.Context, threadID, checkPointID string) (*ag
 			}
 
 		case schema.Tool:
-			if r.breakerMW != nil {
-				r.breakerMW.RecordSuccess()
-			}
+			content, toolFailure := toolResultContent(r.breakerMW, msg.Content)
 			for i := len(toolCalls) - 1; i >= 0; i-- {
 				if toolCalls[i].Name == mv.ToolName && toolCalls[i].Output == "" {
-					toolCalls[i].Output = msg.Content
+					toolCalls[i].Output = content
+					toolCalls[i].Error = toolFailure
 					break
 				}
 			}
@@ -646,7 +684,7 @@ func (r *Runner) Resume(ctx context.Context, threadID, checkPointID string) (*ag
 	if r.callbacks != nil && r.callbacks.Audit != nil {
 		r.callbacks.Audit.OnModelCall("default", threadID)
 		for _, tc := range toolCalls {
-			r.callbacks.Audit.OnToolCall(tc.Name, tc.Output, threadID)
+			r.callbacks.Audit.OnToolCall(tc.Name, auditArgs(tc), threadID)
 		}
 	}
 	if r.memMW != nil {

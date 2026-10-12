@@ -78,9 +78,10 @@ func (a *regToolAdapter) InvokableRun(ctx context.Context, argumentsInJSON strin
 	if result.Error != "" {
 		return "", &tools.ToolFailure{Message: fmt.Sprintf("registry tool %q: %s", a.toolName, result.Error)}
 	}
-	if !result.Success && result.Output != "" {
-		return result.Output, &tools.ToolFailure{Message: fmt.Sprintf("registry tool %q failed", a.toolName)}
-	}
+	// `!Success` with output but no error is an informational result, not a
+	// failure: several in-tree tools return `Result{Output: "…"}` and leave
+	// Success at its zero value (e.g. mcp_list_tools on an empty server). Marking
+	// those as failures would report a red badge for a perfectly normal answer.
 	return result.Output, nil
 }
 

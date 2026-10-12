@@ -74,18 +74,25 @@ func SetToolTimeoutSecs(configSecs int) {
 		"old_secs", old, "new_secs", configSecs, "source", "config")
 }
 
-// ExecuteWithTimeout runs a tool with the global timeout (or per-call override).
+// ExecuteWithTimeout runs a tool with its own declared budget, falling back to
+// the global tool timeout and to an explicit per-call override (highest
+// precedence). A tool's declaration cannot escape MinTimeoutSecs..MaxTimeoutSecs.
 func ExecuteWithTimeout(ctx context.Context, tool Tool, args map[string]interface{}, opts *ToolCallOptions) Result {
 	timeout := ToolTimeoutDuration()
+	if hinted, ok := tool.(TimeoutHintTool); ok {
+		if hint := hinted.TimeoutHint(); hint > 0 {
+			timeout = time.Duration(clampTimeout(int(hint.Seconds()))) * time.Second
+		}
+	}
 	if opts != nil && opts.TimeoutOverride > 0 {
 		timeout = time.Duration(clampTimeout(opts.TimeoutOverride)) * time.Second
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	return executeWithContext(ctx, tool, args)
+	return executeWithContext(ctx, tool, args, timeout)
 }
 
-func executeWithContext(ctx context.Context, tool Tool, args map[string]interface{}) Result {
+func executeWithContext(ctx context.Context, tool Tool, args map[string]interface{}, timeout time.Duration) Result {
 	resultCh := make(chan Result, 1)
 	go func() {
 		defer func() {
@@ -107,11 +114,10 @@ func executeWithContext(ctx context.Context, tool Tool, args map[string]interfac
 		return result
 	case <-ctx.Done():
 		if ctx.Err() == context.DeadlineExceeded {
-			timeout := "unknown"
-			if deadline, ok := ctx.Deadline(); ok {
-				timeout = time.Until(deadline).String()
-			}
-			return Result{Error: "tool execution timed out after " + timeout}
+			// Report the configured budget: measuring time.Until(deadline) here
+			// happens after expiry and produced negative durations in the message
+			// the model and the user see.
+			return Result{Error: "tool execution timed out after " + timeout.String()}
 		}
 		return Result{Error: fmt.Sprintf("tool execution cancelled: %v", ctx.Err())}
 	}

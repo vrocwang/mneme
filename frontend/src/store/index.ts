@@ -1,5 +1,6 @@
 import { configureStore, combineReducers } from '@reduxjs/toolkit';
 import { persistStore, persistReducer } from 'redux-persist';
+import { PersistRoot } from '../lib/storage';
 import storage from 'redux-persist/lib/storage';
 import chatReducer from './chatSlice';
 import threadReducer from './threadSlice';
@@ -14,7 +15,7 @@ const rootReducer = combineReducers({
 });
 
 const persistConfig = {
-  key: 'mneme',
+  key: PersistRoot,
   storage,
   version: 2,
   whitelist: ['thread'],

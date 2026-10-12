@@ -4,6 +4,7 @@
 
 import { rpcRoutes } from './rpcRoutes.generated';
 import { RPC_TIMEOUT_MS, STREAM_TIMEOUT_MS } from '../lib/timing';
+import type { main } from '../../wailsjs/go/models';
 
 export class RpcError extends Error {
   constructor(message: string, public code?: string, public status?: number) {
@@ -14,15 +15,16 @@ export class RpcError extends Error {
 
 function invoke<T>(method: string, ...args: unknown[]): Promise<T> {
   const w = window as any;
-  // Routing is generated from the Wails bindings (scripts/gen-rpc-routes.mjs),
-  // so it cannot drift from the Go method surface. A method the backend does
-  // not bind rejects with NOT_AVAILABLE (also the browser-mode behaviour).
-  const route = rpcRoutes[method] ?? { pkg: 'main', struct: 'App' };
-  const fn = w['go']?.[route.pkg]?.[route.struct]?.[method];
+  // Routing comes from the generated table (scripts/gen-rpc-routes.mjs), which is
+  // derived from the Wails bindings and checked in CI against every call site in
+  // src/. A miss means the Go method is not bound (or is wiring/lifecycle rather
+  // than an RPC) — there is no fallback, so a typo cannot silently reach an
+  // unrelated struct. Browser mode (no Wails runtime) rejects the same way.
+  const route = rpcRoutes[method];
+  const fn = route ? w['go']?.[route.pkg]?.[route.struct]?.[method] : undefined;
   if (!fn) {
-    return Promise.reject(
-      new RpcError(`Wails method ${method} not available (looked for go.${route.pkg}.${route.struct}.${method})`, 'NOT_AVAILABLE')
-    );
+    console.warn(`Wails method ${method} not available${route ? ` at go.${route.pkg}.${route.struct}` : ' (not in the RPC route table)'} — running in browser mode?`);
+    return Promise.reject(new RpcError(`Wails method ${method} not available`, 'NOT_AVAILABLE'));
   }
   return fn(...args) as Promise<T>;
 }
@@ -60,9 +62,8 @@ export function streamChatMessage(req: ChatRequest) {
   return invokeWithTimeout<void>('StreamChatMessage', [req], STREAM_TIMEOUT_MS);
 }
 
-// Cancel the in-flight turn for a thread. CancelMessage is bound on the main
-// App struct, which is the default route in invoke() — it needs no entry in
-// any of the method routing lists above.
+// Cancel the in-flight turn for a thread. It routes through the generated table
+// like every other method (rpcRoutes.generated.ts).
 export function cancelMessage(threadId: string) {
   return invoke<void>('CancelMessage', threadId);
 }
@@ -93,17 +94,12 @@ export function getThreadMessages(threadId: string, limit?: number, afterId?: nu
 
 // ── Todo board ────────────────────────────────────────────────────────
 
-export interface TodoSnapshot {
-  thread_id: string;
-  cards: TodoCard[];
-}
-export interface TodoCard {
-  id: string;
-  title: string;
-  notes: string;
-  status: string;
-  created_at: string;
-}
+// The wire types are the generated Wails bindings (main.todoSnapshot /
+// main.todoCard), which mirror the Go JSON tags (threadId/cards/markdown,
+// createdAt/updatedAt). Hand-declaring them here had already drifted
+// (thread_id/created_at), so the UI could read a field the backend never sends.
+export type TodoSnapshot = main.todoSnapshot;
+export type TodoCard = main.todoCard;
 export function listTodos(threadId: string) { return invoke<TodoSnapshot>('ListTodos', threadId); }
 export function addTodo(threadId: string, title: string, notes: string) { return invoke<TodoSnapshot>('AddTodo', threadId, title, notes); }
 export function updateTodoStatus(threadId: string, cardId: string, status: string) { return invoke<TodoSnapshot>('UpdateTodoStatus', threadId, cardId, status); }

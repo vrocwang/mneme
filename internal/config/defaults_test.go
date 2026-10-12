@@ -72,24 +72,23 @@ func TestToolTimeoutDefaultMatchesPkgTools(t *testing.T) {
 	}
 }
 
-// TestScreenCaptureIntervalDefault documents the config-side screen capture
-// cadence and asserts it is non-zero.
+// TestScreenCaptureIntervalDefault pins the config-side screen capture cadence.
 //
-// internal/desktop/screen_intel.go substitutes a hardcoded 30s when the interval
-// is zero, and exports no constant for it. Because internal/config must not
-// import internal/desktop, that value cannot be referenced here; this test can
-// only pin the config default (which is what the runtime actually supplies). A
-// zero config default would silently fall through to the desktop 30s fallback.
+// The value must be non-zero (a zero would silently fall through to the capture
+// loop's own fallback) and must equal desktop.DefaultCaptureInterval; that
+// equality is asserted in internal/boot, which may import both packages.
+// 30s is deliberate: every capture can trigger a vision model call, so the
+// cadence is a cost knob, not a responsiveness knob.
 func TestScreenCaptureIntervalDefault(t *testing.T) {
-	if DefaultScreenCaptureIntervalSecs != 5 {
-		t.Errorf("DefaultScreenCaptureIntervalSecs = %d, want the documented 5",
+	if DefaultScreenCaptureIntervalSecs != 30 {
+		t.Errorf("DefaultScreenCaptureIntervalSecs = %d, want 30 (the capture loop's fallback)",
 			DefaultScreenCaptureIntervalSecs)
 	}
 	if got := defaultScreenIntelligenceConfig().CaptureIntervalSecs; got != DefaultScreenCaptureIntervalSecs {
 		t.Errorf("screen capture default = %d, want %d", got, DefaultScreenCaptureIntervalSecs)
 	}
 	if got := DefaultConfig().ScreenIntelligence.CaptureIntervalSecs; got == 0 {
-		t.Error("config screen capture interval is 0; the desktop loop would fall back to its own 30s default")
+		t.Error("config screen capture interval is 0; the loop would silently use its own fallback")
 	}
 }
 

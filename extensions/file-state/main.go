@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/simon/mneme/pkg/extsdk"
 )
@@ -75,6 +76,22 @@ func main() {
 // fileTools holds the process-wide tracker shared by both tools.
 type fileTools struct{ tracker *Tracker }
 
+// resolvePath turns a tool's `path` argument into an absolute path the same way
+// the host's policy check does: a relative path is relative to the workspace
+// root (extsdk.WorkspaceDir, i.e. MNEME_HOME), never to the extension process's
+// CWD. Without this, a relative path can be authorised as <workspace>/x while
+// the tracker reads <cwd>/x — the same argument naming a different file.
+func resolvePath(path string) string {
+	if path == "" || filepath.IsAbs(path) {
+		return path
+	}
+	root := extsdk.WorkspaceDir()
+	if root == "" {
+		return path
+	}
+	return filepath.Join(root, path)
+}
+
 // file_snapshot ─────────────────────────────────────────────────────────
 
 func (t *fileTools) snapshot(_ context.Context, args map[string]interface{}) extsdk.Result {
@@ -82,7 +99,7 @@ func (t *fileTools) snapshot(_ context.Context, args map[string]interface{}) ext
 	if path == "" {
 		return extsdk.Result{Error: "path is required"}
 	}
-	snap, err := t.tracker.TakeSnapshot(path)
+	snap, err := t.tracker.TakeSnapshot(resolvePath(path))
 	if err != nil {
 		return extsdk.Result{Error: fmt.Sprintf("snapshot: %v", err)}
 	}
@@ -104,7 +121,7 @@ func (t *fileTools) diff(_ context.Context, args map[string]interface{}) extsdk.
 	if path == "" {
 		return extsdk.Result{Error: "path is required"}
 	}
-	changes, err := t.tracker.Diff(path)
+	changes, err := t.tracker.Diff(resolvePath(path))
 	if err != nil {
 		return extsdk.Result{Error: fmt.Sprintf("diff: %v", err)}
 	}

@@ -8,6 +8,11 @@
 
 import { load, loadRaw, remove, removeRaw, save, saveRaw } from './persist';
 
+// PersistRoot is the redux-persist namespace: it writes `persist:mneme`, a third
+// scheme that predates the two above. It lives here so all persisted state is
+// discoverable from one place; changing it discards the persisted thread slice.
+export const PersistRoot = 'mneme';
+
 export const StorageKeys = {
   sidebarOpen: 'sidebar',
   theme: 'theme',

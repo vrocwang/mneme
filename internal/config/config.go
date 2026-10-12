@@ -276,6 +276,26 @@ func DefaultConfig() *Config {
 	}
 }
 
+// ExportWorkspaceEnv makes dir the workspace that child processes inherit by
+// exporting it as MNEME_HOME. It is the single place that keeps the variable in
+// sync with the active workspace: Load calls it on every load, and
+// ConfigRPC.SetWorkspace calls it when the user relocates the workspace.
+func ExportWorkspaceEnv(dir string) {
+	if dir == "" {
+		return
+	}
+	dir = filepath.Clean(dir)
+	if os.Getenv("MNEME_HOME") == dir {
+		return
+	}
+	if err := os.Setenv("MNEME_HOME", dir); err != nil {
+		slog.Warn("could not export MNEME_HOME; extension subprocesses may use the wrong workspace",
+			"dir", dir, "error", err)
+		return
+	}
+	slog.Info("workspace exported for extension subprocesses", "MNEME_HOME", dir)
+}
+
 // WorkspaceDir returns the data directory alongside the executable.
 func WorkspaceDir() string {
 	// MNEME_HOME overrides the default (exe_dir/data) so users can relocate
@@ -379,8 +399,16 @@ func ConfigPath(root string) string {
 // Load reads config from path. On first run, creates directory and writes defaults.
 // Env-var secrets (API keys, tokens) are merged AFTER the first-run save so they
 // are never persisted to disk in plaintext.
+// Load reads the config file (creating it with defaults when absent), applies
+// environment overrides, and makes the resolved workspace the process's
+// MNEME_HOME so child processes — extension subprocesses read it through
+// extsdk.WorkspaceDir() — operate on the same root as the core. Without this a
+// `workspace` value in the file (or a later SetWorkspace) would leave
+// extensions pointed at the old root, and headless modes, which never set the
+// variable, would let them fall back to the binary's directory.
 func Load(path string) (*Config, error) {
 	cfg := DefaultConfig()
+	defer func() { ExportWorkspaceEnv(cfg.Workspace) }()
 
 	data, err := os.ReadFile(path)
 	if err != nil {

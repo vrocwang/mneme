@@ -97,9 +97,12 @@ func (w *ToolWrapper) InvokableRun(ctx context.Context, argumentsInJSON string, 
 			msg = w.sec.SanitizeOutput(msg)
 		}
 		if content != "" {
-			content += "\n"
+			// Keep the partial output, then the marked failure line. The marker
+			// stays at the very start so detection cannot be fooled by what the
+			// tool printed.
+			return pkgtools.ToolFailureMarker + content + "\n" + pkgtools.ToolFailureDisplay + msg, nil
 		}
-		return content + pkgtools.ToolFailurePrefix + msg, nil
+		return pkgtools.ToolFailurePrefix + msg, nil
 	}
 
 	return content, err

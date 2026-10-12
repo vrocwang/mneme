@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"sync"
 	"time"
@@ -68,6 +69,31 @@ func (s *Store) pathFor(threadID string) string {
 	return filepath.Join(s.dir, threadID+".json")
 }
 
+// ── ID safety ──────────────────────────────────────────────────────
+
+// safeIDChars is the only character class an id may contain. A thread id is
+// interpolated straight into a filename (<dir>/<thread_id>.json), and the agent
+// supplies it, so an id with a path separator or a ".." component would let the
+// caller read/write outside the boards directory. card_id is matched against
+// ids this store creates ("card-<unixnano>"), which satisfy the same class, so
+// one rule covers both. Colon-bearing ids ("webhook:...") are rejected too:
+// they are not needed to address a chat board, and ':' is not a legal filename
+// character on Windows.
+var safeIDChars = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+// checkID returns a caller-facing error for an id that cannot be used safely.
+// "." and ".." are rejected even though they match safeIDChars: they are bare
+// path components, not identities.
+func checkID(kind, id string) error {
+	if id == "" {
+		return fmt.Errorf("%s is required", kind)
+	}
+	if id == "." || id == ".." || !safeIDChars.MatchString(id) {
+		return fmt.Errorf("invalid %s %q: only letters, digits, '-', '_' and '.' are allowed, and it must not be \".\" or \"..\"", kind, id)
+	}
+	return nil
+}
+
 // ── CRUD ───────────────────────────────────────────────────────────
 
 // readBoard loads the board without locking (caller must hold the lock).
@@ -106,6 +132,9 @@ func (s *Store) saveBoard(b *Board) error {
 
 // List returns cards for a thread, sorted by order.
 func (s *Store) List(threadID string) (*Snapshot, error) {
+	if err := checkID("thread_id", threadID); err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -123,6 +152,9 @@ func (s *Store) List(threadID string) (*Snapshot, error) {
 
 // Add creates a new card on the board.
 func (s *Store) Add(threadID, title, notes string) (*Snapshot, error) {
+	if err := checkID("thread_id", threadID); err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -164,6 +196,12 @@ func (s *Store) Add(threadID, title, notes string) (*Snapshot, error) {
 
 // Edit updates a card's title and notes.
 func (s *Store) Edit(threadID, cardID, title, notes string) (*Snapshot, error) {
+	if err := checkID("thread_id", threadID); err != nil {
+		return nil, err
+	}
+	if err := checkID("card_id", cardID); err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -199,6 +237,12 @@ func (s *Store) Edit(threadID, cardID, title, notes string) (*Snapshot, error) {
 
 // UpdateStatus moves a card to a new status.
 func (s *Store) UpdateStatus(threadID, cardID string, status Status) (*Snapshot, error) {
+	if err := checkID("thread_id", threadID); err != nil {
+		return nil, err
+	}
+	if err := checkID("card_id", cardID); err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -234,6 +278,12 @@ func (s *Store) UpdateStatus(threadID, cardID string, status Status) (*Snapshot,
 
 // Remove deletes a card from the board.
 func (s *Store) Remove(threadID, cardID string) (*Snapshot, error) {
+	if err := checkID("thread_id", threadID); err != nil {
+		return nil, err
+	}
+	if err := checkID("card_id", cardID); err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -264,6 +314,9 @@ func (s *Store) Remove(threadID, cardID string) (*Snapshot, error) {
 
 // Clear removes all cards from a thread's board.
 func (s *Store) Clear(threadID string) error {
+	if err := checkID("thread_id", threadID); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return os.Remove(s.pathFor(threadID))

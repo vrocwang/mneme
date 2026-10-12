@@ -38,10 +38,16 @@ type ScreenIntelConfig struct {
 	OnResult func(ScreenCaptureResult) // optional callback for each capture
 }
 
+// DefaultCaptureInterval is the cadence used when the caller passes no interval.
+// It mirrors config.DefaultScreenCaptureIntervalSecs (this package does not
+// import config: the capture layer must not depend on UI configuration); the
+// two are held equal by a test in internal/boot.
+const DefaultCaptureInterval = 30 * time.Second
+
 // NewScreenIntelLoop creates a screen intelligence loop.
 func NewScreenIntelLoop(log *slog.Logger, cfg ScreenIntelConfig) *ScreenIntelLoop {
 	if cfg.Interval <= 0 {
-		cfg.Interval = 30 * time.Second
+		cfg.Interval = DefaultCaptureInterval
 	}
 	return &ScreenIntelLoop{
 		log:      log,

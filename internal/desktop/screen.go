@@ -7,9 +7,22 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"sort"
 	"time"
 )
+
+// MaxScreenshots is the number of newest screenshot files retained in the
+// capture directory. Older screenshots are pruned (best effort) after each
+// successful capture so the screen-intelligence capture loop — which can run
+// every 30s for weeks — cannot grow the directory without bound.
+const MaxScreenshots = 200
+
+// screenshotFilePattern matches exactly the file names Capture writes:
+// screenshot-<unix>.png. Pruning only ever considers files matching this
+// pattern, so unrelated files in the capture directory are never touched.
+var screenshotFilePattern = regexp.MustCompile(`^screenshot-\d+\.png$`)
 
 // ScreenCapture captures screenshots.
 type ScreenCapture struct {
@@ -60,7 +73,70 @@ func (s *ScreenCapture) Capture(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("screencapture: %w\n%s", err, output)
 	}
 
+	// Bound the capture directory: nothing else ever deletes these files and
+	// the screen-intel loop may run for weeks. Pruning is best effort and must
+	// never fail or delay a capture, so errors are only logged.
+	if deleted, perr := pruneScreenshots(s.outputDir, MaxScreenshots); perr != nil {
+		slog.Warn("screenshot prune failed", "dir", s.outputDir, "error", perr)
+	} else if deleted > 0 {
+		slog.Debug("pruned old screenshots", "dir", s.outputDir, "deleted", deleted, "keep", MaxScreenshots)
+	}
+
 	return path, nil
+}
+
+// pruneScreenshots deletes the oldest screenshot files in dir until at most
+// keep remain and returns how many files were deleted. Only regular files
+// whose name matches screenshotFilePattern are considered: every other entry
+// (subdirectories, unrelated files, names that merely look similar) is left
+// untouched. A failed delete is logged and skipped rather than aborting the
+// prune, so a capture is never affected by it.
+func pruneScreenshots(dir string, keep int) (int, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, err
+	}
+	if keep < 0 {
+		keep = 0
+	}
+
+	type screenshot struct {
+		name    string
+		modTime time.Time
+	}
+	shots := make([]screenshot, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !screenshotFilePattern.MatchString(entry.Name()) {
+			continue
+		}
+		info, ierr := entry.Info()
+		if ierr != nil {
+			continue // raced with another prune; nothing to sort
+		}
+		shots = append(shots, screenshot{name: entry.Name(), modTime: info.ModTime()})
+	}
+	if len(shots) <= keep {
+		return 0, nil
+	}
+
+	// Oldest first, with the name (which carries the capture unix timestamp) as
+	// a deterministic tie-break for equal modification times.
+	sort.Slice(shots, func(i, j int) bool {
+		if shots[i].modTime.Equal(shots[j].modTime) {
+			return shots[i].name < shots[j].name
+		}
+		return shots[i].modTime.Before(shots[j].modTime)
+	})
+
+	deleted := 0
+	for _, shot := range shots[:len(shots)-keep] {
+		if rerr := os.Remove(filepath.Join(dir, shot.name)); rerr != nil {
+			slog.Warn("screenshot prune: delete failed", "file", shot.name, "error", rerr)
+			continue
+		}
+		deleted++
+	}
+	return deleted, nil
 }
 
 // ScreenContext contains info about what's on screen.

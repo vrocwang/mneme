@@ -25,6 +25,11 @@ type manifest struct {
 	Binary string `json:"binary"`
 }
 
+// agentPackManifest is the marker file that makes a directory an agent pack
+// (a data-only bundle of agent.toml + prompt.md, with no Go code and no
+// manifest.json). Such directories are copied verbatim instead of compiled.
+const agentPackManifest = "agent.toml"
+
 func main() {
 	// Derive project root from this source file's location, so the tool
 	// works regardless of the current working directory (important when
@@ -51,6 +56,7 @@ func main() {
 	fmt.Printf("Building extensions for %s/%s\n  src:  %s\n  dist: %s\n\n", targetOS, targetArch, extDir, distDir)
 
 	built, skipped, failed := 0, 0, 0
+	copied := 0
 
 	for _, e := range entries {
 		if !e.IsDir() {
@@ -119,11 +125,96 @@ func main() {
 		built++
 	}
 
-	fmt.Printf("\n=== Done: %d built, %d skipped, %d failed ===\n", built, skipped, failed)
-	if built > 0 {
+	// Agent packs have no Go code, so the loop above skips them (no go.mod).
+	// Ship them anyway: the host loads packs from <workspace>/extensions/agents,
+	// which ExtractEmbeddedExtensions populates from extensions-dist/agents.
+	packCopied, packFailed := shipAgentPacks(extDir, distDir)
+	copied += packCopied
+	failed += packFailed
+
+	fmt.Printf("\n=== Done: %d built, %d copied, %d skipped, %d failed ===\n", built, copied, skipped, failed)
+	if built > 0 || copied > 0 {
 		fmt.Println("\nExtensions compiled. Now run: wails build")
 	}
 	if failed > 0 {
 		os.Exit(1)
 	}
+}
+
+// shipAgentPacks copies every agent pack under <extDir>/agents into
+// <distDir>/agents/<name>/. A pack is a data-only directory (agent.toml +
+// prompt.md, no go.mod, no manifest.json) that LoadAgentPacksFromDir reads at
+// boot; without this step `extensions-dist/agents/...` is never produced and
+// the packs only exist in a development source tree.
+//
+// Copying is idempotent and additive: each pack's own destination directory is
+// rebuilt from scratch, while packs that no longer exist in the source tree are
+// left alone (the dist tree is never pruned wholesale).
+func shipAgentPacks(extDir, distDir string) (copied, failed int) {
+	packsRoot := filepath.Join(extDir, workspace.DirAgents)
+	entries, err := os.ReadDir(packsRoot)
+	if err != nil {
+		return 0, 0 // no agent-packs directory: nothing to ship
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		srcDir := filepath.Join(packsRoot, e.Name())
+		if _, err := os.Stat(filepath.Join(srcDir, agentPackManifest)); err != nil {
+			continue // not an agent pack
+		}
+
+		relName := filepath.Join(workspace.DirAgents, e.Name())
+		fmt.Printf("  COPY %s", relName)
+
+		dstDir := filepath.Join(distDir, workspace.DirAgents, e.Name())
+		if err := os.RemoveAll(dstDir); err != nil {
+			fmt.Printf("    FAIL: %v\n", err)
+			failed++
+			continue
+		}
+		if err := copyDir(srcDir, dstDir); err != nil {
+			fmt.Printf("    FAIL: %v\n", err)
+			failed++
+			continue
+		}
+		fmt.Printf("    OK\n")
+		copied++
+	}
+	return copied, failed
+}
+
+// copyDir recursively copies the regular files in src into dst, creating dst and
+// any subdirectories. Non-regular entries (symlinks, devices) are skipped: agent
+// packs are plain data files.
+func copyDir(src, dst string) error {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dst, 0755); err != nil {
+		return err
+	}
+	for _, e := range entries {
+		srcPath := filepath.Join(src, e.Name())
+		dstPath := filepath.Join(dst, e.Name())
+		if e.IsDir() {
+			if err := copyDir(srcPath, dstPath); err != nil {
+				return err
+			}
+			continue
+		}
+		if !e.Type().IsRegular() {
+			continue
+		}
+		data, err := os.ReadFile(srcPath)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(dstPath, data, 0644); err != nil {
+			return err
+		}
+	}
+	return nil
 }

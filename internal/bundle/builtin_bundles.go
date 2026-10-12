@@ -43,7 +43,6 @@ func BuiltinBundles() []Bundle {
 const (
 	BundleMCP     = capability.SetMCP
 	BundleConfig  = capability.SetConfig
-	BundleTodos   = capability.SetTodos
 	BundleSkills  = capability.SetSkills
 	BundleThreads = capability.SetThreads
 	BundleMemory  = capability.SetMemory

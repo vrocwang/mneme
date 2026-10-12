@@ -301,3 +301,51 @@ func TestOrchestrator_StartAllContinuesAfterFailure(t *testing.T) {
 	}
 	orch.StopAll()
 }
+
+// TestOrchestrator_StartAfterStopAllRefused is the shutdown regression: a start
+// that arrives after StopAll must be refused instead of resurrecting a channel
+// whose consumer context has already been cancelled (and whose goroutine would
+// then outlive the stopped orchestrator). It also pins StopAll's idempotence and
+// the absence of a leaked consumer goroutine.
+func TestOrchestrator_StartAfterStopAllRefused(t *testing.T) {
+	orch, chans := newLifecycleOrchestrator("a")
+
+	orch.StartAll(context.Background())
+	if got := orch.Running(); !equalStrings(got, []string{"a"}) {
+		t.Fatalf("Running() after StartAll = %v, want [a]", got)
+	}
+
+	orch.StopAll()
+	orch.StopAll() // idempotent: must not stop the channel twice
+	if _, stops := chans["a"].counts(); stops != 1 {
+		t.Fatalf("channel Stop called %d times after two StopAll calls, want 1", stops)
+	}
+
+	baseline := runtime.NumGoroutine()
+	for i := 0; i < 3; i++ {
+		if err := orch.StartChannel(context.Background(), "a"); !errors.Is(err, ErrOrchestratorStopped) {
+			t.Fatalf("StartChannel #%d after StopAll error = %v, want ErrOrchestratorStopped", i+1, err)
+		}
+	}
+	orch.StartAll(context.Background()) // likewise refused, without an error return
+
+	if got := orch.Running(); len(got) != 0 {
+		t.Errorf("Running() after refused starts = %v, want empty", got)
+	}
+	if starts, _ := chans["a"].counts(); starts != 1 {
+		t.Errorf("channel Start called %d times, want 1 (no resurrection)", starts)
+	}
+
+	// A refused start must not leave a fresh consumer goroutine behind.
+	const tolerance = 2
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if n := runtime.NumGoroutine(); n <= baseline+tolerance {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("goroutine leak after refused start: baseline=%d, now=%d", baseline, runtime.NumGoroutine())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

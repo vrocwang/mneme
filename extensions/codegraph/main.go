@@ -158,7 +158,7 @@ func doIndex(ctx context.Context, args map[string]interface{}) extsdk.Result {
 		return extsdk.Result{Error: fmt.Sprintf("git ls-files: %v", err)}
 	}
 	if len(files) == 0 {
-		return extsdk.Result{Output: fmt.Sprintf("No git-tracked files found in %s.", rp)}
+		return extsdk.Result{Success: true, Output: fmt.Sprintf("No git-tracked files found in %s.", rp)}
 	}
 
 	entries := make([]indexedFile, 0, len(files))
@@ -273,7 +273,7 @@ func doSearch(ctx context.Context, args map[string]interface{}) extsdk.Result {
 		coverage = "partial"
 	}
 	if total == 0 {
-		return extsdk.Result{Output: fmt.Sprintf("No matches for '%s' in %d indexed files (%s).", query, len(idx.Files), rp)}
+		return extsdk.Result{Success: true, Output: fmt.Sprintf("No matches for '%s' in %d indexed files (%s).", query, len(idx.Files), rp)}
 	}
 
 	out, _ := json.Marshal(map[string]interface{}{
@@ -292,7 +292,7 @@ func doStatus(ctx context.Context, args map[string]interface{}) extsdk.Result {
 	rp := repoPath(args)
 	idx := indexes[rp]
 	if idx == nil {
-		return extsdk.Result{Output: fmt.Sprintf("Not indexed: %s. Run codegraph_index.", rp)}
+		return extsdk.Result{Success: true, Output: fmt.Sprintf("Not indexed: %s. Run codegraph_index.", rp)}
 	}
 	out, _ := json.Marshal(map[string]interface{}{
 		"repo": idx.RepoPath, "ref": idx.Ref,
@@ -321,7 +321,7 @@ func doListFiles(ctx context.Context, args map[string]interface{}) extsdk.Result
 		filtered = filtered[:200]
 	}
 	if len(filtered) == 0 {
-		return extsdk.Result{Output: "No matching files."}
+		return extsdk.Result{Success: true, Output: "No matching files."}
 	}
 	out, _ := json.Marshal(map[string]interface{}{"files": filtered, "total": len(filtered), "repo": rp})
 	return extsdk.Result{Success: true, Output: string(out)}

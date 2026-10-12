@@ -99,12 +99,6 @@ func WorkflowLogsDir() string {
 	return dir
 }
 
-// ProjectWorkflowsDir returns the project-scoped workflow directory
-// (<workspace>/.workflows), the same one the core's prompt layer reads.
-func ProjectWorkflowsDir() string {
-	return filepath.Join(WorkspaceDir(), ".workflows")
-}
-
 // DefaultCallTimeout bounds each tool execution. The previous hand-written
 // loops wrapped every call in context.WithTimeout (typically 30–60s, up to
 // 5m for long-running tools). Since the JSON-RPC transport has no cancellation
@@ -142,6 +136,11 @@ type ToolDef struct {
 	// overlap — it only ever opts a tool in, and the wire field is omitted when
 	// false, so extensions that do not set it are byte-for-byte unchanged.
 	ConcurrencySafe bool `json:"concurrency_safe,omitempty"`
+	// TimeoutSecs is how long this tool may legitimately run (e.g. 300 for a
+	// workflow await). The host clamps it to 1s..1h and an explicit per-call
+	// override still wins; zero (the default) means the host's global tool
+	// timeout applies, so extensions that do not set it are unchanged.
+	TimeoutSecs int `json:"timeout_secs,omitempty"`
 }
 
 // Result is the outcome of a tool execution.

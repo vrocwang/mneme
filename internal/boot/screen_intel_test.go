@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/simon/mneme/internal/desktop"
 	"github.com/simon/mneme/pkg/events"
@@ -226,5 +227,97 @@ func TestScreenIntelSink_NilPipelineAndBus(t *testing.T) {
 	}
 	if logBuf.Len() != 0 {
 		t.Errorf("unexpected log output: %s", logBuf.String())
+	}
+}
+
+// The capture loop can run for weeks; the log must not grow without bound.
+func TestScreenIntelSink_RotatesOversizedLog(t *testing.T) {
+	sink, _, _, _ := newSinkFixture(t, &fakeIngester{})
+
+	// A single observation larger than the cap forces one rotation.
+	big := desktop.ScreenCaptureResult{
+		ActiveWindow: "editor",
+		Summary:      strings.Repeat("x", ScreenIntelMaxBytes+1),
+	}
+	sink.Handle(big)
+	if info, err := os.Stat(sink.Path()); err != nil || info.Size() == 0 {
+		t.Fatalf("first observation must be written even when it exceeds the cap: %v", err)
+	}
+
+	// The next observation sees an oversized file and rotates it aside.
+	sink.Handle(desktop.ScreenCaptureResult{ActiveWindow: "terminal", Summary: "small"})
+
+	backup := sink.Path() + ".1"
+	info, err := os.Stat(backup)
+	if err != nil {
+		t.Fatalf("expected a rotated backup at %s: %v", backup, err)
+	}
+	if info.Size() <= ScreenIntelMaxBytes {
+		t.Fatalf("backup holds %d bytes; it should hold the oversized previous log", info.Size())
+	}
+	fresh, err := os.Stat(sink.Path())
+	if err != nil {
+		t.Fatalf("fresh log missing: %v", err)
+	}
+	if fresh.Size() > int64(ScreenIntelMaxBytes) {
+		t.Fatalf("fresh log is %d bytes, above the %d cap", fresh.Size(), ScreenIntelMaxBytes)
+	}
+	if lines := readObservationLines(t, sink); len(lines) != 1 || lines[0].ActiveWindow != "terminal" {
+		t.Fatalf("fresh log should hold exactly the newest observation, got %+v", lines)
+	}
+
+	// A second rotation replaces the backup instead of growing the directory.
+	sink.Handle(big)
+	sink.Handle(desktop.ScreenCaptureResult{ActiveWindow: "browser"})
+	if entries, err := os.ReadDir(filepath.Dir(sink.Path())); err == nil {
+		var backups int
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".1") {
+				backups++
+			}
+		}
+		if backups != 1 {
+			t.Fatalf("found %d rotated backups, want exactly 1", backups)
+		}
+	}
+}
+
+// A runaway vision summary must not push an unbounded blob into memory.
+func TestScreenIntelSink_TruncatesHugeSummaryBeforeIngest(t *testing.T) {
+	ing := &fakeIngester{}
+	sink, _, _, _ := newSinkFixture(t, ing)
+
+	huge := strings.Repeat("s", screenIntelMaxIngestBytes*3)
+	sink.Handle(desktop.ScreenCaptureResult{ActiveWindow: "editor", Summary: huge})
+
+	calls := ing.recorded()
+	if len(calls) != 1 {
+		t.Fatalf("expected exactly one ingest, got %d", len(calls))
+	}
+	if len(calls[0].content) > screenIntelMaxIngestBytes {
+		t.Fatalf("ingested %d bytes, want at most %d", len(calls[0].content), screenIntelMaxIngestBytes)
+	}
+	if calls[0].taint != "external" {
+		t.Fatalf("taint = %q, want external", calls[0].taint)
+	}
+}
+
+// The ingest cap must not hand a half-encoded rune to the pipeline.
+func TestScreenIntelSink_TruncatesAtRuneBoundary(t *testing.T) {
+	ing := &fakeIngester{}
+	sink, _, _, _ := newSinkFixture(t, ing)
+
+	// Multi-byte runes across the cap: the naive byte slice would end mid-rune.
+	sink.Handle(desktop.ScreenCaptureResult{Summary: strings.Repeat("屏", screenIntelMaxIngestBytes)})
+
+	calls := ing.recorded()
+	if len(calls) != 1 {
+		t.Fatalf("expected one ingest, got %d", len(calls))
+	}
+	if !utf8.ValidString(calls[0].content) {
+		t.Fatalf("ingested content is not valid UTF-8 (%d bytes)", len(calls[0].content))
+	}
+	if len(calls[0].content) > screenIntelMaxIngestBytes {
+		t.Fatalf("ingested %d bytes, cap is %d", len(calls[0].content), screenIntelMaxIngestBytes)
 	}
 }

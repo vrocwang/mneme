@@ -50,5 +50,9 @@ export function navSelector(id: RouteId): string {
 }
 
 export function isRouteActive(id: RouteId, pathname: string): boolean {
-  return pathname === ROUTES[id];
+  const route = ROUTES[id];
+  // '/' stays exact-only, otherwise it would highlight on every path.
+  if (route === '/') return pathname === '/';
+  // Nested paths count as their section: /chat/:threadId, /settings/appearance.
+  return pathname === route || pathname.startsWith(`${route}/`);
 }

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"time"
 
 	pkgtools "github.com/simon/mneme/pkg/tools"
 )
@@ -118,6 +119,15 @@ type SideEffectTool interface {
 type CategorizedTool interface {
 	Tool
 	Category() ToolCategory
+}
+
+// TimeoutHintTool lets a tool declare how long it may legitimately run — a
+// language server, a workflow await, a long build. The host clamps the hint and
+// an explicit per-call override still wins. Process-isolated extensions declare
+// it over the wire (extsdk.ToolDef.TimeoutSecs → protoToolDef.TimeoutSecs).
+type TimeoutHintTool interface {
+	Tool
+	TimeoutHint() time.Duration
 }
 
 // ConcurrencySafeTool reports whether a tool can run concurrently.

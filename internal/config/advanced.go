@@ -184,16 +184,11 @@ type ScreenIntelligenceConfig struct {
 	CaptureIntervalSecs int  `toml:"capture_interval_secs" json:"capture_interval_secs"`
 }
 
-// DefaultScreenCaptureIntervalSecs is the documented screen-capture cadence in
-// seconds. It is the single source for the config default.
-//
-// Remaining divergence (cannot be fixed from this package): the desktop loop
-// in internal/desktop/screen_intel.go substitutes a hardcoded 30s fallback
-// when the interval is zero. That package exports no constant for it and
-// internal/config must not import internal/desktop, so the two values still
-// disagree for a zero-valued interval; the config default below is non-zero,
-// which is what the runtime actually uses.
-const DefaultScreenCaptureIntervalSecs = 5
+// DefaultScreenCaptureIntervalSecs is the screen-capture cadence in seconds and
+// the single source for the config default. The capture loop's own fallback for
+// a zero interval is desktop.DefaultCaptureInterval; the two constants are held
+// equal by a test in internal/boot (neither package may import the other).
+const DefaultScreenCaptureIntervalSecs = 30
 
 func defaultScreenIntelligenceConfig() ScreenIntelligenceConfig {
 	return ScreenIntelligenceConfig{Enabled: false, CaptureIntervalSecs: DefaultScreenCaptureIntervalSecs}

@@ -114,6 +114,20 @@ function getNested(obj: Record<string, unknown>, path: string): string {
   return typeof current === 'string' ? current as string : '';
 }
 
+// Keys already reported as missing, so a re-render or a hot path does not spam
+// the console. Dev-only.
+const warnedMissingKeys = new Set<string>();
+
+// A key absent from the merged dictionary is a typo or an untranslated dynamic
+// key: say so in dev instead of silently rendering the dotted path.
+function warnMissingKey(locale: Locale, path: string) {
+  if (!import.meta.env.DEV) return;
+  const key = `${locale}:${path}`;
+  if (warnedMissingKeys.has(key)) return;
+  warnedMissingKeys.add(key);
+  console.warn(`[i18n] missing translation for "${path}" (locale: ${locale})`);
+}
+
 export function I18nProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocale] = useState<Locale>(detectLocale);
 
@@ -125,6 +139,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   const t = useCallback((path: string, fallbackOrVars?: string | Record<string, string | number>): string => {
     const translations = locales[locale] || {};
     let value: string = getNested(translations, path);
+    if (!value) warnMissingKey(locale, path);
     if (!value && typeof fallbackOrVars === 'string') value = fallbackOrVars;
     if (!value) return path;
     if (fallbackOrVars && typeof fallbackOrVars === 'object') {

@@ -11,14 +11,3 @@ export const Events = {
   ChatError: 'chat:error',
   ChatDone: 'chat:done',
 } as const;
-
-export type EventName = (typeof Events)[keyof typeof Events];
-
-// Every event carrying a chat turn; they are subscribed and torn down together.
-export const CHAT_EVENTS: readonly EventName[] = [
-  Events.ChatToken,
-  Events.ChatToolCall,
-  Events.ChatToolResult,
-  Events.ChatDone,
-  Events.ChatError,
-];

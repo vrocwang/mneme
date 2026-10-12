@@ -289,6 +289,10 @@ func (r *ConfigRPC) SetWorkspace(dir string) error {
 	// Update config and save to new location.
 	newConfig := filepath.Join(dir, workspace.FileConfig)
 	r.cfg.Workspace = dir
+	// Extensions inherit the workspace through MNEME_HOME; keep it in sync so a
+	// restart (which the UI already requires for other components) launches them
+	// against the new root.
+	ExportWorkspaceEnv(dir)
 	r.path = newConfig
 	r.log.Info("SetWorkspace saving config", "path", r.path)
 	if err := r.cfg.Save(r.path); err != nil {
@@ -551,6 +555,7 @@ func (r *ConfigRPC) TestProviderConnection(providerName string) map[string]inter
 	r.mu.Lock()
 	var found *ProviderConfig
 	defaultModel := r.cfg.Agent.DefaultModel
+	proxy := r.cfg.Proxy
 	for i := range r.cfg.Providers {
 		if providerName == "" || r.cfg.Providers[i].Name == providerName {
 			cp := r.cfg.Providers[i]
@@ -576,7 +581,7 @@ func (r *ConfigRPC) TestProviderConnection(providerName string) map[string]inter
 	}
 
 	start := time.Now()
-	status, err := probeProvider(p, model)
+	status, err := probeProvider(p, model, proxy)
 	out := map[string]interface{}{
 		"provider":   p.Name,
 		"endpoint":   p.BaseURL,

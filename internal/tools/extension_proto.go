@@ -34,6 +34,13 @@ const ProtocolVersion = 1
 // deadline, which the agent tool runner already does for tool executions.
 const defaultCallTimeout = extsdk.DefaultCallTimeout
 
+// setupCallTimeout bounds the startup-phase requests (handshake, tool/agent
+// listing, config delivery). These run once, before anything can be slow for
+// user-visible reasons, so an extension that takes a while to become ready
+// (loading a model, opening a browser) must not be declared broken at the
+// per-tool default.
+const setupCallTimeout = 3 * time.Minute
+
 // ── Proto manifest ───────────────────────────────────────────────────────────
 
 // ProtoManifest describes a extension binary's metadata. The core reads this
@@ -87,6 +94,10 @@ type protoToolDef struct {
 	// It makes the tool satisfy ConcurrencySafeTool when true; when false the
 	// descriptor reports the same "not concurrency safe" default as before.
 	ConcurrencySafe bool `json:"concurrency_safe,omitempty"`
+	// TimeoutSecs is how long this tool may legitimately run, declared by the
+	// extension (extsdk.ToolDef.TimeoutSecs). Zero means "use the global tool
+	// timeout"; the host clamps the declared value to MinTimeoutSecs..MaxTimeoutSecs.
+	TimeoutSecs int `json:"timeout_secs,omitempty"`
 }
 
 type protoCallToolParams struct {
@@ -535,9 +546,14 @@ func StartProto(ctx context.Context, log *slog.Logger, extensionPath string, arg
 	var ringPos int
 	go func() {
 		defer close(pp.done)
-		// stderr EOF means the process is gone: fail any pending call.
-		defer tr.markExited()
+		// stderr reaching EOF is NOT proof the process is gone — a scanner error
+		// (e.g. one oversized line) or a closed pipe would otherwise kill the
+		// transport while the extension is alive and answering on stdout. The
+		// stdout reader owns liveness (it fails pending calls on EOF/error).
 		scanner := bufio.NewScanner(stderrPipe)
+		// Extension stderr is free-form: allow long lines instead of aborting the
+		// drain with bufio.ErrTooLong at 64KiB.
+		scanner.Buffer(make([]byte, 0, 64<<10), 1<<20)
 		for scanner.Scan() {
 			line := scanner.Text()
 			// Append to ring buffer with line separator.
@@ -570,6 +586,9 @@ func StartProto(ctx context.Context, log *slog.Logger, extensionPath string, arg
 				log.Debug("extension stderr", "line", line)
 			}
 		}
+		if err := scanner.Err(); err != nil {
+			log.Warn("extension stderr drain stopped", "extension", extensionPath, "error", err)
+		}
 		// Process exited — check if it was a crash (non-zero exit).
 		if cmd.ProcessState != nil && !cmd.ProcessState.Success() {
 			pp.mu.Lock()
@@ -585,7 +604,9 @@ func StartProto(ctx context.Context, log *slog.Logger, extensionPath string, arg
 	}()
 
 	// Handshake: extension must respond with its manifest.
-	resp, err := pp.call(ctx, "extension.describe", nil)
+	setupCtx, setupCancel := setupBudget(ctx)
+	defer setupCancel()
+	resp, err := pp.call(setupCtx, "extension.describe", nil)
 	if err != nil {
 		pp.Stop()
 		return nil, fmt.Errorf("extension handshake (extension.describe): %w", err)
@@ -634,6 +655,21 @@ func (pp *ProtoProcess) readLoop(r io.Reader, tr *protoTransport) {
 			return
 		}
 	}
+}
+
+// setupBudget bounds a startup-phase call when the caller supplied no deadline.
+// The handshake and the tool/agent/config exchange happen once, before anything
+// can be slow for user-visible reasons, so they get a longer budget than the
+// per-call default: an extension that loads a model or opens a browser at start
+// must not be declared broken.
+func setupBudget(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, setupCallTimeout)
 }
 
 // call sends a JSON-RPC request to the extension and waits for the response
@@ -716,7 +752,9 @@ func (pp *ProtoProcess) call(ctx context.Context, method string, params interfac
 
 // ListTools asks the extension for its tool definitions.
 func (pp *ProtoProcess) ListTools(ctx context.Context) ([]Tool, error) {
-	resp, err := pp.call(ctx, "extension.list_tools", nil)
+	setupCtx, setupCancel := setupBudget(ctx)
+	defer setupCancel()
+	resp, err := pp.call(setupCtx, "extension.list_tools", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -787,7 +825,9 @@ type protoListAgentsResult struct {
 // ListAgents asks the extension for its agent definitions. Extensions that
 // don't implement extension.list_agents return an empty list gracefully.
 func (pp *ProtoProcess) ListAgents(ctx context.Context) ([]AgentDef, error) {
-	resp, err := pp.call(ctx, "extension.list_agents", nil)
+	setupCtx, setupCancel := setupBudget(ctx)
+	defer setupCancel()
+	resp, err := pp.call(setupCtx, "extension.list_agents", nil)
 	if err != nil {
 		// Extension binaries that don't support extension.list_agents will
 		// return an error; treat as empty agent list, not a fatal error.
@@ -808,8 +848,10 @@ func (pp *ProtoProcess) ListAgents(ctx context.Context) ([]AgentDef, error) {
 // pkg/extsdk's SetConfigHandler; both halves must exist for the documented
 // extension-config path to work.
 func (pp *ProtoProcess) Configure(ctx context.Context, config map[string]interface{}) error {
+	setupCtx, setupCancel := setupBudget(ctx)
+	defer setupCancel()
 	params := protoConfigureParams{Config: config}
-	resp, err := pp.call(ctx, "extension.configure", params)
+	resp, err := pp.call(setupCtx, "extension.configure", params)
 	if err != nil {
 		return fmt.Errorf("extension.configure: %w", err)
 	}
@@ -867,6 +909,21 @@ func (pp *ProtoProcess) Stop() error {
 		// Reap the child process to release OS resources.
 		if cmd != nil {
 			_ = cmd.Wait()
+		}
+		// Join the stdout reader. Closing stdin and killing the process make it
+		// exit (EOF/read error); waiting keeps a returning Stop from leaving a
+		// goroutine that still touches the pipes. Bounded so a wedged reader
+		// cannot hang shutdown.
+		readerDone := make(chan struct{})
+		go func() {
+			tr.readerWG.Wait()
+			close(readerDone)
+		}()
+		select {
+		case <-readerDone:
+		case <-time.After(2 * time.Second):
+			pp.log.Warn("extension stdout reader did not exit after stop",
+				"extension", pp.extensionPath)
 		}
 	})
 	return nil
@@ -1011,6 +1068,15 @@ func (pt *protoTool) ConcurrencySafe() bool {
 	return pt.def.ConcurrencySafe
 }
 
+// TimeoutHint reports the per-tool budget the extension declared. Zero means
+// no opinion, so the global tool timeout applies.
+func (pt *protoTool) TimeoutHint() time.Duration {
+	if pt.def.TimeoutSecs <= 0 {
+		return 0
+	}
+	return time.Duration(pt.def.TimeoutSecs) * time.Second
+}
+
 func (pt *protoTool) Category() ToolCategory {
 	return CategorySkill
 }
@@ -1035,4 +1101,5 @@ var (
 	_ CategorizedTool     = (*protoTool)(nil)
 	_ DescribedTool       = (*protoTool)(nil)
 	_ ConcurrencySafeTool = (*protoTool)(nil)
+	_ TimeoutHintTool     = (*protoTool)(nil)
 )

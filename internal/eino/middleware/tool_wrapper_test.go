@@ -126,9 +126,25 @@ func TestToolWrapper_ToolFailureKeepsPartialOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "partial stdout") || !strings.HasPrefix(
-		strings.TrimPrefix(out, "partial stdout\n"), pkgtools.ToolFailurePrefix) {
-		t.Fatalf("output = %q, want partial output followed by the failure marker", out)
+	// The marker must lead, otherwise the runner cannot classify the result and a
+	// failing call with output would be treated as a success.
+	if !pkgtools.IsToolFailure(out) {
+		t.Fatalf("output = %q, want it to start with the failure marker", out)
+	}
+	body := pkgtools.StripToolFailureMarker(out)
+	if !strings.Contains(body, "partial stdout") || !strings.Contains(body, pkgtools.ToolFailureDisplay+"exit status 1") {
+		t.Fatalf("output = %q, want the partial output and the failure text", body)
+	}
+	// A tool that legitimately prints the display text is NOT a failure.
+	ok := &fakeInvokable{name: "echo", run: func(context.Context, string) (string, error) {
+		return "Tool error: this is just text I printed", nil
+	}}
+	echoed, err := NewToolWrapper(ok, nil, nil).(tool.InvokableTool).InvokableRun(context.Background(), `{}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if pkgtools.IsToolFailure(echoed) {
+		t.Fatalf("legitimate output %q must not be classified as a failure", echoed)
 	}
 }
 

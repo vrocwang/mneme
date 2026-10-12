@@ -118,7 +118,9 @@ func (t *listToolsTool) Execute(ctx context.Context, args map[string]interface{}
 		result = append(result, toolInfo{Name: td.Name, Description: td.Description})
 	}
 	if len(result) == 0 {
-		return pkgtools.Result{Output: fmt.Sprintf("No tools found for MCP server %q (health: %s). The server may not be connected.", server, set.Health)}
+		// Informational answer, not a failure: Success must be set explicitly or
+		// the agent bridge reports a healthy-but-empty server as a tool failure.
+		return pkgtools.Result{Success: true, Output: fmt.Sprintf("No tools found for MCP server %q (health: %s). The server may not be connected.", server, set.Health)}
 	}
 	out, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {

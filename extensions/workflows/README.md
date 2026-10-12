@@ -17,7 +17,7 @@ the same `category: tools` slot as `doctor`.
 | `describe_workflow` | read_only | – |
 | `run_workflow` | execute | yes |
 | `complete_workflow` | execute | – |
-| `await_workflow` | none | – |
+| `await_workflow` | execute | – |
 | `workflow_cancel` | execute | yes |
 | `list_workflow_runs` | read_only | – |
 | `read_workflow_run_log` | read_only | – |
@@ -51,10 +51,13 @@ would read one request at a time and could never see the cancel.
 
 ## Deliberate deviations from the core
 
-1. `await_workflow` declares `permission: none`. The core tool implemented no
-   `PermissionLevel()` method at all (zero value = `PermNone`); omitting the
-   field in the extension protocol would be parsed as `execute`, so `none` is
-   the faithful mapping.
+1. `await_workflow` declares `permission: execute`. The core tool implemented no
+   `PermissionLevel()` method at all, so nothing reached the resolver and the
+   host's name heuristic gave it execute-level risk. On the extension wire an
+   omitted `permission` field parses as `execute` (see
+   `pkg/tools.ParsePermissionLevel`), so `execute` is the faithful mapping; the
+   earlier claim that core's zero value (`PermNone`) transferred is false, and a
+   call that can block for minutes must not be the least-gated tier anyway.
 2. `ConcurrencySafe: true` is declared on the nine tools that had it in core
    (`wait`/read-only tools); `run_workflow`, `workflow_create` and
    `workflow_cancel` are left unsafe. The flag travels over the protocol as

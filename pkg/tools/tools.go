@@ -3,7 +3,10 @@
 // (transport, sandboxing, policy enforcement) remain in internal/.
 package tools
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 // ── Permission ──────────────────────────────────────────────────────────────
 
@@ -132,10 +135,28 @@ type Result struct {
 	Error   string `json:"error,omitempty"`
 }
 
-// ToolFailurePrefix marks tool output that reports a tool-level failure. The
-// agent runtime detects it to flag the result as an error for the UI while
-// still feeding the text back to the model.
-const ToolFailurePrefix = "Tool error: "
+// ToolFailureMarker is an out-of-band sentinel marking content as a tool-level
+// failure. It is an ASCII record separator: tools emit text, not control
+// characters, so legitimate output cannot be mistaken for a failure. A plain
+// "Tool error: " prefix could be produced by `shell` echoing that text, and the
+// runtime would then have reported a successful call as failed (and skipped the
+// loop breaker's success reset).
+const ToolFailureMarker = "\x1e"
+
+// ToolFailureDisplay is the human-readable lead-in for a fed-back failure.
+const ToolFailureDisplay = "Tool error: "
+
+// ToolFailurePrefix is the marker plus its display text, i.e. what a failure
+// with no partial output looks like on the wire.
+const ToolFailurePrefix = ToolFailureMarker + ToolFailureDisplay
+
+// IsToolFailure reports whether content carries the failure marker.
+func IsToolFailure(content string) bool { return strings.HasPrefix(content, ToolFailureMarker) }
+
+// StripToolFailureMarker removes the marker, leaving the model-visible text.
+func StripToolFailureMarker(content string) string {
+	return strings.TrimPrefix(content, ToolFailureMarker)
+}
 
 // ToolFailure is a failure reported by a tool itself — a missing file, a
 // command refused by policy, a timeout — as opposed to an infrastructure or

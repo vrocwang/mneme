@@ -58,7 +58,11 @@ func BootstrapAll(reg *capability.CapabilityRegistry, workspace string, security
 
 	br := bundle.NewRegistry(cfg.Bundles.Disabled)
 
-	capability.Bootstrap(reg, workspace, mcpServers, cfg.LoadExtensionConfig, log)
+	// cfg.Bundles.Disabled gates both the in-process bundles (through br below
+	// and bundle.RegisterBuiltin) and the runtime extensions: the same list is
+	// handed to capability.Bootstrap so `disabled = ["todos"]` skips the todos
+	// extension too, not just in-process bundle ids.
+	capability.Bootstrap(reg, workspace, mcpServers, cfg.LoadExtensionConfig, cfg.Bundles.Disabled, log)
 
 	// Skill installation tool (agent-callable, from chat).
 	if br.IsEnabled(bundle.BundleSkills) {

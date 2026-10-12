@@ -13,15 +13,25 @@ import (
 // bundle: skills, extensions, and config-driven MCP servers. The builtin
 // agents and core tools are registered by internal/bundle (see
 // bundle.RegisterBuiltin), which the boot layer invokes before this.
-func Bootstrap(reg *CapabilityRegistry, workspace string, mcpServers []ServerEntry, loadCfg ExtensionConfigLoader, log *slog.Logger) {
+//
+// disabled is the configured [bundles] disabled id list, passed as plain
+// strings so this package does not import internal/bundle. It gates process
+// extensions only; internal/bundle.Registry remains the single reader of that
+// list for in-process bundles.
+func Bootstrap(reg *CapabilityRegistry, workspace string, mcpServers []ServerEntry, loadCfg ExtensionConfigLoader, disabled []string, log *slog.Logger) {
 	// 1. Installed skills from skills/ directory.
 	skillsDir := ws.SkillsDir(workspace)
 	DiscoverSkills(reg, skillsDir, log)
 
 	// 2. Extension modules from extensions/ directory (auto-build + load).
 	//    Each extension has a manifest.json and is loaded via JSON-RPC.
+	//    Extensions named (or set-id named) in [bundles] disabled are skipped
+	//    before their build, and the filter is published on the registry so the
+	//    install-time path can warn about an extension config disables.
 	extensionDirs := DefaultExtensionDirs(workspace)
-	discoverExtensions(reg, extensionDirs, loadCfg, log)
+	filter := NewExtensionFilter(disabled)
+	reg.SetExtensionFilter(filter)
+	discoverExtensions(reg, extensionDirs, loadCfg, filter, log)
 
 	// 3. MCP servers from config
 	for _, srv := range mcpServers {

@@ -34,8 +34,11 @@ jobs:
       - name: go build/vet/test (core + every extension module)
         run: |
           set -e
-          go vet ./internal/... ./pkg/... ./cmd/...
-          go test ./internal/... ./pkg/... ./cmd/...
+          # ./... includes the root main package (app.go, app_rpc.go, todo_bridge.go,
+          # subscribers.go), which the narrower patterns below would miss.
+          go build ./...
+          go vet ./...
+          go test ./...
           for mod in $(find extensions -maxdepth 2 -name go.mod | xargs -n1 dirname | sort); do
             echo "::group::$mod"
             (cd "$mod" && go build ./... && go vet ./... && go test ./...)
@@ -55,7 +58,7 @@ jobs:
         run: |
           set -e
           go install honnef.co/go/tools/cmd/staticcheck@latest
-          staticcheck ./internal/... ./pkg/... ./cmd/...
+          staticcheck ./...
           for mod in $(find extensions -maxdepth 2 -name go.mod | xargs -n1 dirname | sort); do
             (cd "$mod" && "$(go env GOPATH)/bin/staticcheck" ./...)
           done
@@ -64,9 +67,15 @@ jobs:
         run: |
           set -e
           go install golang.org/x/tools/cmd/deadcode@latest
-          # pkg/extsdk is the cross-module SDK seam: its symbols are consumed by
-          # the extension modules, which the root analysis cannot see.
-          out=$("$(go env GOPATH)/bin/deadcode" -test ./... | grep -v '^pkg/extsdk/' || true)
+          # The tool reports findings on stdout but exits non-zero (message on
+          # stderr) when the analysis itself fails to load the module, so its
+          # status must be checked explicitly — swallowing it behind a pipe would
+          # turn this into a no-op exactly when the tree does not compile.
+          # No exclusions: pkg/extsdk is the cross-module SDK seam and is covered
+          # by pkg/extsdk/extsdk_surface_test.go, so an uncovered SDK helper (which
+          # only external extensions could reach) fails this gate instead of
+          # silently rotting.
+          out=$("$(go env GOPATH)/bin/deadcode" -test ./...)
           if [ -n "$out" ]; then
             echo "::error::unreachable code:"
             echo "$out"

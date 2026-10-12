@@ -37,4 +37,8 @@ extensions-dist/*
 extensions/file-state/file-state
 extensions/todos/todos
 extensions/workflows/workflows
+# When you add an extension directory, add its binary here. `go build` inside the
+# module names the binary after the directory. Check coverage with:
+#   for m in $(find extensions -maxdepth 2 -name go.mod | xargs -n1 dirname); do
+#     d=$(basename "$m"); git check-ignore -q "$m/$d" || echo "missing: $m/$d"; done
 .DS_Store

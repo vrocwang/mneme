@@ -46,6 +46,11 @@ func (s *Sandbox) Command(ctx context.Context, workspaceRoot, command string, ar
 		if err == nil {
 			return cmd, nil
 		}
+		// Sandboxing was not mandatory, so fall open rather than refusing to
+		// run — but never silently: the operator must be able to see that this
+		// command ran unsandboxed and why.
+		slog.Warn("sandbox: backend failed to wrap command; running unsandboxed",
+			"command", command, "error", err)
 	}
 	// No real sandbox available and none was explicitly required: fall back to
 	// a plain command (the noop backend already logs a warning).
