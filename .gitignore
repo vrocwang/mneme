@@ -28,6 +28,13 @@ extensions/model-council/model-council
 # Local tooling state
 .codewhale/
 
+# Wails/npm local install artifacts. The lockfile of record is
+# frontend/pnpm-lock.yaml (CI installs with `pnpm install --frozen-lockfile`);
+# `wails dev` runs `npm install` locally and would otherwise leave a second,
+# competing lockfile in the tree.
+frontend/package.json.md5
+frontend/package-lock.json
+
 # ZCode agent state
 .zcode/
 

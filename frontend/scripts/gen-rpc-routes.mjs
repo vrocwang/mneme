@@ -45,6 +45,7 @@ const NON_RPC = new Set([
   'SetCapRPC',
   'SetChannelRPC',
   'SetAboutRPC',
+  'SetUpdateChecker',
   'SetDB',
   'SetProvider',
   'SetRegistry',

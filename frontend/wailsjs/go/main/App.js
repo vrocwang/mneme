@@ -126,6 +126,10 @@ export function SendMessage(arg1) {
   return window['go']['main']['App']['SendMessage'](arg1);
 }
 
+export function SetAboutRPC(arg1) {
+  return window['go']['main']['App']['SetAboutRPC'](arg1);
+}
+
 export function SetAgentRPC(arg1) {
   return window['go']['main']['App']['SetAgentRPC'](arg1);
 }

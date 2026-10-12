@@ -18,6 +18,7 @@ import {notifications} from '../models';
 import {inference} from '../models';
 import {conversations} from '../models';
 import {webhooks} from '../models';
+import {about} from '../models';
 import {app_state} from '../models';
 import {channels} from '../models';
 
@@ -82,6 +83,8 @@ export function RemoveTodo(arg1:string,arg2:string):Promise<main.todoSnapshot>;
 export function SearchMemory(arg1:string):Promise<string>;
 
 export function SendMessage(arg1:main.ChatRequest):Promise<main.ChatResponse>;
+
+export function SetAboutRPC(arg1:about.RPC):Promise<void>;
 
 export function SetAgentRPC(arg1:agent.AgentRPC):Promise<void>;
 

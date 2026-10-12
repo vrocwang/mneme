@@ -1,3 +1,20 @@
+export namespace about {
+	
+	export class RPC {
+	
+	
+	    static createFrom(source: any = {}) {
+	        return new RPC(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	
+	    }
+	}
+
+}
+
 export namespace agent {
 	
 	export class AgentRPC {

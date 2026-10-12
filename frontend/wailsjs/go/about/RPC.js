@@ -9,3 +9,7 @@ export function CheckForUpdate() {
 export function GetCurrentVersion() {
   return window['go']['about']['RPC']['GetCurrentVersion']();
 }
+
+export function SetUpdateChecker(arg1) {
+  return window['go']['about']['RPC']['SetUpdateChecker'](arg1);
+}
