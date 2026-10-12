@@ -55,9 +55,10 @@ extensions — no feature build tags are required.
 
 ```bash
 cd frontend
-npm install
-npm run dev      # Vite dev server
-npm run build    # production build (consumed by Wails via embed)
+corepack pnpm install   # pnpm version pinned in package.json; lockfile of record: pnpm-lock.yaml
+corepack pnpm run dev   # Vite dev server
+corepack pnpm run build # production build (consumed by Wails via embed)
+# `corepack enable` makes the prefix unnecessary: pnpm install / pnpm run dev
 ```
 
 ## Configuration

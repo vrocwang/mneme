@@ -36,9 +36,12 @@ and registered through the CapabilityRegistry. No recompilation needed.
 
 ```bash
 cd frontend
-npm install
-npm run dev      # Vite dev server on :5173
-npm run build    # TypeScript + Vite production build
+# pnpm is pinned in package.json (packageManager); corepack provides it, so no
+# global install is needed. wails.json runs the same commands.
+corepack pnpm install           # lockfile of record: pnpm-lock.yaml
+corepack pnpm run dev           # Vite dev server on :5173
+corepack pnpm run build         # TypeScript + Vite production build
+# after `corepack enable` you can drop the prefix: pnpm install / pnpm run dev
 ```
 
 ## Architecture

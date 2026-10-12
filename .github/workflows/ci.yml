@@ -89,9 +89,9 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+      # Version comes from frontend/package.json's packageManager field, so the
+      # local corepack pnpm and CI cannot drift apart.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: 20

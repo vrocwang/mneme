@@ -46,9 +46,10 @@ go run cmd/build-extensions/main.go
 
 ```bash
 cd frontend
-npm install
-npm run dev      # Vite 开发服务器
-npm run build    # 生产构建（由 Wails 通过 embed 消费）
+corepack pnpm install   # pnpm 版本由 package.json 固定；锁文件事实标准是 pnpm-lock.yaml
+corepack pnpm run dev   # Vite 开发服务器
+corepack pnpm run build # 生产构建（由 Wails 通过 embed 消费）
+# 跑过 corepack enable 后可省掉前缀：pnpm install / pnpm run dev
 ```
 
 ## 配置
