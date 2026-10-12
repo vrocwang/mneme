@@ -5,11 +5,11 @@ import type { ToolDiagnostics, DoctorReport, CostDashboard, AppStateSnapshot, Au
 
 function StatRow({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
   return (
-    <div className="flex items-center justify-between py-2 border-b border-surface-border last:border-b-0">
-      <span className="text-sm text-white/70">{label}</span>
-      <div className="text-right">
-        <span className="text-sm font-mono text-white/90">{value}</span>
-        {sub && <span className="text-xs text-white/30 block">{sub}</span>}
+    <div className="flex items-start justify-between gap-4 py-2 border-b border-surface-border last:border-b-0">
+      <span className="text-sm text-white/70 shrink-0">{label}</span>
+      <div className="text-right min-w-0">
+        <span className="text-sm font-mono text-white/90 value-long">{value}</span>
+        {sub && <span className="text-xs text-white/30 block value-long">{sub}</span>}
       </div>
     </div>
   );
@@ -103,7 +103,7 @@ export function DiagnosticsSettings() {
           <h3 className="text-xs font-semibold text-coral-400 mb-1">{t('diagnostics.recentDenials')}</h3>
           <div className="space-y-1 max-h-40 overflow-y-auto">
             {denials.map(d => (
-              <div key={d.id} className="text-xs text-white/40 bg-surface-muted rounded px-2 py-1 font-mono">
+              <div key={d.id} className="text-xs text-white/40 bg-surface-muted rounded px-2 py-1 font-mono value-long">
                 <span className="text-coral-400/70">{d.tool_name || d.command || d.kind}</span> — {d.reason || d.decision || ''}
                 <span className="text-white/20 ml-2">{new Date(d.created_at).toLocaleTimeString()}</span>
               </div>

@@ -111,7 +111,7 @@ export function ChannelSettings() {
           <h3 className="text-sm font-semibold text-white/80 mb-3">{t('channels.available')}</h3>
           <div className="flex flex-wrap gap-2">
             {unconfigured.map(name => (
-              <span key={name} className="inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-full bg-ocean-500/10 text-ocean-300/70 font-mono">
+              <span key={name} className="inline-flex items-center gap-2 max-w-full text-xs px-2.5 py-1 rounded-full bg-ocean-500/10 text-ocean-300/70 font-mono value-long">
                 {name}
                 <button
                   onClick={() => mutate(name, true)}

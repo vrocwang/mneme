@@ -67,9 +67,16 @@ function HealthCard({ label, value }: { label: string; value: unknown }) {
   const isLong = text.length > 80;
 
   return (
-    <div className="card min-w-0">
-      <div className="text-xs text-white/30 uppercase tracking-wider truncate">{label}</div>
-      <div className={`text-sm text-white/70 mt-1 font-mono ${isLong ? 'max-h-32 overflow-y-auto' : ''}`} style={isLong ? { wordBreak: 'break-word', whiteSpace: 'pre-wrap' } : undefined}>
+    <div className="card min-w-0 overflow-hidden">
+      <div className="text-xs text-white/30 uppercase tracking-wider truncate" title={label}>{label}</div>
+      {/* `overflow-wrap: anywhere` (not just break-word) so a long unbroken token
+          (path, model id, URL) shrinks the card's min-content width instead of
+          painting over the border. The height cap keeps very long lists (tools,
+          agents) readable; the title exposes the untruncated value. */}
+      <div
+        className={`text-sm text-white/70 mt-1 font-mono value-long whitespace-pre-wrap ${isLong ? 'max-h-32 overflow-y-auto' : ''}`}
+        title={text}
+      >
         {text}
       </div>
     </div>
@@ -222,15 +229,15 @@ export function SettingsPage() {
           {tab === 'general' && (
             <div className="max-w-3xl xl:max-w-5xl 2xl:max-w-6xl space-y-6 animate-fade-in">
               <div className="card">
-                <div className="flex items-center justify-between">
-                  <div>
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
                     <div className="text-sm text-white/70">{t('settings.language')}</div>
                     <div className="text-xs text-white/30 mt-0.5">{t('settings.languageDesc')}</div>
                   </div>
                   <select
                     value={locale}
                     onChange={e => setLocale(e.target.value as typeof locale)}
-                    className="input-field !w-44 !py-1.5 !text-xs"
+                    className="input-field !w-44 !py-1.5 !text-xs shrink-0"
                   >
                     {Object.entries(labels).map(([code, label]) => (
                       <option key={code} value={code}>{label}</option>
@@ -250,10 +257,10 @@ export function SettingsPage() {
                 </div>
               )}
               <>
-                  <div className="flex items-center justify-between mt-6">
+                  <div className="flex items-center justify-between gap-3 mt-6">
                     <h3 className="text-sm font-semibold text-white/60">{t('settings.cronJobs')}</h3>
                     <button
-                      className="text-xs text-ocean-400 hover:text-ocean-300"
+                      className="text-xs text-ocean-400 hover:text-ocean-300 shrink-0"
                       onClick={() => setShowAddCron(!showAddCron)}
                     >{showAddCron ? t('settings.cancel') : t('settings.addCronJob')}</button>
                   </div>
@@ -281,12 +288,12 @@ export function SettingsPage() {
                   ) : (
                   <div className="space-y-2">
                     {cronJobs.map((job: any, i: number) => (
-                      <div key={i} className="card flex items-center justify-between">
-                        <div>
-                          <div className="text-sm text-white/70">{job.name || job.id}</div>
-                          <div className="text-xs text-white/30">{job.schedule}</div>
+                      <div key={i} className="card flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-sm text-white/70 truncate" title={job.name || job.id}>{job.name || job.id}</div>
+                          <div className="text-xs text-white/30 truncate font-mono" title={job.schedule}>{job.schedule}</div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
                           <button
                             onClick={async () => {
                               try {
@@ -339,9 +346,9 @@ export function SettingsPage() {
               ) : (
                 <div className="space-y-2">
                   {allowlist.map(entry => (
-                    <div key={entry.tool_name} className="card flex items-center justify-between">
-                      <div className="text-sm text-white/70 font-mono">{entry.tool_name}</div>
-                      <span className="badge bg-sage-500/20 text-sage-400">{t('approval.alwaysAllow')}</span>
+                    <div key={entry.tool_name} className="card flex items-center justify-between gap-3">
+                      <div className="text-sm text-white/70 font-mono value-long min-w-0">{entry.tool_name}</div>
+                      <span className="badge bg-sage-500/20 text-sage-400 shrink-0">{t('approval.alwaysAllow')}</span>
                     </div>
                   ))}
                 </div>

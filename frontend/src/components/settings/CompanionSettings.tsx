@@ -61,12 +61,12 @@ export function CompanionSettings() {
     <div className="max-w-2xl xl:max-w-3xl 2xl:max-w-4xl animate-fade-in space-y-6">
       {/* Voice engines */}
       <section className="card">
-        <div className="flex items-center gap-4 text-sm">
-          <span className="text-white/50">{t('voice.sttShort')}:</span>
-          <span className="text-white/80 font-mono">{engines.stt}</span>
-          <span className="text-white/30 mx-2">|</span>
-          <span className="text-white/50">{t('voice.ttsShort')}:</span>
-          <span className="text-white/80 font-mono">{engines.tts}</span>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+          <span className="text-white/50 shrink-0">{t('voice.sttShort')}:</span>
+          <span className="text-white/80 font-mono min-w-0 value-long">{engines.stt}</span>
+          <span className="text-white/30 mx-2 shrink-0">|</span>
+          <span className="text-white/50 shrink-0">{t('voice.ttsShort')}:</span>
+          <span className="text-white/80 font-mono min-w-0 value-long">{engines.tts}</span>
         </div>
       </section>
 

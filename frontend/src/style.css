@@ -86,8 +86,17 @@ html.light {
     @apply bg-surface-elevated border border-surface-border focus:border-ocean-500 rounded-lg px-3.5 py-2.5 text-white placeholder:text-white/30 outline-none transition-all duration-200 w-full;
   }
   .card {
-    @apply bg-surface-elevated border border-surface-border/50 rounded-xl p-5;
+    /* min-w-0 lets a card shrink inside a grid/flex track instead of being
+       widened by a long child value. */
+    @apply bg-surface-elevated border border-surface-border/50 rounded-xl p-5 min-w-0;
     box-shadow: var(--shadow-card);
+  }
+  /* Long unbreakable values (workspace paths, model ids, URLs, tool names) must
+     wrap inside their card. `anywhere` — unlike `break-word` — also shrinks the
+     element's min-content width, which is what stops the overflow in the first
+     place. */
+  .value-long {
+    overflow-wrap: anywhere;
   }
   .badge {
     @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
